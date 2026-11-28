@@ -5,7 +5,7 @@ use canopy_engine::Ct;
 use canopy_mongo::mongodb::Namespace;
 use canopy_mongo::mongodb::bson::{self, oid::ObjectId};
 use canopy_mongo::mongodb::options::{
-    InsertOneModel, ReplaceOneModel, UpdateModifications, UpdateOneModel, WriteModel,
+    DeleteOneModel, InsertOneModel, ReplaceOneModel, UpdateModifications, UpdateOneModel, WriteModel,
 };
 use canopy_mongo::mongodb::results::VerboseBulkWriteResult;
 use canopy_mongo::to_bson;
@@ -50,7 +50,7 @@ impl Outcome {
         Outcome { changed_ids: ids.clone(), inserted_ids: ids, documents, ..Outcome::default() }
     }
 
-    fn upserted(id: Value, documents: Option<Vec<Returned>>) -> Outcome {
+    pub(super) fn upserted(id: Value, documents: Option<Vec<Returned>>) -> Outcome {
         Outcome {
             inserted_ids: vec![id.clone()],
             upserted_id: Some(id.clone()),
@@ -90,6 +90,7 @@ impl Default for WriteLimits {
 
 /// How a planned write runs.
 pub(crate) enum Step {
+    Selected(Box<super::selected::Selected>),
     Insert {
         single: bool,
         documents: Vec<bson::Document>,
@@ -97,6 +98,7 @@ pub(crate) enum Step {
         ids: Vec<Value>,
         check: Compiled,
         precheck: bool,
+        verify_stored: bool,
     },
     UpdateById {
         id: Value,
@@ -260,7 +262,11 @@ fn plan_insert(
     let precheck = single && size <= PRECHECK_MAX_BYTES;
     let ids = values.iter().map(|doc| doc.get("_id").cloned().unwrap_or(Value::Null)).collect();
     let fast = single && (check == Compiled::All || precheck);
-    Ok(Plan { scope, step: Step::Insert { single, documents, values, ids, check, precheck }, fast })
+    Ok(Plan {
+        scope,
+        step: Step::Insert { single, documents, values, ids, check, precheck, verify_stored: false },
+        fast,
+    })
 }
 
 fn plan_update(
@@ -277,13 +283,7 @@ fn plan_update(
     if parsed.kind == UpdateKind::Replacement {
         return fail("An update needs update operators; use replace for whole documents");
     }
-    if parsed.written_paths.iter().any(|path| path == "_id" || path.starts_with("_id.")) {
-        return fail("An update may not change _id");
-    }
-    if !scope.service {
-        scope.assert_writable(&scope.writable(Operation::Update), &parsed.written_paths)?;
-        scope.assert_mutable(&parsed.written_paths)?;
-    }
+    scope.assert_update_paths(&parsed.written_paths)?;
     let base = match id {
         Some(id) => {
             validate_id(Some(id))?;
@@ -333,22 +333,9 @@ fn plan_replace(query: &QueryLimits, scope: Scope, request: &WriteRequest) -> Re
     {
         return fail("The replacement _id must match the target _id");
     }
-    if !scope.service {
-        if scope.writable(Operation::Update) != FieldAccess::All
-            || !scope.engine.immutable(&scope.name).is_empty()
-        {
-            return Err(CanopyError::named(
-                ErrorCode::Forbidden,
-                "ForbiddenError",
-                format!(
-                    "The field rules of '{}' do not allow replacing whole documents; send an update",
-                    scope.name
-                ),
-            ));
-        }
-        if upsert {
-            scope.assert_writable(&scope.writable(Operation::Insert), &leaf_paths(doc))?;
-        }
+    scope.assert_replacement()?;
+    if upsert && !scope.service {
+        scope.assert_writable(&scope.writable(Operation::Insert), &leaf_paths(doc))?;
     }
     let base = scope.by_id(id);
     let condition = scope.precondition(request.get("where"))?;
@@ -432,7 +419,7 @@ pub(crate) struct Grouped {
 }
 
 impl Plan {
-    pub(crate) fn with_idempotency(&self) -> Option<(WriteModel, Outcome)> {
+    pub(crate) fn with_idempotency(&self, read: bool) -> Option<(WriteModel, Outcome)> {
         let scope = &self.scope;
         let namespace = Namespace { db: scope.db.name().to_owned(), coll: scope.name.clone() };
         match &self.step {
@@ -452,6 +439,10 @@ impl Plan {
                     .build()
                     .into(),
                 Outcome { matched: 1, modified: 1, changed_ids: vec![id.clone()], ..Outcome::default() },
+            )),
+            Step::DeleteById { id, filter, conditional: false, .. } if !read => Some((
+                DeleteOneModel::builder().namespace(namespace).filter(filter.clone()).build().into(),
+                deleted_by_id(id, 1),
             )),
             _ => None,
         }
@@ -473,6 +464,12 @@ impl Plan {
                     custom(CanopyError::new(ErrorCode::Internal, "The bulk write has no update result"))
                 })?;
                 self.finish_grouped(session, written.matched_count, written.modified_count, None, read).await
+            }
+            Step::DeleteById { id, .. } => {
+                let written = results.delete_results.get(&0).ok_or_else(|| {
+                    custom(CanopyError::new(ErrorCode::Internal, "The bulk write has no delete result"))
+                })?;
+                Ok(deleted_by_id(id, written.deleted_count))
             }
             _ => Err(custom(internal())),
         }
@@ -641,7 +638,8 @@ impl Plan {
         let coll = scope.coll();
         let raw = scope.db.collection::<bson::RawDocumentBuf>(&scope.name);
         match &self.step {
-            Step::Insert { documents, values, ids, check, precheck, .. } => {
+            Step::Selected(selected) => selected.run(scope, session, limits).await,
+            Step::Insert { documents, values, ids, check, precheck, verify_stored, .. } => {
                 let checked = if *precheck {
                     if *check == Compiled::Deny {
                         return Err(custom(scope.violation(Operation::Insert)));
@@ -672,8 +670,8 @@ impl Plan {
                 }
                 let ct = fast_time(session)?;
                 let documents = match checked {
-                    Some(checked) => checked,
-                    None => scope.verify(session, ids, Some(check), Operation::Insert, read).await?,
+                    Some(checked) if !verify_stored => checked,
+                    _ => scope.verify(session, ids, Some(check), Operation::Insert, read).await?,
                 };
                 Ok(Outcome { ct, ..Outcome::inserted(ids.clone(), documents) })
             }
@@ -692,29 +690,7 @@ impl Plan {
                 Ok(Outcome { ct, ..outcome })
             }
             Step::UpdateMany { target, update, check } => {
-                let ids = scope
-                    .find_ids(session, target, i64::try_from(limits.max_bulk + 1).unwrap_or(i64::MAX))
-                    .await?;
-                if ids.len() as u64 > limits.max_bulk {
-                    return Err(custom(bulk_limit(limits.max_bulk)));
-                }
-                if ids.is_empty() {
-                    return Ok(Outcome::default());
-                }
-                let action = coll.update_many(scope.by_ids(&ids, target).map_err(custom)?, update.clone());
-                let result = match session.inner.as_deref_mut() {
-                    Some(inner) => action.session(inner).await?,
-                    None => action.await?,
-                };
-                if result.modified_count > 0 {
-                    scope.verify(session, &ids, Some(check), Operation::Update, false).await?;
-                }
-                Ok(Outcome {
-                    matched: result.matched_count,
-                    modified: result.modified_count,
-                    changed_ids: if result.modified_count > 0 { ids } else { Vec::new() },
-                    ..Outcome::default()
-                })
+                run_update_many(scope, session, target, update, check, limits.max_bulk).await
             }
             Step::Replace {
                 id,
@@ -797,13 +773,7 @@ impl Plan {
                         }
                         return Ok(Outcome { ct, ..Outcome::default() });
                     }
-                    return Ok(Outcome {
-                        matched: 1,
-                        deleted: 1,
-                        changed_ids: vec![id.clone()],
-                        ct,
-                        ..Outcome::default()
-                    });
+                    return Ok(Outcome { ct, ..deleted_by_id(id, result.deleted_count) });
                 }
                 let mut action =
                     raw.find_one_and_delete(filter.clone()).optional(concern, |a, c| a.write_concern(c));
@@ -858,6 +828,47 @@ impl Plan {
             }
         }
     }
+}
+
+fn deleted_by_id(id: &Value, deleted: u64) -> Outcome {
+    Outcome {
+        matched: deleted,
+        deleted,
+        changed_ids: if deleted > 0 { vec![id.clone()] } else { Vec::new() },
+        ..Outcome::default()
+    }
+}
+
+pub(super) async fn run_update_many(
+    scope: &Scope,
+    session: &mut Session<'_>,
+    target: &Compiled,
+    update: &bson::Document,
+    check: &Compiled,
+    max_bulk: u64,
+) -> Result<Outcome, DriverError> {
+    let coll = scope.coll();
+    let ids = scope.find_ids(session, target, i64::try_from(max_bulk + 1).unwrap_or(i64::MAX)).await?;
+    if ids.len() as u64 > max_bulk {
+        return Err(custom(bulk_limit(max_bulk)));
+    }
+    if ids.is_empty() {
+        return Ok(Outcome::default());
+    }
+    let action = coll.update_many(scope.by_ids(&ids, target).map_err(custom)?, update.clone());
+    let result = match session.inner.as_deref_mut() {
+        Some(inner) => action.session(inner).await?,
+        None => action.await?,
+    };
+    if result.modified_count > 0 {
+        scope.verify(session, &ids, Some(check), Operation::Update, false).await?;
+    }
+    Ok(Outcome {
+        matched: result.matched_count,
+        modified: result.modified_count,
+        changed_ids: if result.modified_count > 0 { ids } else { Vec::new() },
+        ..Outcome::default()
+    })
 }
 
 /// Applies a setting to a driver action only when it has a value.

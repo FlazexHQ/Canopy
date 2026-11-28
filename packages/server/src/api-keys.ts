@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto"
+import { createHash, createHmac, pbkdf2, randomBytes } from "node:crypto"
+import { promisify } from "node:util"
 import {
   type ApiKeyKind,
   type ApiKeyRecord,
@@ -12,7 +13,7 @@ import { NotFoundError } from "@canopy/protocol"
 import type { Logger } from "@canopy/realtime"
 import type { ChangeStream, ClientSession, Collection, Db } from "mongodb"
 
-/** A key as `canopy.api_keys` stores it. Secret keys keep only their hash. */
+/** A key as `canopy.api_keys` stores it. */
 export interface ApiKeyDocument {
   _id: string
   kind: ApiKeyKind
@@ -20,6 +21,8 @@ export interface ApiKeyDocument {
   /** The first random characters, shown in lists. */
   prefix: string
   hash: string
+  /** SCRAM-SHA-256 verifier for secret keys, with base64 salt and keys. */
+  scram?: { salt: string; iterations: number; storedKey: string; serverKey: string }
   /** The full key, for publishable keys only. */
   key?: string
   createdAt: Date
@@ -55,6 +58,21 @@ export interface ApiKeysOptions {
 }
 
 const MAX_CACHE = 10_000
+const SCRAM_ITERATIONS = 15_000
+const derive = promisify(pbkdf2)
+
+async function scramCredentials(key: string) {
+  const salt = randomBytes(16)
+  // Generated keys contain only ASCII letters, digits and underscores, which SASLprep leaves intact.
+  const salted = await derive(key, salt, SCRAM_ITERATIONS, 32, "sha256")
+  const sign = (label: string) => createHmac("sha256", salted).update(label).digest()
+  return {
+    salt: salt.toString("base64"),
+    iterations: SCRAM_ITERATIONS,
+    storedKey: createHash("sha256").update(sign("Client Key")).digest("base64"),
+    serverKey: sign("Server Key").toString("base64"),
+  }
+}
 
 function info(doc: ApiKeyDocument): ApiKeyInfo {
   return {
@@ -150,7 +168,7 @@ export class ApiKeys implements ApiKeyStore {
       name: input.name,
       prefix: apiKeyDisplayPrefix(key),
       hash: hashApiKey(key),
-      ...(input.kind === "publishable" ? { key } : {}),
+      ...(input.kind === "publishable" ? { key } : { scram: await scramCredentials(key) }),
       createdAt: new Date(this.now()),
       createdBy: input.createdBy,
     }

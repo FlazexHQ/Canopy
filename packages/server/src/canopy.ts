@@ -1,5 +1,4 @@
 import type { JsonWebKey } from "node:crypto"
-import { readFile } from "node:fs/promises"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 import type { Duplex } from "node:stream"
 import {
@@ -19,12 +18,7 @@ import {
   type ResolvedStorageBackend,
   resolveConfig,
 } from "@canopy/config"
-import type {
-  GraphqlBunData,
-  GraphqlBunSocket,
-  GraphqlHandler,
-  PersistedOperations,
-} from "@canopy/graphql"
+import type { GraphqlBunData, GraphqlBunSocket, GraphqlHandler } from "@canopy/graphql"
 import { selectEngine } from "@canopy/native"
 import { toNodeListener as serveOnNode, tryPathname } from "@canopy/node-http"
 import {
@@ -57,6 +51,7 @@ import {
   type PolicySource,
   type Realtime,
   readinessCheck,
+  readPersistedGraphqlOperations,
   silentLogger,
   staticPolicies,
   toNodeHandler,
@@ -118,6 +113,8 @@ export interface CreateCanopyOptions {
   readonly logger?: Logger
   /** Bring the meta database up to date on start. @default true */
   readonly migrate?: boolean
+  /** Runs after meta database setup and before the server loads policies or starts workers. */
+  readonly afterMigrate?: (mongo: MongoClient) => Promise<void>
   /** Serve the admin API under `/admin/v1`. @default true */
   readonly admin?: boolean
   /**
@@ -341,6 +338,12 @@ async function connect(
   }
   const meta = mongo.db(config.mongodb.metaDatabase)
   if (options.migrate !== false) await diagnosed(() => migrateMeta(meta, { logger }))
+  try {
+    await options.afterMigrate?.(mongo)
+  } catch (error: unknown) {
+    if (ownsMongo) await mongo.close()
+    throw error
+  }
   return {
     mongo,
     db: mongo.db(config.mongodb.database),
@@ -669,7 +672,7 @@ async function buildData(
           introspection: config.graphql.introspection,
           ...(config.graphql.persisted === undefined
             ? {}
-            : { persisted: await persistedOperations(config.graphql.persisted) }),
+            : { persisted: await readPersistedGraphqlOperations(config.graphql.persisted) }),
           ...(config.cors === undefined ? {} : { cors: config.cors }),
           ...(rateLimits === undefined
             ? {}
@@ -788,32 +791,6 @@ async function buildStorage(
   }, STORAGE_SWEEP_MS)
   timer.unref?.()
   return { storage, handler, stop: () => clearInterval(timer) }
-}
-
-/** Reads a persisted operations file: a JSON object mapping the hex SHA-256 of each document to it. */
-async function persistedOperations(input: {
-  readonly file: string
-  readonly only: boolean
-}): Promise<PersistedOperations> {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(await readFile(input.file, "utf8"))
-  } catch (error: unknown) {
-    throw new TypeError(`The persisted operations file ${input.file} cannot be read as JSON`, {
-      cause: error,
-    })
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-    throw new TypeError(`The persisted operations file ${input.file} must hold an object`)
-  const operations: Record<string, string> = {}
-  for (const [hash, document] of Object.entries(parsed)) {
-    if (!/^[0-9a-f]{64}$/.test(hash) || typeof document !== "string")
-      throw new TypeError(
-        `The persisted operations file ${input.file} must map SHA-256 hex hashes to documents`,
-      )
-    operations[hash] = document
-  }
-  return { operations, only: input.only }
 }
 
 type Data = Awaited<ReturnType<typeof buildData>>

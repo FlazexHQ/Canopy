@@ -1,0 +1,2203 @@
+# Progress of plan 005
+
+This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
+evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
+
+## Checkpoint (2026-11-28): stopped by the maintainer; where to continue
+
+The maintainer stopped every process on 2026-11-28. Nothing is left uncommitted: the branch head is `f528499d` on
+`refactor/rust-port` (PR #6), and Canopy.js is at `ce09f7e` on `refactor/rust-core`. No agent is running, and
+the test replica sets used this round (MongoDB 8.0.34 on ports 37801 and 37901, 9.0.8 on 37090, under
+`target/mongod-p3a`, `target/mongod-p3b` and `target/mongod-r5-90`) were shut down; start one again with
+`bun packages/testing/scripts/mongod.ts --version <version> --dir <folder> --port <port>` (the folders keep
+their binaries, so nothing downloads).
+
+### Done this round (see the checkpoints below)
+
+- The internal review of Rust auth is closed in Rust: every P1 to P3 finding is fixed except RA-7, RA-9 and
+  RA-13 (documented formats) and RA-8 (accepted); RA-10 by the sign up proof (`98d46132`, Canopy.js `ce09f7e`).
+- Every Rust crate encodes and decodes base64 in constant time with `base64ct` (`096986f0`).
+- Nightly repairs: the Alpine MongoDB extraction (`e71199c4`, confirmed on Bun) and the Alpine Node.js launcher
+  test (`b1ac456c`, not yet confirmed).
+
+### Not confirmed when stopped
+
+- Nightly run [46150968816](https://github.com/FlazexHQ/Canopy/actions/runs/46150968816) on `98d46132` was still
+  running: 20 jobs passed, Alpine failed only on the launcher test that `b1ac456c` fixes, and the `cargo fuzz`
+  jobs (including `authn_tokens`, fixed in `9d4b26c9`) had not reported. Its watcher was cancelled.
+- CI and Native release builds for the pushes after `98d46132` were not followed to the end.
+
+### Where to continue
+
+1. Read the final result of run 46150968816 (`gh run view 46150968816`), then dispatch a nightly on the branch
+   head (`gh workflow run nightly.yml --ref refactor/rust-port -f suite=all`) to confirm the Alpine job and the
+   `authn_tokens` fuzz target; fix anything else it reports.
+2. Check CI and Native release builds on `f528499d` (`gh run list --branch refactor/rust-port`).
+3. Regenerate the docs site API reference after building Canopy.js (`bun run build` there, `bun install` here),
+   so `apps/docs/src/content/docs/reference/api/client.md` lists `sendVerificationOtp` and
+   `verifyEmailWithOtp`.
+4. Maintainer items: the Security workflow finding on PR #6 (the unmarked credential URI test line in
+   `9af1d9c1`: a path exclusion or excluding the URI detector), merging `refactor/rust-port` to master (which
+   starts the 24 CPU hour fuzz campaign and unblocks R7), merging Canopy.js `refactor/rust-core`, the external
+   review, and React Native on devices.
+5. Working agreement: Gemini (`antigravity_sudhan_s_antigravity`) runs tests, benchmarks and CI watching and
+   updates this context; small and medium coding tasks go to Codex (`codex_sudhan_s_codex` or `codex`;
+   `codex_prajo_s_codex` was out of quota until 2026-12-01); no Opus agent unless the maintainer asks.
+
+## Checkpoint (2026-11-28): constant time base64 and the Alpine launcher test (096986f0, b1ac456c)
+
+- `096986f0` (`refactor`): every Rust crate (`canopy-auth`, `canopy-authn`, `canopy-control`, `canopy-wire`,
+  `canopy-webhooks`, `canopy-storage`, `canopy-data`, `canopy-config`, `canopy-realtime`, `canopy-webauthn`,
+  `canopy-cli`, `canopyd` and the fuzz targets) now encodes and decodes base64 with the constant time `base64ct`
+  crate 1.8 instead of the `base64` crate, whose engines are not constant time; no crate depends on `base64`
+  directly any more. The maintainer asked for it. Accepted inputs are unchanged: plain engines map one to one;
+  imported password hashes ([`crates/canopy-authn/src/passwords.rs`](../../../crates/canopy-authn/src/passwords.rs)
+  `import_base64`) still accept any padding and unused bits in the last symbol; webhook secrets accept padded
+  or unpadded base64 with whitespace removed; JWK, JWT, WebAuthn and SCRAM keep their padding rules; the legacy
+  bcrypt verifier decodes into fixed buffers. New unit tests: bcrypt encoding strictness (fails with a lenient
+  decoder), the lenient import decoder, both webhook secret forms. Converted by codex_sudhan and codex, reviewed
+  by the coordinator.
+- Verification (Gemini): `cargo fmt` and workspace `clippy` clean; both lockfiles current; the workspace test
+  suite passes on MongoDB 8.0.34 (port 37801) and 9.0.8 (port 37090), 806 tests each, none failed; the
+  `canopy-authn` TypeScript password interop tests pass with `CANOPY_TEST_TYPESCRIPT=1` (without it they do not
+  spawn Bun); `repo-check workspace` and `dashes` clean.
+- `b1ac456c` (`ci(nightly)`): nightly run [46150968816](https://github.com/FlazexHQ/Canopy/actions/runs/46150968816)
+  on `98d46132` showed the `e71199c4` extraction fix works (the Alpine Bun pass is green) but the Alpine
+  Node.js 24 pass failed [`packages/cli/test/launcher.test.ts`](../../../packages/cli/test/launcher.test.ts)
+  with `spawnSync bun ENOENT`, because the `node:24-alpine` container has no Bun. The Bun container now builds
+  the launcher once and both Alpine passes give it to the test through `CANOPY_TEST_LAUNCHER`; without it the
+  test builds the launcher with Bun as before. Not yet confirmed by a nightly run.
+- The nightly run [46150968816](https://github.com/FlazexHQ/Canopy/actions/runs/46150968816) was still running
+  when this was written (its fuzz jobs, including `authn_tokens`, had not reported).
+
+## Checkpoint (2026-11-28): internal auth review closed in Rust (e71199c4, e4142cac, 98d46132; Canopy.js ce09f7e)
+
+- `e71199c4` (`fix(testing)`): [`packages/testing/scripts/mongod.ts`](../../../packages/testing/scripts/mongod.ts)
+  removes any `.pdb` file left after extraction, because BusyBox tar on Alpine ignores `--exclude` and
+  the nightly Alpine job failed `mongod.test.ts`. Not yet confirmed by a nightly run.
+- `e4142cac` (`fix(authn)`): closes RA-6 (a TOTP code signs in once: `lastTotpStep` on the factor), RA-14
+  (codes verified with a session: five failures, then `TOO_MANY_ATTEMPTS`, and the factor lock), RA-11
+  (4 password hashes run, 8 wait at most 250 ms, others answer 503 `CANOPY_UNAVAILABLE` with `retry-after`,
+  still held to the response floor), RA-12 (`/token` answers "The claims hook failed"; the reason only in
+  the audit entry), RA-16 (built in keys read without holding the key lock; tokens with a cached key never
+  wait; one refresh at a time and others wait for it up to 2 s; a key verifies at most 5 s from the start
+  of its read), RA-17 (fresh session to change an unverified address and to delete a passkey; `/upgrade`
+  counts toward the per address limit of 100 a minute; an invite checks its redirect before creating or
+  changing a user; in production OIDC discovery and its endpoints must use HTTPS). Each with a regression
+  test proved to fail without its fix. The oracle replays accept three documented differences:
+  `lastTotpStep` in `canopy_auth.two_factors`, the `<address>|/upgrade` entry in `canopy_auth.rate_limits`,
+  and the foreign invite that no longer creates a user
+  ([`conformance/http/auth/README.md`](../../../conformance/http/auth/README.md) and
+  [`conformance/http/admin/README.md`](../../../conformance/http/admin/README.md)).
+- `98d46132` (`fix(authn)`): RA-10, the pre account hijack, by the maintainer's choice of the sign up
+  proof. Every successful `/sign-up/email` and `/upgrade` answer, also for a taken address (bound to no
+  account), carries a proof that the client signed the account up: the `__Secure-canopy.sign_up` cookie
+  (HttpOnly, SameSite=Lax, 30 days) and the same value in `set-auth-sign-up` (exposed to CORS on those
+  answers). The first verification of an address, by link or email code, without that proof (the cookie,
+  or `x-canopy-sign-up`, comma separated values) verifies the address but removes the password credential
+  and ends the account's sessions in one transaction, audited as `auth.password_removed`. Three regression
+  tests in [`crates/canopy-authn/tests/review_regressions.rs`](../../../crates/canopy-authn/tests/review_regressions.rs),
+  each failing without the fix. The auth oracle replay strips the proof from sign up answers and presents
+  it on each recorded client's later requests. Docs: [`docs/design/07-auth.md`](../../design/07-auth.md) §2.1
+  and the guides [`client.md`](../../../apps/docs/src/content/docs/guides/client.md),
+  [`react-native.md`](../../../apps/docs/src/content/docs/guides/react-native.md) and
+  [`two-factor-and-passkeys.md`](../../../apps/docs/src/content/docs/guides/two-factor-and-passkeys.md).
+  Accepted cost: a link opened in another browser, or by a bearer mode app, costs a password reset.
+- Canopy.js `ce09f7e` on `refactor/rust-core` (`feat(client)`): keeps the five newest sign up proofs in
+  storage and presents them on `verifyEmailWithOtp`; new `sendVerificationOtp`; `bun run check` passed
+  (370 tests).
+- Verification of the Rust commits: `cargo fmt` and workspace `clippy` clean; the auth, control and canopyd
+  suites pass on MongoDB 8.0.34 (port 37801) and 9.0.8 (port 37090), 182 tests each; `repo-check workspace`
+  and `dashes` clean.
+- The internal review
+  ([`docs/reviews/2026-11-28-rust-auth-internal-review.md`](../../reviews/2026-11-28-rust-auth-internal-review.md))
+  now has every P1 to P3 finding fixed in Rust except RA-7, RA-9 and RA-13 (documented formats), and RA-8
+  (accepted by the maintainer). The TypeScript counterparts are not fixed.
+- Remaining, needing the maintainer or outside work: the Security workflow finding on PR #6 (the credential
+  URI line in `9af1d9c1`), merging `refactor/rust-port` to master (which starts the 24 CPU hour fuzz campaign
+  and unblocks R7), the external review, React Native on devices, and a nightly run to confirm the Alpine
+  fix.
+
+## Checkpoint (2026-11-28): stopped by the maintainer; where to start next
+
+The maintainer stopped implementation and every subagent on 2026-11-28. Nothing below this line was
+committed by the stopped agents. The branch head is `9d4b26c9` on `refactor/rust-port` (PR #6); Canopy.js is
+at `c6534aa` on `refactor/rust-core`.
+
+### Committed since the previous checkpoint
+
+- `e3192c68`, `f1a4c47f`, `9fe1de57` (`fix(authn)`): the internal review of Rust auth
+  ([2026-11-28-rust-auth-internal-review.md](../../reviews/2026-11-28-rust-auth-internal-review.md)), no P0;
+  RA-1, RA-2, RA-3 and RA-15 fixed; RA-4 sessions listed and revoked by id (Rust only); RA-5 every first
+  factor opens the two factor ceremony; RA-8 accepted (the `__Secure-` names stay).
+- `9d4b26c9` (`fix(fuzz)`): `authn_tokens` loads its key ring again (`ahash` 0.8.15 in `fuzz/Cargo.lock`, a
+  startup check that a token of each algorithm verifies).
+- Canopy.js `c6534aa` (`fix(client)`): `signInWithOtp` and `completeRedirect()` hand over to the second factor
+  (`TWO_FACTOR_REQUIRED` with `twoFactorMethods`); in bearer mode the verification request carries cookies.
+
+### Uncommitted work left by the stopped agents (review before use)
+
+None of it was verified: no clippy, fmt or test run was reported. Either finish and verify it, or discard
+it with `git checkout -- <files>`.
+
+- **RA-11, hashing queue** (Codex): `crates/canopy-authn/src/server/mod.rs` bounds password hashing to 4
+  running and 8 waiting requests, waits at most 250 ms, and answers `CANOPY_UNAVAILABLE` (503) with
+  `retry-after: 1` and the header exposed to CORS; `server/password.rs` takes its permit through
+  `password_permit()` (the one line change was authorized). A MongoDB backed unit test
+  `password_overload_bounds_waiting_and_keeps_the_sign_in_floor` was being written in `mod.rs`.
+- **RA-12, hook errors** (Codex): the client sees only `The claims hook failed`; `server/claims.rs` now
+  formats the internal reason with `{:?}` (check that the reason is still logged and that `{:?}` is the
+  intended form); `crates/canopy-authn/tests/claims_hook.rs` updated.
+- **RA-16, key reload** (Codex): `crates/canopy-auth/src/jwt.rs` no longer holds the key lock while it reads
+  MongoDB; one refresh runs at a time (`builtin_refresh`), others refuse instead of waiting, a key verifies
+  for at most five seconds from the start of the read that loaded it, and a failed refresh empties the
+  snapshot; tests in `crates/canopy-auth/src/jwt/tests.rs`; `crates/canopyd/tests/builtin_auth.rs` changed
+  by one line.
+- **RA-14, TOTP attempts with a session** (Opus): `crates/canopy-authn/src/server/two_factor.rs` counts failed
+  codes verified with a session (`2fa-attempts-session-<id>` in the verifications collection, at most 5) and
+  applies the `lockedUntil` check to session verification too. RA-6 (TOTP reuse in its window), RA-10 (the
+  squatter's password) and RA-17 (the smaller items) were not started or not written yet.
+- When this work is committed, update the RA rows of the review report (Opus was to edit the report itself;
+  Codex was to hand its report text to the coordinator).
+
+### CI state at the stop
+
+- Nightly run [46112234406](https://github.com/FlazexHQ/Canopy/actions/runs/46112234406) on `9d4b26c9` was
+  still queued with 21 jobs pending, 14 passed and 1 failed: **Alpine Linux (musl, Bun and Node.js 24)**,
+  `packages/testing/test/mongod.test.ts` "extracts MongoDB binaries from disk without their debug symbols"
+  (`expected [ Array(3) ] to deeply equal [ 'mongod' ]`): the extraction on musl yields three files where the
+  test expects only `mongod`. The `authn_tokens` fuzz job had not reported yet. Logs saved by the watcher:
+  `target/tmp/nightly-46112234406/`.
+- CI on `9d4b26c9` was queued and Native release builds were in progress. Security fails on PR #6 for the
+  reason recorded on 2026-11-25 (the unmarked credential URI test line in `9af1d9c1`; a path exclusion or
+  excluding the URI detector is the maintainer's decision).
+
+### Where to start
+
+1. Read the nightly run's final result; fix the Alpine `mongod.test.ts` failure (see why musl extraction keeps
+   two more files) and check `cargo fuzz (authn_tokens)`.
+2. Review the uncommitted RA-11, RA-12, RA-14 and RA-16 diffs above, finish RA-14's tests, run
+   `cargo clippy -j 2 --workspace --all-targets -- -D warnings`, `cargo fmt --all --check` and
+   `cargo test -j 2 -p canopy-auth -p canopy-authn -p canopyd` against MongoDB 8.0.34 (port 37017) and 9.0.8
+   (port 37090), including `replays_typescript_auth_oracle`; commit each finding with its regression test.
+3. RA-6, RA-10 and RA-17 remain open in the Rust server.
+4. Maintainer items: the Security finding on PR #6, merging `refactor/rust-port` to master (which starts the
+   24 CPU hour fuzz campaign and unblocks R7), the external review, React Native on devices.
+
+## Checkpoint (2026-11-28): R2 suites in browsers, gates re-measured, CLI --env replay (a4849f3e, 76428729; Canopy.js b806a46)
+
+Summary of Canopy commits a4849f3e and 76428729, and Canopy.js commit b806a46. Vitest browser mode runs the client and binding suites across Chromium, Firefox and WebKit (1,152 tests passed, 6 skipped across 48 files per browser) with no source changes. R2 performance gates are re-measured with the 152a8db2 client module across five rounds on a busy machine, meeting every gate: matching worst median 0.93x (Chromium 4x, DLS and user filter), under 0.76x on Node 26 and 0.72x on Bun; single update 1.97x Bun, 1.87x Node 26, 2.41x Chromium (36.75 µs); chained update 2.22x Bun, 1.94x Node 26, 2.70x Chromium (33.75 µs); client compile plus instantiate p95 23.20 ms in Chromium at 4x (gate 30 ms), 1.19 ms on Node 26. Conformance replay passes 1,991 filters and 1,995 updates in both formats on Bun and Node 26. In Canopy, a failpoint makes the REST read time limit test deterministic on macOS, and golden replays of `policies push` and `policies pull` with `--env` add four steps (61 steps total), closing the R4 open note. Windows Ctrl+Break automation was dropped to preserve forbidden unsafe code. CI is green on commit 152a8db2. The nightly workflow dispatched on refactor/rust-port passed 29 jobs, including 16 of the 17 fuzz targets for 20 minutes each with no finding; its other 7 failures were the workflow falling behind the repository (fixed in 50e8f6d1) and the `authn_tokens` fuzz harness.
+
+### What changed
+
+- **Canopy.js browser test suites (Canopy.js b806a46):**
+  - Commit b806a46 (`test: run the client and binding suites in Chromium, Firefox and WebKit`) adds Vitest browser mode using the Playwright provider (`@vitest/browser-playwright` 5.0.5, MIT; `playwright` 1.64.1, Apache 2.0), configured in `vitest.browser.config.ts` and run with `bun run test:browser` (`--browser=<name>` for one).
+  - Runs eight projects per browser: client on the Wasm core, client on the wasm2js core, react, vue, svelte, solid, tanstack-db, and devtools.
+  - Headless results on Windows: Chromium, Firefox and WebKit each pass 384 tests with 2 skipped and 0 failed across 48 files (1,152 passed, 6 skipped across all three browsers in one run).
+  - The 2 skips per browser are one test (OAuth sign in navigating when a browser location exists) that needs a replaceable `location`; it still runs on Bun, Node and Deno.
+  - No source change in `src/` was needed.
+  - Test harness adjustments: fixtures load through Vite (`import.meta.glob`, `?raw`, and a `canopy-conformance` alias pointing to `CANOPY_REPO` or `../Canopy`) instead of `node:fs`; a `freshModules` Vite plugin plus `freshGraph()` give fresh module copies because `vi.resetModules` does not reach a browser module map; the engine setup throws when the core loads in a format other than the expected format for that project; and the long lived token lifecycle test steps fake time 25 s at a time because browsers clamp the real timer each async step waits on to 4 ms (verified it still fails with the 24.8 day timer guard removed from `src/`).
+  - Finding: under happy-dom the binding suites in the Node run had always used the wasm2js core (Vite turns the Wasm path into a dev server URL nothing serves); they now set `CANOPY_TEST_CORE=js` explicitly and the browser run covers them on Wasm.
+  - CI: added a `browser` job per browser on `ubuntu-24.04`, and the Node job now checks out Canopy (`CANOPY_REPO`). Canopy.js CI only runs on `master` and pull requests to `master`, so neither job has run on GitHub yet. `bun run check` passes (361 tests) and Chromium was re-run by the reviewer (384 passed, 2 skipped).
+- **R2 gates re-measured (152a8db2):**
+  - Re-measured with the 152a8db2 client module on a busy machine across five rounds.
+  - Matching worst median: 0.93x (Chromium 4x, DLS and user filter), under 0.76x on Node 26 and 0.72x on Bun.
+  - Single update: 1.97x Bun, 1.87x Node 26, 2.41x Chromium (36.75 µs).
+  - Chained update: 2.22x Bun, 1.94x Node 26, 2.70x Chromium (33.75 µs).
+  - Client compile plus instantiate p95: 23.20 ms in Chromium at 4x (gate 30 ms), 1.19 ms on Node 26.
+  - Conformance replay: 1,991 filters and 1,995 updates pass in both formats on Bun and Node 26.
+  - Every gate met. Raw output under `target/tmp/r2-remeasure`.
+- **REST read time limit test deterministic with failpoint (Canopy a4849f3e):**
+  - Commit a4849f3e (`test(rest): make the read time limit test deterministic with a failpoint`): the macOS CI failure of `packages/rest/test/errors.test.ts` (a 100,000 document scan under `maxTimeMS` 1 that a fast machine finished first) now uses the `failCommand` failpoint with `blockConnection` for 100 ms on one find, so MongoDB answers `MaxTimeMSExpired` (code 50) every time. The test checks `CANOPY_TIMEOUT` with that cause.
+  - `deploy/compose/dev.yaml` and `packages/testing/scripts/mongod.ts` start mongod with `enableTestCommands=1`.
+  - Passed 20 consecutive runs on MongoDB 8.0.34 and 9.0.8.
+- **CLI replay for policies push and pull with `--env` (Canopy 76428729):**
+  - Commit 76428729 (`test(cli): replay policies push and pull with --env against the Rust CLI`): four new golden steps recorded from the TypeScript CLI (`policy-push-env`, `policy-pull-env`, `policy-push-unknown-env`, `policy-pull-unknown-env`), 61 steps in total, the 57 earlier ones unchanged.
+  - The Rust CLI resolves the remote before checking the named collections and pulls from one snapshot of the published policies.
+  - Changeset `cli-policies-env-order.md`. This closes the R4 note that policies push and pull with `--env` were unreplayed.
+- **Windows console control signals dropped from automation:**
+  - An automated test was written for Windows Ctrl+Break but needed `unsafe` (`GenerateConsoleCtrlEvent` through `windows-sys`) in a `canopy-cli` test; a PowerShell helper without `unsafe` did not work.
+  - The maintainer decided to drop the test and keep `unsafe_code = "forbid"` everywhere.
+  - Ctrl+C and Ctrl+Break on Windows stay a manual check at a real console.
+
+- **Internal security review of Rust auth (e3192c68, f1a4c47f, 9fe1de57):**
+  - [docs/reviews/2026-11-28-rust-auth-internal-review.md](../../reviews/2026-11-28-rust-auth-internal-review.md), written ahead of the external review of the R5 gate: no P0; 17 findings.
+  - Fixed, each with a regression test proved to fail without the fix: RA-1 (P1) listing sessions needs a session younger than 15 minutes; RA-2 (P2) wrong email codes count toward the address lock of wrong passwords; RA-3 (P2) per address limits key IPv6 clients by their /64 network; RA-15 (P3) minted tokens leave out reserved roles.
+  - Maintainer decisions: RA-4, Rust only (the TypeScript server is removed later): sessions are listed and revoked by id, never by token (f1a4c47f); RA-5, every first factor (social, OIDC ID token, magic link, email code) opens the two factor ceremony before any session exists (9fe1de57); RA-8, the `__Secure-` cookie names stay.
+  - The Rust replay of the auth oracle derives the expected answers of `/list-sessions` and `/revoke-session` from the recorded ones; no recorded case signs a two factor user in through the RA-5 routes. Canopy.js does not yet handle the two factor handoff after email code sign in or after a redirect in bearer mode; that follow up is in progress.
+- **authn_tokens fuzz harness:** `fuzz/Cargo.lock` moves `ahash` to 0.8.15 and the harness checks at startup that a token minted with each algorithm verifies. A local cargo fuzz build under WSL could not link (the WSL C compiler refuses the sanitizer runtime argument), so the fix is proven by the next nightly run instead.
+
+### Test evidence
+
+- **Canopy.js browser test suite:**
+  - Chromium, Firefox and WebKit each pass 384 tests with 2 skipped and 0 failed across 48 files (all three in one run: 1,152 passed, 6 skipped).
+  - The 2 skips per browser are one test (OAuth sign in navigating when a browser location exists) that needs a replaceable `location`; it still runs on Bun, Node and Deno.
+  - Reviewer re-run verified Chromium (384 passed, 2 skipped).
+  - `bun run check` passes (361 tests).
+- **R2 gate re-measurements:**
+  - Five rounds on a busy machine with client module 152a8db2: matching worst median 0.93x (Chromium 4x, DLS and user filter), under 0.76x on Node 26 and 0.72x on Bun; single update 1.97x Bun, 1.87x Node 26, 2.41x Chromium (36.75 µs); chained update 2.22x Bun, 1.94x Node 26, 2.70x Chromium (33.75 µs); client compile plus instantiate p95 23.20 ms in Chromium at 4x (gate 30 ms), 1.19 ms on Node 26.
+  - Conformance replay: 1,991 filters and 1,995 updates pass in both formats on Bun and Node 26.
+  - Raw output under `target/tmp/r2-remeasure`.
+- **Canopy REST failpoint and CLI golden replay:**
+  - `packages/rest/test/errors.test.ts` passed 20 consecutive runs on MongoDB 8.0.34 and 9.0.8.
+  - CLI replay passes all 61 golden steps against the Rust CLI.
+- **CI workflows:**
+  - Commit 152a8db2 green (CI, Native release builds).
+  - The Security workflow stays red from the accepted secret in 4692950d.
+  - The nightly workflow was dispatched on refactor/rust-port (run 46104909869) for an early read of the fuzz targets: 29 jobs passed, among them 16 of the 17 fuzz targets (20 minutes each, no finding), and 7 failed.
+  - Six failures were the workflow falling behind the repository, fixed in 50e8f6d1 (`ci(nightly)`): the Split Wasm conformance job and the Alpine containers lacked the Canopy.js checkout; the sharded cluster job filtered on the `client` project, which moved to Canopy.js (its tests now run in `sdk-e2e`); and Deno on Windows, Linux and macOS failed the TypeScript CLI oracle on Deno's user agent and its wording for a missing config module. The recorder now normalizes Deno's user agent, and both CLIs report `Cannot find config file '<path>'` on every runtime (two golden steps re-recorded, changeset missing-config-file.md).
+  - The seventh, `cargo fuzz (authn_tokens)`, crashed on its first input in the harness's own setup (`generated key ring`): the fuzz workspace's lockfile pinned `ahash` 0.8.13, with which the key ring did not load under the pinned nightly toolchain; with 0.8.15 it does. The main workspace uses 0.8.12 and is not affected. The harness fix also checks at startup that a token minted with each algorithm verifies, so a broken setup fails with a clear message.
+
+### Status across stages
+
+- **R2:** all speed gates met; Canopy.js suites green on Bun, Node 24, Node 26, Deno, and in Chromium, Firefox and WebKit; still unverified: React Native on devices (conformance vectors pass on Hermes); Hermes speed gate is the accepted known gap; Canopy.js browser CI unproven until a pull request to master.
+- **R4:** complete, including the --env steps; Windows Ctrl+C and Ctrl+Break remain manual checks.
+- **R5:** open, waiting on master for the 24 CPU hour fuzz campaign and the external review; the internal review found no P0 and its P1 and P2 findings are fixed.
+- **R7:** gated.
+
+## Checkpoint (2026-11-27): R2 client module headroom and the Canopy.js suite on Node 24 and Deno (152a8db2; Canopy.js 5a9b47c, 4afcf8c)
+
+Summary of Canopy commit 152a8db2 and Canopy.js commits 5a9b47c and 4afcf8c. Dropping the string slicing panic path from formatting and parsing routines shrinks the client WebAssembly module from 81,835 to 78,049 Brotli bytes (3,786 bytes saved), creating 3,871 bytes of headroom under the 81,920 byte limit and resolving the client module headroom risk. Canopy.js syncs the smaller core in 4afcf8c. A configuration fix for the emit Vitest project in Canopy.js commit 5a9b47c loads the Deno worker setup and increases test timeout. Following that fix, the full Canopy.js suite passes on Node 24.22.3 and Deno 2.9.8 with `--pool=threads` (33 files, 361 tests, exit 0) in addition to Node 26 and Bun. Rerun macOS CI and Native release jobs for commit 21949e79 passed.
+
+### What changed
+
+- **Client module size reduction (Canopy 152a8db2):**
+  - Number, Decimal128 and EJSON formatting ([`bson.rs`](../../../crates/canopy-protocol/src/bson.rs), [`ejson.rs`](../../../crates/canopy-protocol/src/ejson.rs), [`json.rs`](../../../crates/canopy-protocol/src/json.rs)) and Decimal parsing in [`numeric.rs`](../../../crates/canopy-matcher/src/numeric.rs) use checked splits (`split_once`, `split_at_checked`, `strip_prefix`) instead of index slicing, so the compiler drops the string slicing panic formatter from the client module: 3,353 bytes saved.
+  - Array index keys in [`values.rs`](../../../crates/canopy-query/src/values.rs) sort with an unstable sort: 413 bytes saved. This is safe because BSON decoding refuses duplicate field names, so the keys are unique.
+  - Decimal special values compare without a lowercase copy: 20 bytes saved.
+  - Client module drops from 81,835 to 78,049 Brotli bytes (3,786 saved), providing 3,871 bytes of headroom under the 81,920 limit.
+  - An error constructor refactor that added 341 bytes was tried and dropped.
+  - Hot path timings moved within 2% either way for string equality, sorting and projection; Decimal matching and updates got faster.
+  - Changeset recorded in `.changeset/wasm-client-size.md`.
+- **Canopy.js core sync (Canopy.js 4afcf8c):**
+  - Synced the smaller client core from Canopy 152a8db2 (`build(core): sync the smaller client core from Canopy 152a8db2`), with changeset `smaller-client-core.md`.
+  - `check:wasm` passes; 361 tests pass on Node 26 and Bun.
+- **Canopy.js Deno and emit test harness fix (Canopy.js 5a9b47c):**
+  - Commit 5a9b47c (`test: load the Deno worker setup and a longer timeout for the emit tests`): the emit Vitest project did not load `vitest.deno-setup.ts` (the `parentPort.removeAllListeners` patch), so Deno failed at thread pool teardown after every test passed; and its default 5 second timeout let the `deploy/dev` fixture test time out under full parallel load.
+  - The emit project now loads the Deno setup and has a 30 second timeout like the client project.
+
+### Test evidence
+
+- **Canopy workspace and conformance:** 96 tests pass across `canopy-protocol`, `canopy-matcher` and `canopy-query`; clippy clean; conformance replay passes through Wasm and wasm2js on Bun and Node 26; 20,000 double encodings and targeted Decimal128 cases matched the previous output byte for byte. Changeset `.changeset/wasm-client-size.md`.
+- **Canopy.js test suite across runtimes:**
+  - `check:wasm` passes; 361 tests pass on Node 26 and Bun.
+  - After that fix the full Canopy.js suite passes on Node 24.22.3 (33 files, 361 tests, exit 0) and Deno 2.9.8 with `--pool=threads` (33 files, 361 tests, exit 0), in addition to Node 26 and Bun.
+- **CI workflows:** the macOS jobs of 21949e79 had been cancelled while queued without a runner; rerun, CI and Native release builds passed. The Security workflow stays red from the accepted secret flagged in 4692950d.
+
+### Status across stages
+
+- **R2:** every speed gate met, the client module headroom risk resolved (3,871 bytes), Canopy.js suites green on Bun, Node 24, Node 26 and Deno. Still unverified for R2: the full Canopy.js suite in browsers through Playwright and React Native on devices (conformance vectors already pass in Chromium, Firefox and WebKit and on Hermes). Hermes speed gate remains the accepted known gap.
+- **R4:** complete.
+- **R5:** open, waiting on master for the 24 CPU hour fuzz campaign and the external review.
+- **R7:** gated.
+
+## Checkpoint (2026-11-26): R2 matching gate met across every host, direct string equality and slot reuse (f0100c2d; Canopy.js 9a46df9)
+
+Summary of commits f0100c2d and Canopy.js 9a46df9. The R2 Chromium matching optimization round brings warm
+matching latency across every host within the 1.2x gate. Direct owner equality and four byte at a time string
+comparison in `canopy-matcher` combined with per filter last batch slot reuse in Canopy.js drop warm equality in
+Chromium at 4x from 120 to 130 ns down to 80 to 90 ns per document (ratio 1.00 to 1.30x down to 0.67 to 0.80x).
+All six filters pass the 1.2x gate across all three hosts in every round (worst ratio 0.98x). Update latency
+is unchanged. The client Wasm module is 81,835 Brotli bytes, 85 bytes under the 81,920 byte budget (active risk:
+the next client module change will hit the gate). With this, every R2 speed gate in plan 005 §7 is met (size,
+startup, matching, update), except Hermes which the maintainer accepted as a known gap.
+
+### Chromium warm equality profile and root cause
+
+Profiling warm owner equality in Chromium 156 at 4x CPU slowdown:
+- The WebAssembly boundary crossing happens once per batch and was not the cost.
+- `Document::get` accounted for 30% of execution time (String::eq then memcmp compiled to a loop over single bytes in the size optimized module).
+- The per document call chain accounted for 26% of time (dynamic call to the compiled test, Result read and drop).
+- JavaScript WeakMap slot lookup took about 16 ns per document at 4x CPU slowdown.
+- Decision conversion took about 15 ns per document.
+
+### What changed (f0100c2d; Canopy.js 9a46df9)
+
+- **Per filter last batch slot reuse (Canopy.js 9a46df9):** each compiled filter keeps the page of documents it
+  matched last and their slots. When a subsequent match call encounters the same documents in the same order,
+  WeakMap lookups are skipped entirely. Slot lookup drops from 16 ns to 3 ns per document at 4x CPU slowdown.
+  The filter holds one page per filter until the next call or `free()`, keeping slots assigned without caching
+  match decisions.
+- **Direct owner equality in `CompiledFilter::matches` (f0100c2d):** when a whole filter is one top level field
+  equal to a string or BSON Symbol, the compiled filter stores the field and text and evaluates an owned
+  document directly through the fast path helper, without the dynamic test call and Result read and drop.
+- **Four byte string comparison (f0100c2d):** field names and string values compare four bytes at a time in the
+  single field equality path, avoiding the byte by byte loop of memcmp in the size optimized client module.
+- **Inline hints:** critical matching functions received inline hints.
+- **Update latency unchanged:** update latency remains unchanged and well within gate.
+
+### Matching throughput results
+
+Measured across 5 rounds comparing baseline Canopy.js `73b8da9` (before) with Canopy `f0100c2d` and Canopy.js
+`9a46df9` (after) on an AMD Ryzen 5 5600H (12 threads; load 9 to 12% for baseline runs, 2 to 10% for final runs)
+using `engine-bench.mjs --rounds 5`. Ratios are Wasm over TypeScript, minimum to maximum over 5 rounds:
+
+- **Chromium 156 at 4x CPU slowdown:**
+  - equality (DLS owner): before 120.0 to 130.0 ns (1.00 to 1.30x); after 80.0 to 90.0 ns (0.67 to 0.80x) (gate met)
+  - range and `$in`: before 520.0 to 710.0 ns (0.71 to 0.92x); after 540.0 to 570.0 ns (0.71 to 0.75x) (gate met)
+  - `$or` of 3 branches: before 460.0 to 480.0 ns (0.60 to 0.71x); after 430.0 to 460.0 ns (0.57 to 0.63x) (gate met)
+  - dotted path: before 300.0 to 450.0 ns (0.79 to 1.18x); after 300.0 to 320.0 ns (0.77 to 0.82x) (gate met)
+  - `$elemMatch`: before 460.0 to 490.0 ns (0.78 to 0.87x); after 500.0 to 510.0 ns (0.82 to 0.85x) (gate met)
+  - DLS and user filter: before 180.0 to 180.0 ns (0.82 to 0.90x); after 190.0 to 200.0 ns (0.86 to 0.91x) (gate met)
+- **Bun 1.4.5:**
+  - equality (DLS owner): before 19.2 to 26.0 ns (0.45 to 1.24x); after 15.2 to 21.3 ns (0.36 to 0.98x) (gate met)
+  - range and `$in`: before 133.0 to 140.4 ns (0.60 to 0.76x); after 120.7 to 124.7 ns (0.52 to 0.62x) (gate met)
+  - `$or` of 3 branches: before 94.8 to 96.2 ns (0.43 to 0.52x); after 78.6 to 80.0 ns (0.35 to 0.39x) (gate met)
+  - dotted path: before 87.8 to 91.1 ns (0.90 to 1.08x); after 62.2 to 65.6 ns (0.66 to 0.81x) (gate met)
+  - `$elemMatch`: before 102.0 to 103.7 ns (0.67 to 0.76x); after 102.8 to 105.1 ns (0.63 to 0.75x) (gate met)
+  - DLS and user filter: before 34.3 to 35.7 ns (0.69 to 0.80x); after 32.5 to 35.0 ns (0.68 to 0.78x) (gate met)
+- **Node 26.13.1:**
+  - equality (DLS owner): before 28.2 to 32.3 ns (0.56 to 1.08x); after 19.5 to 20.5 ns (0.40 to 0.78x) (gate met)
+  - range and `$in`: before 127.0 to 134.5 ns (0.52 to 0.57x); after 124.0 to 129.4 ns (0.47 to 0.55x) (gate met)
+  - `$or` of 3 branches: before 108.4 to 114.0 ns (0.49 to 0.54x); after 103.9 to 109.4 ns (0.50 to 0.54x) (gate met)
+  - dotted path: before 77.4 to 79.1 ns (0.72 to 0.73x); after 73.0 to 76.0 ns (0.67 to 0.71x) (gate met)
+  - `$elemMatch`: before 109.9 to 114.7 ns (0.68 to 0.70x); after 113.8 to 117.5 ns (0.68 to 0.73x) (gate met)
+  - DLS and user filter: before 44.1 to 46.0 ns (0.76 to 0.82x); after 42.0 to 44.1 ns (0.75 to 0.77x) (gate met)
+
+The 1.2x matching gate now passes for all six filters on all three hosts in every round (worst ratio 0.98x).
+The earlier note stating that Chromium 4x equality was 1.90x and DLS and user filter was 1.30x did not reproduce
+under controlled runs against baseline Canopy.js `73b8da9` (where equality was 1.00 to 1.30x and DLS and user
+filter was 0.82 to 0.90x).
+
+### Test evidence
+
+- Cargo workspace: 784 tests pass on MongoDB 8.0.34 and 9.0.8.
+- R2 conformance replay: 1,991 filters and 1,995 updates pass through Wasm and wasm2js on Bun and Node 26.
+- Canopy.js: 361 tests pass on Node 26 and Bun.
+- Core layout check: `bun run check:core-layout` passes; `sync-core.ts` is deleted; no TypeScript file implements matcher, policy, query, config or schema semantics.
+
+### Status across stages
+
+- **R2:** all speed gates in plan 005 §7 are met (size 81,835 Brotli bytes against 81,920 budget; startup first snapshot within 5%; matching under 1.2x across all six filters on Bun, Node 26 and Chromium 4x with worst round 0.98x; optimistic update under 2.55x, well under 3x and 50 µs). Hermes wasm2js speed gate dropped by maintainer decision as a known gap for post R2. Client module has only 85 bytes of headroom (active risk). Conformance vectors pass on Bun and Node 26 in both formats; Canopy.js passes 361 tests on Node 26 and Bun; layout check confirms no TypeScript semantic copies. Full Canopy.js client suite on Node 24, Deno, browser Playwright and React Native devices remain unverified.
+- **R4:** complete. All 57 golden CLI steps replay against Rust, `canopy dev` starts and reloads in under one second, `@canopy/cli` is published as the launcher, and Studio assets resolve directly.
+- **R5:** open, waiting on master for the 24 CPU hours per auth fuzz target campaign, clean runs, and external review with no open P0 or P1 issues. The TypeScript auth fallback overlay remains in place until then.
+- **R7:** gated on the completion of earlier stages and soak. Preparation map recorded in [10-r7-removal-map.md](10-r7-removal-map.md); native wire test key issuance and deployment manifest tests are already moved.
+
+### R2 exit criteria review
+
+Checked against the plan 005 stages and §7 requirements:
+1. Conformance vectors: all applicable sets pass through Wasm and wasm2js on Bun, Node 24 and 26, Deno, Chromium, Firefox and WebKit (browser replay); Hermes desktop CLI passes all 11 sets on 0.12.0 and 1.0.0. Latest Wasm verified on Bun and Node 26 with 1,991 filters and 1,995 updates.
+2. Canopy.js test suites: 361 tests pass on Node 26 and Bun with Wasm and wasm2js. Full test runs on Node 24, Deno, browser Playwright and React Native mobile devices remain unverified.
+3. Speed gates: size (81,835 bytes, 85 bytes headroom), startup (first snapshot within 5%, eval under 30 ms), matching (all six filters under 1.2x across all hosts, worst 0.98x), and optimistic updates (under 2.55x everywhere) are all met. Hermes speed gate dropped by maintainer decision.
+4. Semantic copies: verified absent by `scripts/check-core-layout.ts`; `sync-core.ts` deleted.
+
+## Checkpoint (2026-11-26): R2 optimistic update gate met on every host, bounded ring retention (b752097e, 58dce163, 205398a8; Canopy.js 73b8da9)
+
+Summary of commits b752097e, 58dce163, 205398a8 and Canopy.js 73b8da9. The R2 optimistic update optimization
+round brings update latency across every host within the gate (at most 3x and under 50 µs for single and chained
+updates). Bounded ring retention in `UpdateCache` eliminates `FinalizationRegistry` tracking on updates, one
+boundary crossing handles each update, and changes are encoded straight to BSON in linear memory. The client
+Wasm module is 81,467 Brotli bytes under the 81,920 byte budget (453 bytes of headroom). Maintainer decisions
+record Hermes wasm2js matching as a known gap for post R2 follow up, and `@canopy/cli` directly depends on
+`@canopy/studio-assets` to resolve pnpm 10 installation issues.
+
+### Optimistic update profile and root cause
+
+Warm profiling of one update of the six field note with `$set` plus `$inc` (microseconds):
+- Frozen TypeScript updater: Bun 1.44 µs, Node 1.94 µs
+- `engine.applyUpdate` before the round: Bun 7.19 µs, Node 3.93 µs
+- `UpdateCache.update` with new slot freed immediately: Bun 2.05 µs, Node 2.01 µs
+- `UpdateCache.update` with slot kept: Bun 3.27 µs, Node 2.03 µs
+- JavaScript decode of changes: Bun 0.19 µs, Node 0.43 µs
+
+Root cause: every update result was retained in a Rust slot that only a JavaScript `FinalizationRegistry`
+finalizer freed. Retained documents accumulated in linear memory (worst on Bun), and each update incurred
+approximately six calls into WebAssembly.
+
+### What changed (b752097e; Canopy.js 73b8da9)
+
+- **Bounded retention ring:** `UpdateCache` keeps the 256 documents retained last in a ring buffer with 64 bit
+  identifiers that are never reused (up to 2^53). If an update targets an evicted document, the core returns -1
+  and the engine resends the document. Finalizers are no longer required on the update path.
+- **Single boundary crossing:** `reserveInput` prepares linear memory for the update BSON, `update(id, length, now)`
+  applies the update and returns the document identifier, `output()` yields the result words, and `takeError()`
+  extracts error state.
+- **Direct BSON change encoding:** changes are written straight to BSON via `canopy_protocol::bson::encode_fields`.
+  Clock is passed as a numeric timestamp. The transforms module exports `updateMemory()`.
+- **Canopy.js sync (73b8da9):** the client engine writes update BSON into the core input space, makes one call,
+  and reads changes where the core leaves them.
+
+### Optimistic update latency results
+
+Measured across 5 rounds comparing Canopy.js `843aeb2` (before) with Canopy `b752097e` and Canopy.js `73b8da9`
+(after) on a quiet machine (approximately 11% CPU load). Timings are minimum to maximum Wasm microseconds per
+update with median in parentheses, followed by the paired ratio to the frozen TypeScript updater:
+
+- **Bun 1.4.5:**
+  - single: before 3.08 to 5.68 (4.53), 2.83 to 4.20x; after 2.24 to 4.25 (2.27), 1.66 to 2.17x (gate met)
+  - chained: before 3.35 to 4.90 (4.04), 2.28 to 4.58x; after 2.18 to 2.47 (2.26), 1.83 to 2.16x (gate met)
+  - fresh: before 12.97 to 14.28 (13.85), 11.13 to 12.36x; after 4.88 to 5.42 (4.94), 4.55 to 4.82x
+- **Node 26.13.1:**
+  - single: before 3.93 to 4.62 (4.19), 1.89 to 3.29x; after 2.50 to 3.00 (2.53), 1.52 to 1.92x (gate met)
+  - chained: before 3.83 to 4.23 (3.99), 2.20 to 3.14x; after 2.49 to 2.71 (2.51), 1.61 to 1.90x (gate met)
+  - fresh: before 7.50 to 8.24 (7.71), 4.44 to 6.13x; after 5.32 to 5.75 (5.43), 3.47 to 4.09x
+- **Chromium 156 at 4x CPU slowdown:**
+  - single: before 18.50 to 19.50 (18.75), 2.85 to 2.89x; after 13.25 to 14.50 (14.00), 1.89 to 2.23x (gate met)
+  - chained: before 16.50 to 17.00 (17.00), 3.00 to 3.40x; after 12.00 to 14.00 (12.25), 2.00 to 2.55x (gate met)
+  - fresh: before 34.25 to 37.25 (35.25), 6.85 to 7.45x; after 26.75 to 27.75 (27.50), 5.35 to 5.55x
+
+The gate (at most 3x and under 50 µs for single and chained) is met across every host. Warm matching ratios
+remain unchanged within noise. Client module size is 81,467 Brotli bytes (gate 81,920).
+
+### Test evidence
+
+- Cargo workspace: 782 tests pass on MongoDB 8.0.34 and 9.0.8.
+- R2 conformance replay: 1,991 filters and 1,995 updates pass through Wasm and wasm2js on Bun and Node 26.
+- Canopy.js: 360 tests pass on Node 26 and Bun.
+
+### Maintainer decisions and packaging fixes (58dce163, 205398a8)
+
+- **Hermes wasm2js matching (58dce163):** Hermes wasm2js matching (2.36x to 3.85x, EJSON about 15x) is accepted
+  as a known gap with follow up work scheduled after R2. R2 closes without a Hermes speed gate; all conformance
+  vectors must still pass there.
+- **pnpm Studio assets fix (205398a8):** `@canopy/cli` depends directly on `@canopy/studio-assets` because pnpm 10
+  can skip a dependency first encountered through an incompatible optional platform package. Native release
+  builds are green on commit 205398a8.
+
+### Status across stages
+
+- **R2:** update gate met across every host (single and chained under 2.55x, well under 3x and 50 µs). Hermes
+  speed gate dropped by maintainer decision. Warm matching ratios unchanged within noise: Bun and Node pass
+  all six scenarios; the earlier note claiming Chromium 4x equality was 1.90x and DLS and user filter was 1.30x
+  did not reproduce under controlled runs against baseline 73b8da9 (measuring 1.00 to 1.30x and 0.82 to 0.90x,
+  and now resolved by the matching round below). What remains for R2 closure is final quiet machine confirmation
+  if the plan asks.
+- **R4:** complete. All 57 golden CLI steps replay against Rust, `canopy dev` starts and reloads in under one
+  second, `@canopy/cli` is published as the launcher, and Studio assets resolve directly.
+- **R5:** open, waiting on master for the 24 CPU hours per auth fuzz target campaign, clean runs, and external
+  review with no open P0 or P1 issues. The TypeScript auth fallback overlay remains in place until then.
+- **R7:** gated on the completion of earlier stages and soak. Preparation map recorded in
+  [10-r7-removal-map.md](10-r7-removal-map.md); native wire test key issuance and deployment manifest tests
+  are already moved.
+
+## Checkpoint (2026-11-26): R4 complete, @canopy/cli launcher published, R2 gates status (b841cd40 to 05a59d0b)
+
+Summary of commits b841cd40, e4363792, 34a5fd6b, a82b774f, 07e1e799, d9af8cf0 and 05a59d0b. R4 is complete:
+all 57 golden CLI steps replay against the Rust binary, `canopy dev` starts and reloads in under one second,
+and `@canopy/cli` is published as a dependency free launcher of the native executable. The Document allocation
+refactor is committed in `a82b774f`, bringing client Wasm size to 81,502 Brotli bytes, and the latest R2 update
+and matching gates are measured.
+
+### R4 complete and `@canopy/cli` launcher published (697b0bdf, 07e1e799, d9af8cf0, 05a59d0b)
+
+- **R4 complete:** all 57 golden CLI steps replay against the Rust `canopy` binary. `canopy dev` runs the
+  gateway in process and reloads policies in under one second (142 ms on 8.0 and 257 ms on 9.0 in tests,
+  subsecond with both Bun and Node 26 emitters on `deploy/dev`).
+- **`canopy gen types` dropped (07e1e799):** the maintainer decided to keep type generation where the
+  TypeScript CLI has it, in the schema file and `canopy pull`. The standalone `gen types` command and its
+  `--check` flag were removed. The CLI replay continues to verify generated types byte for byte: after `schema
+  push`, it loads the `notes` validator from MongoDB and compares `canopy_schema::generate_types` output with
+  `typeGeneration.types`.
+- **`@canopy/cli` launcher published (d9af8cf0):** published as a dependency free launcher
+  (`dist/launcher.mjs`). It inspects the host platform and architecture (detecting glibc or musl on Linux via
+  `process.report.getReport().header.glibcVersionRuntime`), resolves the `canopy` binary from the platform
+  package or honours `CANOPY_BINARY`, points `CANOPY_STUDIO_DIR` at `@canopy/studio-assets`, forwards
+  `SIGINT`, `SIGTERM` and `SIGBREAK`, and passes the exit code on. The eight platform packages become optional
+  dependencies of `@canopy/cli`. The TypeScript CLI stays in the repository, outside the published files, for
+  the R0 recorder until removed in R7. Install test passes with Bun, pnpm, Yarn and npm on Windows x64.
+  Interactive Windows Ctrl+C and Ctrl+Break remain unverified.
+- **CI and portability fixes (05a59d0b):** resolved type errors in the launcher test and `smoke-canopyd.ts`.
+  The override executable test now reads arguments from a script file so Bun's node shim and Node.js agree.
+- **Studio assets packaging (e4363792):** the native release builds Studio once and publishes it, with third
+  party notices, as `@canopy/studio-assets`. Every `@canopy/canopyd-*` platform package depends on that
+  version, allowing the launcher to resolve `@canopy/studio-assets/index.html` and pass its directory as
+  `CANOPY_STUDIO_DIR`. Release smoke tests the installed `canopyd` with Studio and verifies the page and its
+  Content Security Policy.
+- **Studio dependency resolution:** the released CLI depends directly on `@canopy/studio-assets`.
+  pnpm 10 can skip shared dependencies first encountered through incompatible optional platform packages.
+
+### R2 gates, Document allocation refactor and Hermes benchmarks (b841cd40, 34a5fd6b, a82b774f)
+
+- **Retained document matcher speedup (34a5fd6b):** filters comparing one top level field with a string or
+  Symbol now read that field on a retained document directly, without the general path walk. In Chromium at 4x
+  CPU slowdown, retained owner equality dropped from 170 to 130 ns per document, a median of about 1.2x the
+  TypeScript lite matcher. Recorded in `bench/baselines/r2/README.md`.
+- **Hermes wasm2js experiments recorded (b841cd40):** seven translation configurations were measured on
+  Hermes 0.12.0 and 1.0.0 and under a strict CSP in Chromium, with byte identical Wasm modules. None brings
+  the JavaScript fallback within 3x of TypeScript: canonical EJSON stays about 15x at best, and matching
+  varies by workload (2.36x to 3.85x on Hermes). The translation pipeline is unchanged; results are recorded
+  in `bench/baselines/r2/README.md`.
+- **Document refactor committed (a82b774f):** protocol decode and encode with fewer allocations (one vector
+  per document or array sized from byte length, pairwise duplicate checks up to 16 fields, digit array encoding,
+  insert without copy for existing keys, update tree sorting in place). Workspace passed 739 tests on MongoDB
+  8.0. Client Wasm module is 81,502 Brotli bytes in the reproducible split build synced to Canopy.js (gate 81,920, 418 bytes of headroom).
+- **R2 update gate after a82b774f:** single updates met on Node 26 (2.85x, 3.97 µs) and Chromium 4x (2.76x,
+  19.50 µs), both satisfying the gate of at most 3x and under 50 µs. Single updates on Bun missed at 3.31x
+  (3.60 µs). Chained updates on Chromium missed at 3.14x (17.25 µs).
+- **Remaining R2 misses for maintainer decision:** Bun single update at 3.31x, Chromium chained update at
+  3.14x, and Hermes wasm2js matching at 2.36x to 3.85x against the 3x threshold.
+- **Canopy.js:** the Wasm built from 05a59d0b is synced in Canopy.js 843aeb2 (`check:wasm`, typecheck, build and 359 tests on Node 26 pass).
+
+### Status across stages
+
+- **R4:** complete. All 57 golden CLI steps replay against Rust, `canopy dev` starts and reloads in under one
+  second, and `@canopy/cli` is published as the launcher.
+- **R5:** open, waiting on master for the 24 CPU hours per auth fuzz target campaign, clean runs, and external
+  review with no open P0 or P1 issues. The TypeScript auth fallback overlay remains in place until then.
+- **R7:** gated on the completion of earlier stages and soak. Preparation map recorded in
+  [10-r7-removal-map.md](10-r7-removal-map.md); native wire test key issuance and deployment manifest tests
+  are already moved.
+
+## Checkpoint (2026-11-26): R2 Document refactor for fewer allocations (commit a82b774f)
+
+Committed in a82b774f (refactor/rust-port). The maintainer's decision of
+decision of [plan 005 §7](../../plans/005-all-server-code-in-rust.md#7-the-wasm-core-in-canopyjs-bundle-and-startup-gate)
+asked for inline keys in `Document`; they were built, measured and then dropped, see below.
+
+### What changed
+
+- [`bson.rs`](../../../crates/canopy-protocol/src/bson.rs): one decoding loop fills a document or an array
+  straight into one vector, sized from the byte length and shrunk to fit (before: a vector of name and value
+  pairs, then a hash set of the names, then a second document built field by field with a linear lookup per
+  field, and one `String` per array position). Duplicate names: pairwise for up to 16 fields, a hash set of
+  byte slices above. The encoder writes array positions as digits instead of a `String` per position and starts
+  with a 256 byte buffer. Every error message and its order are unchanged.
+- [`raw.rs`](../../../crates/canopy-protocol/src/raw.rs): `RawDocument::to_document` builds the field vector
+  directly (validation already refused duplicates).
+- [`value.rs`](../../../crates/canopy-protocol/src/value.rs): `Document::insert` looks the name up as `&str`
+  and copies it only for a new field (`impl AsRef<str> + Into<String>`; every caller compiled unchanged);
+  `FromIterator` accepts any such key and presizes; `Regex::new(&str, &str)`. Field order, duplicate handling,
+  every BSON type, Decimal128 and EJSON are unchanged; `fields()` and the `(String, Value)` iterators keep their
+  types, so no other crate needed changes beyond the `Regex::new` callers.
+- [`update.rs`](../../../crates/canopy-matcher/src/update.rs): the update tree is sorted once in place instead
+  of collecting each node's children into a new vector, top level paths are borrowed instead of copied, and
+  the first child name is kept so the error messages that name it stay identical.
+- New tests: array positions as decimal names (12 elements, bytes built from the specification), invalid UTF-8
+  in an array element name refused by both readers, duplicates in a 40 field document refused by both
+  readers, names longer than 23 bytes, `collect` keeping first position and last value.
+- New native probe [`update_probe.rs`](../../../crates/canopy-matcher/examples/update_probe.rs) (the six field
+  note of the engine benchmark, `{ $set: { title }, $inc: { n } }`): `cargo run -j 2 --release -p
+  canopy-matcher --example update_probe`.
+
+### Inline keys and inline string values: tried and dropped
+
+- `smol_str` 0.3 (MIT or Apache 2.0) as the key type compiled across the workspace with one change (`js_order`
+  generic) and as the string value type with about 200 mechanical edits. Natively it was the fastest (whole
+  pipeline 1.97 µs keys only, 1.90 µs with values), but the native probe overstates allocation cost: the
+  Windows system allocator is much slower than dlmalloc in Wasm.
+- In Wasm, inline keys gave the same update time as `String` keys (Node 26 3.98 vs 4.12 µs, Chromium 4x 19.5 vs
+  19.25 µs) but slowed matching of retained documents in the size optimized client module, where every key
+  comparison goes through `SmolStr::as_str` (Node 26: range and `$in` 137 to 202 ns, dotted path 95 to 150 ns;
+  Chromium 4x dotted path 400 to 640 ns). Client module: 81,508 Brotli bytes with inline keys, 82,132 with
+  inline values as well (over the 81,920 gate); the `Arc<str>` and whitespace paths of `smol_str` cost about
+  1,240 bytes for values. So `String` keys and values stay.
+- Also learned: the client module's decoded documents are matched in place, so their vectors' spare capacity
+  matters; shrinking to fit after decoding brought `$or` and dotted path matching back to or below the base.
+
+### Evidence
+
+- Native probe, release (thin LTO), Windows, median of 9 rounds of 200,000, two runs each:
+
+  | Phase           | Before (ns)  | After (ns)  |
+  | --------------- | -----------: | ----------: |
+  | decode update   |   991 to 1009 |  667 to 693 |
+  | decode document | 1434 to 1536 |  958 to 986 |
+  | clone document  |    648 to 667 |  638 to 642 |
+  | apply update    |  1144 to 1297 |  970 to 977 |
+  | encode document |    466 to 470 |  142 to 144 |
+  | whole pipeline  |  3803 to 3910 | 2556 to 2642 |
+
+- Split Wasm build (`bun packages/wasm/scripts/build.ts --split`, Binaryen 133 from the main checkout): client
+  module 81,502 Brotli bytes, 959 bytes of headroom (base 81,126). Raw sizes: client 192,387 (base 193,146),
+  transforms 438,715 (442,518), authoring 1,349,747 (1,347,928).
+- `bench/baselines/r2/engine-bench.mjs --rounds 5`, base and refactor run alternately in one session (Node 26
+  twice), against scratch copies of Canopy.js under `target/` (Canopy.js `8e6eeca` dist with
+  `src/client/bson.ts` and `engine.ts` from `0307378` transpiled in, because `8e6eeca` calls
+  `reserveMatchBatch`, which this branch's client module does not have; `D:\Coding\Canopy.js` untouched).
+  Reported processor load before the runs was 5 %, but other agents may have been working. Optimistic update,
+  median µs (ratio to TypeScript):
+
+  | Mode    | Bun base     | Bun after    | Node 26 base | Node 26 after | Chromium 4x base | Chromium 4x after |
+  | ------- | -----------: | -----------: | -----------: | ------------: | ---------------: | ----------------: |
+  | single  | 3.84 (3.67x) | 3.60 (3.31x) | 4.38 (3.19x) |  3.97 (2.85x) |    21.50 (3.07x) |     19.50 (2.76x) |
+  | chained | 3.83 (3.46x) | 3.77 (3.47x) | 4.13 (3.10x) |  3.74 (2.81x) |    19.50 (3.29x) |     17.25 (3.14x) |
+  | fresh   | 15.61 (14.3x) | 13.50 (12.2x) | 8.47 (6.31x) | 7.36 (5.37x) |   40.50 (7.45x) |     35.00 (6.75x) |
+
+  Matching (ns per document) stayed at or below the base: for example Node 26 dotted path 94.5 to 86.7,
+  `$elemMatch` 153.8 to 139.1; Chromium 4x `$elemMatch` 640 to 590; Bun dotted path 75.1 to 67.2.
+- The update gate (at most 3x and under 50 µs): single updates now pass on Node 26 (2.85x) and Chromium 4x
+  (2.76x) and stay over on Bun (3.31x); chained on Chromium is 3.14x. The rest of the Wasm time is outside
+  the document tree (the JavaScript BSON codec, the boundary, `update_changes`), so a further gain needs work
+  on that path, not on `Document`.
+- Tests: `cargo test -j 2 --workspace --no-fail-fast` with `CANOPY_TEST_MONGODB_URI` on 8.0.34 (37017) and
+  9.0.8 (37090): 127 test binaries, 758 passed on each. The two `canopy-cli` replays that compare the
+  binary's path (`meta_vectors`, `policy_vectors`) first failed because `CARGO_TARGET_DIR` had been given
+  with forward slashes, so the test and the `canopy` binary spelled the path differently; with a backslash
+  path both pass on both replica sets, as they do on the base. Clippy `--workspace --all-targets -D warnings`
+  is clean and `cargo check --manifest-path fuzz/Cargo.toml` passes.
+## Checkpoint (2026-11-26): R4 the rest of the Rust CLI (a3963642 and 697b0bdf)
+
+Built on R3 (0c115669, 3c71a8f3; Canopy.js f28b873). Every command of the usage text now runs in Rust.
+
+### What was built
+
+- **Schema commands** ([`schema_commands.rs`](../../../crates/canopy-cli/src/schema_commands.rs)): `pull`
+  (`--out`, `--js`, `--collection`, `--infer-enums`, `--sample`, `--force`, the edited file diff ported from
+  the TypeScript `lineDiff`), `schema diff` (`--file`, `--sample`, `--infer-enums`, `--role`) and `schema push`
+  (`--yes`), wired to `canopy_schema` (`update_schema_file`, `schema_diff`, `schema_push`) and to
+  `canopy_data::schema::load_schema` (validator, else the newest documents). The schema file is loaded through
+  the emitter with `--schema`; the bundle's `schema` part is parsed by `parse_collection_schemas`.
+- **Type generation**: the maintainer decided on 2026-11-26 to use the schema file and `canopy pull`,
+  following the TypeScript CLI (0c08fd38). The standalone Rust CLI command and its `--check` flag were removed.
+- **Indexes** ([`indexes.rs`](../../../crates/canopy-cli/src/indexes.rs)): `advise` and `create` through
+  `canopy_policy::plan_indexes`, policies from the folder when `--dir` or `policies.dir` names one, else the
+  meta database.
+- **`init`** ([`init.rs`](../../../crates/canopy-cli/src/init.rs), [`templates.rs`](../../../crates/canopy-cli/src/templates.rs)) and
+  **`doctor`** ([`doctor.rs`](../../../crates/canopy-cli/src/doctor.rs), with the MongoDB diagnostics of
+  `@canopy/protocol` ported to the Rust driver's errors in [`diagnostics.rs`](../../../crates/canopy-cli/src/diagnostics.rs)).
+  One difference: an invalid policy folder makes the Rust `doctor` stop with the emitter's error, where the
+  TypeScript one printed `fail  policies do not load` and went on.
+- **`canopy dev`** ([`dev/`](../../../crates/canopy-cli/src/dev/mod.rs)): the gateway runs **in process**.
+  `canopyd` is now a library plus its binary (`src/lib.rs` holds what `main.rs` held; `main.rs` calls
+  `canopyd::cli()`), with `canopyd::embedded(config, policies, Embedding)`: the configuration document, the
+  starting policy set, a channel of later policy sets, the bound port, the setup token (kept for the caller
+  instead of logged) and a stop notification. [`dev/gateway.rs`](../../../crates/canopy-cli/src/dev/gateway.rs)
+  ports `gatewayConfig` from the resolved config (log level `warn`, metrics on a free port, `realtime: false`
+  offers no transport; persisted GraphQL operations are not passed yet). The loop polls the policy folder
+  (every 50 ms, 30 ms settle) and emits again on save, sending the new set; the config file and the `.env*`
+  files next to it restart the server (a broken edit keeps the running one); a `canopy.schema.ts` or `.js`
+  is checked for drift at start, on save and on `create`, `modify`, `drop`, `rename` and `dropDatabase`
+  events. Env files load as the TypeScript `loadConfig` does; session keys are generated when the
+  development config has none. `--with-mongo` uses Docker (`docker inspect`, `run`, `start`, the same
+  container and volume names) or the official binaries (fastdl URL, SHA-256 checked against the published
+  `.sha256`, unpacked with `tar`, data in `.canopy/mongodb`), then waits for a writable primary. `SIGINT`,
+  `SIGTERM`, Ctrl+Break and the console close event stop it through one path that drains the gateway and
+  stops a started `mongod`.
+- **Project loading**: the emitter's `"<pointer>: "` message prefix is removed for policies and tests (the
+  real emitter's `invalid-policy` message then equals the recorded one); a `--dir` that does not exist is not
+  passed to the emitter unless the command needs the local policies (`policies pull` into a new folder);
+  `Loading` adds the schema file, env files and overrides.
+- **Usage**: `build`, `--bundle` and a continuation line for `--out` in `build`.
+
+### Evidence
+
+- [`tests/policy_vectors.rs`](../../../crates/canopy-cli/tests/policy_vectors.rs) now loads the fixture
+  through the **real `canopy.js/emit`** (no stand in): 33 golden steps replay, `missing-config`, `init`,
+  `init-again`, `doctor`, `doctor-unreachable`, the 20 R3b steps, `schema-diff`, `schema-push-refused`,
+  `schema-push`, `pull-typescript`, `pull-javascript`, `indexes-advise`, `indexes-create`,
+  `dev-missing-config` and `dev-startup` (the summary with port, keys and setup token replaced, and the
+  `settings/"setup"` document), with stdout, stderr, exit code, file changes and meta documents. After
+  `schema-push`, the replay loads the `notes` validator from MongoDB and compares
+  `canopy_schema::generate_types` output byte for byte with `typeGeneration.types`. The real emitter's actor labels
+  (`alice`, `bob`) and its `invalid-policy` message match the recording.
+- [`tests/pull_vectors.rs`](../../../crates/canopy-cli/tests/pull_vectors.rs): all 9 examples of
+  `conformance/typegen/pull.json` through the binary against a database seeded from the fixture (validators,
+  index, documents), byte identical including CRLF (a mutation of one expected line fails it).
+- [`tests/vectors.rs`](../../../crates/canopy-cli/tests/vectors.rs): `help`, `no-command` and
+  `unknown-command` replay with `USAGE_ADDITIONS` inserted at fixed anchors; a test checks the additions only
+  insert lines. Documented in [conformance/cli/README.md](../../../conformance/cli/README.md#rust-replay).
+- `canopy dev` save to active policy, measured from the file write to REST serving the new policy:
+  142 ms (8.0) and 257 ms (9.0) in the test with Bun as the emitter runtime; on a copy of `deploy/dev`
+  against 37017, 333 and 645 ms with Bun and 651 and 674 ms with Node 26 (each including curl start up per
+  poll). The test asserts under one second.
+- Stops: on POSIX the test sends `SIGINT` and `SIGTERM` and asserts exit 0 with nothing on stderr (not run
+  here, Windows machine). On Windows a test cannot raise Ctrl+C or Ctrl+Break for another console without
+  native calls (`unsafe` is forbidden), so checked by hand: `canopy dev` in its own console closed with
+  `taskkill` (no `/F`) exits 0; with `--with-mongo` (Docker not running, so the binaries path, port 37555)
+  the started `mongod` stops too. Ctrl+C and Ctrl+Break generated through `GenerateConsoleCtrlEvent` from a
+  helper did not reach any process in this session (the helper itself survived), so those two are unverified.
+- Whole crate on 8.0.34 (37017) and 9.0.8 (37090): `cargo test -j 2 -p canopy-cli` all suites pass
+  (20 unit, auth_import 2, bundle_publishing 3, meta_vectors 3, policy_vectors 4, pull_vectors 1, vectors 4).
+  `canopyd` after the library split: lib 21, builtin_auth 7, control 3, studio 1, data_plane 30 pass on 8.0.
+  `cargo clippy -j 2 --no-deps -p canopy-cli -p canopyd --all-targets -- -D warnings` clean, `cargo fmt`
+  applied to both crates, `tools/repo-check workspace dashes` pass. `Cargo.lock` adds only canopy-cli's new
+  dependencies (canopy-data, canopy-schema, canopyd, ring); `fuzz/Cargo.lock` unchanged. Isolated databases
+  dropped.
+
+### Left for R4 and the `@canopy/cli` launcher
+
+- Golden steps not replayed against the Rust CLI: none of the 57 is left; `realtime-*`, `key-*`, `admin-*`
+  and `auth-import*` replay in zero config mode (`meta_vectors.rs`), the remote ones in `vectors.rs`.
+  `policies push`/`pull` with `--env` remain unreplayed (R3b).
+- Not run here: the replay on Windows arm64, Linux glibc and musl, macOS; Docker for `--with-mongo`.
+- The launcher (not built): a generated, dependency free JavaScript `bin` in `@canopy/cli` that maps
+  `process.platform`, `process.arch` and, on Linux, glibc or musl (`process.report.getReport().header.glibcVersionRuntime`)
+  to the platform package, resolves its `./canopy` export (6a7e0272) with `require.resolve` from the
+  launcher's own location (works hoisted, isolated, pnpm and Yarn Plug'n'Play; the platform packages need
+  `"preferUnplugged": true` so PnP extracts the executable), honours a `CANOPY_BINARY` override, spawns the
+  binary with an argument array and inherited stdio, forwards `SIGINT`, `SIGTERM` and `SIGBREAK` and exits with
+  its code; the eight platform packages become `optionalDependencies` of `@canopy/cli` (today of
+  `@canopy/realtime`), with a clear message when none installed. `canopy dev` serving Studio needs the
+  `@canopy/studio-assets` path passed as `CANOPY_STUDIO_DIR` (R6). Then the install tests of the R4 gate.
+
+## Checkpoint (2026-11-26): R2 gates after the maintainer's decisions, CI green
+
+- The decisions (ec3e1809): startup timed on the first snapshot shown; keep working on matching in
+  browsers; do the Document refactor in R2.
+- Gate status with numbers: client module 81,328 Brotli bytes (reproducible, gate enforced in CI;
+  f0e495c6 kept the native release profile overrides out of the Wasm build); eager JavaScript smaller
+  than TypeScript; compile and instantiate about 6.4 ms; startup first snapshot within 2.5% of TypeScript
+  (default CSP) and 1.1% over (strict CSP), ready 55 ms later (105 ms with wasm2js), 248f76bb; matching on
+  retained documents: Bun and Node pass all six, Chromium 4x passes five, simple equality about 1.45x
+  (work in progress by Codex, paused on a usage limit until about 6:02 AM IST, uncommitted); first
+  contact cost (not gated) broken down: mostly JavaScript BSON encoding and the Rust decode into owned
+  documents (e2158298, Canopy.js f3d8db9); update ratio waits on the Document refactor (claudeAgent in
+  a separate worktree, paused on a usage limit until 6:50 AM IST); wasm2js on Hermes 2.36x to 3.85x for
+  matching (gate 3x).
+- Commits: 9e397129 and Canopy.js d4dcb90 (shared slot buffer; a per filter decision cache was removed
+  because document objects are not frozen), e2158298 and f3d8db9, f963edb0 (startup harness times first
+  snapshot and ready), d81daa15 and fe3b720f (images build canopy.js/emit with Canopy.js's own
+  dependencies; schema guide no longer describes Standard Schema), cfa17272 (macOS path in a CLI test),
+  f0e495c6, 248f76bb.
+- CI on fe3b720f passed every job (run 45717973070); the Security check on PR #6 stays red by the
+  maintainer's decision.
+
+## Checkpoint (2026-11-26): R2 closure work, CI repairs and R7 preparation
+
+- R2: the client module size fix and the build gate (a8a2c3c1, dbac0c47), the reproducible Wasm build
+  (63995c35; client now 81,126 Brotli bytes; note it uses RUSTC_BOOTSTRAP for two -Z flags and a rustc
+  wrapper for stable crate identities), securePipeline in the authoring module (cbb94dc5), the Canopy.js
+  core removal and vector check (Canopy.js 57627d2, a50e1e9; CLAUDE.md updated in 964b1d74), the Hermes
+  replay (67adf81c: Hermes 0.12.0 and 1.0.0 pass all 11 vector sets; matching 2.36x to 3.85x TypeScript
+  on desktop CLIs; React Native devices unmeasured), the engine benchmark with a frozen TypeScript
+  baseline (b76d4afb; first numbers taken on a loaded machine, not gate results), the cross runtime
+  replay results (Wasm passes on Bun, Node 24 and 26, Deno, Chromium, Firefox and WebKit; strict CSP
+  refuses Wasm in all three browsers as expected; the authoring module has no wasm2js build by design).
+- Fixes found by CI: d2d2d28d (wire unified replay stores change stream images), 1e3ba435 (CI builds
+  Canopy.js refactor/rust-core and gives the Rust job Bun), 5ac86df5 (tests stop using APIs Canopy.js
+  removed), 87a8ede6 and e155b5dc (macOS /private/var paths in CLI tests), 86c0f599 (Dockerfiles follow
+  the new Canopy.js layout), 3250d706 (schemas through the canonical collection schema document),
+  Canopy.js 0307378 (a live query reports ready only once optimistic changes apply; fixed the sdk-e2e
+  optimistic mutation failures).
+- R7 preparation: b7d1e94b (the removal map in [10-r7-removal-map.md](10-r7-removal-map.md)), fcbda683 (the
+  wire test key issued natively).
+- 00ceb883: the deploy manifest tests moved from packages/server to the private @canopy/deploy-tests
+  package (32 tests).
+- In progress: R4 (claudeAgent, paused on a usage limit, resumes on its own).
+- Open for the maintainer: the R2 matching gate needs a quiet machine measurement with b76d4afb's tool; the
+  wasm2js gate (at most 3x) is borderline on Hermes for matching; the startup gate should be re-measured
+  because a live query now reports ready only after the core loads.
+
+## Checkpoint (2026-11-26): commits since the decisions
+
+- Commits: bbb00fcf (auth import firebase, auth0, cognito), ad1f616e (Microsoft profile photo on redirect sign in; provider tokens stay unencrypted, as TypeScript stores them), 8b8be881 (Rust type generation and pull writers in canopy-schema), 6a7e0272 (canopy binary in the platform packages), 78efa0a2 (schema diff and push planning), 52468fca (index advice in canopy-policy), 49e889fc (CLI replay substitutes the resolved project path for macOS), c2553ee6 (the progress notes no longer quote the test credential URL), 7bffa277 (auth oracle checks the response floor on a controlled clock; fixes the identifier-limit heldForTheFloor flake), a49760a9 (fuzz lock), 4293707b (matcher speedup: equality 47 to 80 down to 14 to 16 ns per document, dotted path 130 to 144 down to 58 to 64, natively; it grew the client Wasm module from 81,646 to 82,630 Brotli bytes, over the 81,920 gate, being fixed by Codex).
+- The maintainer accepted the red Security check on PR #6 (the fake credential URL in the commit message of 4692950d and in the notes of 225925c9 stays in history; later commits are clean).
+- d2d2d28d: the wire unified replay enables change stream pre and post images on its watched collections. Without them, the update lookup of the change stream fixture could run after the delete under load, and Canopy rightly ended the watch with ChangeStreamHistoryLost (`missing_update_image`) instead of dropping the change.
+- In progress: Codex on the client module size; Codex on removing the TypeScript core copies and `sync-core.ts` from Canopy.js (R2 exit); claudeAgent on R4 (wiring pull, schema, indexes, type generation, init, doctor, dev, the real emitter in the golden replay, the usage text).
+
+## Checkpoint (2026-11-26): R3b Canopy 3c71a8f3 (CLI project loading, build, policies, config print)
+
+The Rust half of R3, built against the R3a contract below. `canopy.js/emit` does not exist yet, so every
+replay loads the project through a stand in emitter (a small ES module given by `CANOPY_EMITTER`, run by the
+detected runtime) or through `--bundle` files built from the R0 authoring vectors.
+
+### What was built
+
+- **Config resolution in Rust**: [`crates/canopy-config/src/authoring/`](../../../crates/canopy-config/src/authoring/mod.rs)
+  ports the TypeScript resolver (`packages/config`: spec, resolver, normalize, built in auth, the cron check,
+  env file parsing, `config print` formatting with masked secrets and `--sources`). `resolve_config(document,
+  options)` takes the canonical unresolved config document; `$ejson` payloads (JWKS, webhook filters and
+  bodies) become plain values with `$literal` escapes removed and dates as ISO strings. One decided
+  difference: `auth.claims` takes the HTTPS hook `{url, secret}` (O3) instead of the TypeScript function, so
+  the `https-claims` vector (`futureClaims`) is replayed with its claims problem replaced by the hook's
+  checks (https or loopback http outside production, no credentials, required secret reference).
+- **Project loading** ([`crates/canopy-cli/src/project.rs`](../../../crates/canopy-cli/src/project.rs)):
+  `--config`, else `canopy.config.{ts,mts,js,mjs}` or `canopy/canopy.config.*` walking up from the working
+  directory as the TypeScript loader does (passed to the emitter as `--config` with `--root`); runtime
+  detection Bun, Node 24 or later (`node --version` checked), Deno (`run --allow-read --allow-env`),
+  `CANOPY_RUNTIME` picks one; programs are found through `PATH` and `PATHEXT`, so `.cmd` shims resolve and are
+  spawned with argument arrays; the emitter is `CANOPY_EMITTER` or `exports["./emit/cli"]` of the nearest
+  `node_modules/canopy.js`. The last stdout line is the bundle; on failure the last stderr line's
+  `{"error": ...}` is mapped (policy and test parts print `error  <message>` as the TypeScript loader did).
+  Without a config file, `--dir` or `--bundle` nothing is spawned (zero config). When the policy folder the
+  resolved config names (`--dir`, `policies.dir` including `CANOPY_POLICIES`, else `canopy/policies`) differs
+  from the bundle's `files.policies`, the emitter runs again with `--policies`.
+  [`bundle.rs`](../../../crates/canopy-cli/src/bundle.rs) validates with `canopy_authoring::validate_bundle_json`
+  and reads the test cases. A missing `--config` file prints `Cannot find module '<path>' imported from <canopy
+  binary>` with the debug hint, as the recorded step does.
+- **Config from the project for the existing commands**: `migrate`, `keys`, `admin` and `realtime
+  enable-images`/`disable-images` resolve the config like the TypeScript CLI (`gen`, or `policies` when
+  `--mongodb-uri` or `--env` is given) and read `mongodb.uri`, `metaDatabase` (`CANOPY_META_DB` first) and
+  `database` from it ([`meta.rs`](../../../crates/canopy-cli/src/meta.rs): `meta_target`, `app_target`,
+  `with_client`, `require_migrated`). This is stricter than the earlier Rust build, as TypeScript is: a
+  `MONGODB_URI` without a database and no `CANOPY_DB` is a config problem even for `migrate`.
+- **Publishing** ([`policies.rs`](../../../crates/canopy-cli/src/policies.rs),
+  [`targets.rs`](../../../crates/canopy-cli/src/targets.rs)): `policies diff` (`--fail-on-drift`), `push`
+  (`--expect-version` bare or `collection=version` pairs with `_context`, `--comment`, `--dry-run`), `pull`
+  (DSL modules through [`dsl.rs`](../../../crates/canopy-cli/src/dsl.rs), then the folder is emitted again and
+  every pulled collection must hash to its published version), `history` (`--limit`), `rollback`
+  (`--expect-version`, `--yes`), against the meta database through `canopy_mongo::publish::PolicyPublisher`
+  (already public in `canopy-mongo`, a dependency of the CLI; nothing in `canopy-control` was needed) or
+  against the admin API with `--env`. Every command accepts `--bundle <file>` instead of emitting.
+- **`canopy build`** ([`project_commands.rs`](../../../crates/canopy-cli/src/project_commands.rs)): emits with
+  `--command start` and writes the bundle as emitted (config unresolved) to `--out`, default
+  `<root>/canopy.bundle.json`. `canopyd` `CANOPY_POLICY_BUNDLE` now accepts that file as well as a bare policy
+  set (`policy_part` in [`publish.rs`](../../../crates/canopy-mongo/src/publish.rs)); a bundle without a
+  policies part is refused.
+- **Policy commands**: `policies lint`, `policies test` ([`policy_tests.rs`](../../../crates/canopy-cli/src/policy_tests.rs):
+  memory backend through `evaluate_in_memory`, MongoDB backend in a throwaway database as the TypeScript
+  runner does, coverage), `policies explain` ([`explain.rs`](../../../crates/canopy-cli/src/explain.rs), with
+  `--mongodb-uri` context lookups resolved through `context_query`/`lookup_values` and matching documents
+  counted), `config print` (`--sources`). Filter cases follow the 2026-11-26 decision: without MongoDB they
+  print `skip ... a filter case runs only against MongoDB` and count as not run; with MongoDB they read the
+  matching app documents (`--database`, `CANOPY_DB` or the URI path; at most 1000) and pass only when every
+  one gives the expected outcome on both backends; no match fails with "the filter matched no documents", a
+  mixed match names the disagreeing `_id`s.
+
+### Evidence
+
+- `cargo test -j 2 -p canopy-config --test authoring`: all 49 config vectors with a document (config,
+  sources, secrets and the exact `config print --sources` text, or the problems with pointers) replay; a
+  mutation of one default (`server.nodeId`) fails it. Plus claims hook, malformed documents and env file tests.
+- [`tests/policy_vectors.rs`](../../../crates/canopy-cli/tests/policy_vectors.rs) replays 20 golden steps of
+  `conformance/cli/vectors.json` (`missing-config`, `config-print`, `lint`, `invalid-policy`, `policy-test`,
+  `policy-explain`, `push-unmigrated`, the three migrate steps, `policy-drift` through `policy-pull`) with
+  stdout, stderr, exit code, file changes (the pulled module byte for byte) and meta documents, through the
+  real spawn path (Bun on this machine), and checks the emitter arguments (`--config`, `--mode`, `--command`
+  `print`/`policies`/`gen`, `--policies` for the pull check). `tests/meta_vectors.rs` still replays its 13
+  steps in zero config mode.
+- [`tests/bundle_publishing.rs`](../../../crates/canopy-cli/tests/bundle_publishing.rs): for all 15 authoring
+  sets, `canopy policies push --bundle` stores documents equal to `conformance/authoring/policy/publishing.json`
+  (the TypeScript publisher's) apart from version and attribution, and the bundle hash equals; a second push
+  publishes nothing and `diff --fail-on-drift` passes. (A first version of the test reordered filter keys
+  through `serde_json` and the hashes differed, so the comparison does fail on a real difference.) `canopy
+  build` writes the emitted bundle with a secret canary absent; `push --bundle` runs no emitter. Filter cases:
+  offline skip, online pass, mixed and empty failures.
+- `canopyd` `publishing_startup_bundle_is_enforced_by_canopyd` extended: a full bundle publishes only when its
+  policies part changed; unit test of `policy_part`.
+- All of the above on MongoDB 8.0.34 (37017) and 9.0.8 (37090), isolated databases dropped.
+  `cargo clippy -j 2 --no-deps -p canopy-config -p canopy-cli -p canopy-mongo -p canopyd --all-targets -- -D
+  warnings` clean; rustfmt applied to the touched files; `tools/repo-check dashes` passes. (Without
+  `--no-deps`, clippy stops on `crates/canopy-authoring/src/json_schema.rs` `map_entry`, R3a's crate.)
+
+### Deltas and open points
+
+- The Rust publisher's guard document `policy_publication/publisher` (R1) is not in the TypeScript vectors;
+  the replay excludes that collection and asserts its single guard document.
+- `build` and `--bundle` are not in `usage.txt` yet, so the frozen help, no command and unknown command
+  steps still replay; adding them changes those three recorded outputs and needs the reviewed re-record of
+  plan 005 §8.
+- What remains for the emitter integration: run the same replay with the real `canopy.js/emit/cli` once it is
+  built (the fixture imports `@canopy/policy`, `@canopy/policy/testing` and `@canopy/schema/define`, so the
+  temp project needs `canopy.js` installed and the fixture's imports moved to `canopy.js/*`), check its error
+  messages for `invalid-policy` (`notes.json must export collection(...) policies`) and a missing module, and
+  the actor labels of `as.user(...)` (the stand in uses the `sub`).
+- Not done: `policies push`/`pull` remote paths (`--env`) are implemented but not replayed; `canopy dev`,
+  `doctor`, `init`, `schema`, `pull`, `indexes` and type generation stay R4.
+
+## Checkpoint (2026-11-26): R3a Canopy 0c115669 (canopy-authoring crate and the Wasm authoring module) plus Canopy.js f28b873 on refactor/rust-core (canopy.js/emit, schema DSL, where(filter))
+
+Written early by the R3a task (Canopy.js builders and `canopy.js/emit`) so R3b can build against it. This
+section is the contract; anything not written here is not promised.
+
+### The bundle (version 1)
+
+`canopy.js/emit` prints one JSON object, the canonical bundle. Each part is exactly the canonical document of
+[`conformance/authoring`](../../../conformance/authoring/README.md), unchanged, so a part can be handed to the
+existing Rust parsers as is (`policies` is what `CANOPY_POLICY_BUNDLE` and `canopy_policy::parse_policy_set`
+read).
+
+```json
+{
+  "version": 1,
+  "context": { "mode": "development", "command": "start" },
+  "files": {
+    "config": "canopy.config.ts",
+    "policies": "policies",
+    "tests": ["policies/notes.test.ts"],
+    "schema": "canopy.schema.ts"
+  },
+  "config": { "version": 1, "config": { } },
+  "policies": { "version": 1, "collections": [], "contexts": {} },
+  "tests": [{ "version": 1, "suite": "notes", "collection": "notes", "actor": {}, "action": "read", "expected": true, "doc": {} }],
+  "schema": { "version": 1, "collections": [] }
+}
+```
+
+- `context`: the mode (`development` or `production`) and command the config function was called with.
+- `files`: paths relative to the project root with forward slashes, `null` when absent; for the watcher of
+  `canopy dev` and for error messages. `tests` lists every test file that was loaded.
+- `config`: [config.schema.json](../../../conformance/authoring/config.schema.json), or `null` without a
+  config file (zero config mode). `env()` values stay `{"$env": ...}` references; the emitter never resolves
+  them, so no resolved secret can appear in a bundle.
+- `policies`: [policy-set.schema.json](../../../conformance/authoring/policy-set.schema.json), or `null` when
+  the project has no policy folder (policies from the database). Collections appear in policy folder order
+  (files sorted by name, each file's collections in export order).
+- `tests`: [policy-test.schema.json](../../../conformance/authoring/policy-test.schema.json) documents, in
+  test file order, then suite and case declaration order; `[]` when there are none.
+- `schema`: [collection-schema.schema.json](../../../conformance/authoring/collection-schema.schema.json),
+  or `null` without a schema file.
+
+Project discovery (all relative to `--root`, default the working directory):
+
+- Config: `--config <file>`, else the first of `canopy.config.{ts,mts,js,mjs}` in the root, then in
+  `canopy/` (the TypeScript loader's names; no walking up). A default export that is a function is called
+  once with `{ mode, command }`.
+- Policy folder: `--policies <dir>`, else the config's `policies.dir` relative to the config file's
+  folder. When `policies.dir` is a non secret `env()` reference the emitter reads that variable (or its
+  default) only to find the folder; the value is not put in the bundle. Folder rules are the TypeScript
+  loader's: `*.ts`, `*.mts`, `*.js`, `*.mjs` default exports (a `collection(...)` or an array of them),
+  stored form `*.json`, `_context.*` for lookups; `*.test.*` and `*.spec.*` are test files.
+- Tests: every `*.test.*` file of the policy folder (and `--tests <dir>` if given). A test file declares
+  suites with `describePolicies`, and may default export a suite, a test case or an array of them.
+- Schema: `--schema <file>`, else `canopy.schema.ts`, then `canopy.schema.js` in the root; its `schema`
+  export (a `defineSchema(...)` result).
+
+### The emit protocol
+
+- Run: `<runtime> <path of canopy.js/emit/cli> [options]`, the CLI resolving the file through the project's
+  `node_modules/canopy.js/package.json` `exports["./emit/cli"]` (`dist/emit/cli.js`), spawned with an argument
+  array; runtimes in the order Bun, Node 24+ (type stripping runs the project's `.ts` files), Deno
+  (`deno run --allow-read --allow-env`). The library form is `import { emitProject } from "canopy.js/emit"`.
+- Options: `--root <dir>`, `--config <file>`, `--policies <dir>`, `--tests <dir>`, `--schema <file>`,
+  `--mode development|production` (default from `CANOPY_ENV`, else `development`), `--command <name>`
+  (`start`, `dev`, `realtime`, `gen`, `policies`, `doctor`, `print`; default `start`).
+- Success: exit code 0; stdout's last line is the bundle as compact JSON followed by `\n`. Project code's
+  `console` output is redirected to stderr while the project is loaded, so stdout normally holds only the
+  bundle; take the last non empty line.
+- Failure: stdout has no bundle; the last line of stderr is one JSON object
+  `{"error":{"code","message","part","path","file"}}`. `part` is `config`, `policies`, `tests` or
+  `schema`; `path` is an RFC 6901 pointer into that part's document (as recorded in the authoring vectors,
+  for example `/collections/0/policies/0/roles/0`, `/config/auth/claims`, `/assert` for a test case); `file`
+  is the project file the failing value came from when known, else `null`. Exit codes: `1` the project is
+  invalid (codes `CANOPY_INVALID_QUERY` for policies and tests, `CANOPY_CONFIG_INVALID` for config,
+  `CANOPY_SCHEMA_INVALID` for the schema; a project module that throws while loading is reported the same
+  way with an empty path); `2` usage error (unknown option or value, code `CANOPY_INTERNAL`); `3` the emitter
+  itself failed (for example the authoring module did not load, code `CANOPY_INTERNAL`).
+- Validation: before printing, every part passes the Rust authoring module (Wasm) of `packages/wasm`
+  (JSON Schema and the Rust semantic checks), so R3b may treat an emitted bundle as already validated but
+  must still validate it (a bundle can be written by hand).
+
+### Rust validation shared with R3b
+
+A new crate `crates/canopy-authoring` holds the validators: a JSON Schema (draft 2020-12 subset) checker over
+the four schemas embedded from `conformance/authoring`, Ajv's first error order (so paths equal the vectors),
+then the semantic checks (`canopy_policy::parse_policy_set`, Extended JSON decoding, collection schema
+rules). API: `validate_policy_set`, `validate_policy_test`, `validate_config`, `validate_collection_schema`
+and `validate_bundle`, each returning `AuthoringError { code, path, message }`. The Wasm authoring module
+exports them; R3b can call the same functions natively.
+
+### Status of R3a (done, not committed)
+
+- **Canopy**: new crate [`crates/canopy-authoring`](../../../crates/canopy-authoring) (above; `regex` without
+  its Unicode tables: `\w` and `\d` are ASCII and `\s` is JavaScript's set, as Ajv reads the patterns with the
+  `u` flag; a leading negative lookahead becomes a second expression that must not match). Policy compiler
+  refusals are narrowed to the context, collection, policy or clause that causes them by compiling each part
+  on its own. The collection schema rules of declared shapes (field names, required `_id`, string literals)
+  apply only to collections with source `config`, and keep the TypeScript builder messages.
+  [`packages/wasm/src/authoring.rs`](../../../packages/wasm/src/authoring.rs) exports
+  `validatePolicySetDocument` (returns the bundle hash), `validatePolicyTestDocument`,
+  `validateConfigDocument`, `validateCollectionSchemaDocument` and `validateBundle`, throwing an
+  `AuthoringError` with `code` and `path`. The R0 recorders
+  [`packages/schema/test/authoring-record.ts`](../../../packages/schema/test/authoring-record.ts) (invalid
+  schema inputs now come from `canopy.js/emit`, same vector bytes) and
+  [`packages/policy/test/conformance/authoring/record.ts`](../../../packages/policy/test/conformance/authoring/record.ts)
+  (type narrowing for the new filter case union) follow the Canopy.js change.
+- **Canopy.js** (`refactor/rust-core`): `canopy.js/emit` and `canopy.js/emit/cli` (`src/emit`); the schema
+  DSL is now owned by Canopy.js in `src/schema` (no longer vendored by `sync-core.ts`) and its builders no
+  longer throw: names, field builders, generators, a required `_id`, string literals and duplicates are
+  refused at emit time with the recorded code, path and message; `canopy.js/policy/testing` is a Canopy.js
+  module (`src/policy/testing.ts`) wrapping the vendored helpers, with `where(filter)` for filter cases (a
+  filter case is reported `notRun` by the in memory runner, never passed); `sync-wasm.ts` vendors the
+  authoring module (Wasm only, no wasm2js); `sync-core.ts` vendors the authoring JSON Schemas and vectors into
+  `test/vectors/authoring`; a client boundary test also forbids `emit`, `schema`, `policy` and
+  `wasm/authoring` imports from the client and bindings; changeset `authoring-emit.md`.
+- **Evidence**: `cargo test -j 2 -p canopy-authoring` 12 of 12 (every R0 policy set, its publishing hash, 16
+  test cases, 49 config documents, 5 collection schemas; the Rust side invalid vectors with their codes and
+  paths; mutation checks fail them). Clippy clean for the crate (all targets) and for `canopy-wasm` on
+  `wasm32-unknown-unknown` with `authoring`. Canopy.js: 356 tests (248 before plus 108 in `test/emit`) pass on
+  Bun, on Node 26.13.1 and on Bun with `CANOPY_TEST_CORE=js`; lint, format, `tsc -b`, `tsc -p scripts`,
+  `check:core` and `check:wasm --manifest-only` pass. `test/emit` replays every policy, suite, filter,
+  config (51, two emission refusals) and schema vector through the builders and `canopy.js/emit` (deep and
+  byte equal, publishing hashes equal), every invalid vector with its code and path (schema also message),
+  a fixture project (sorted policy folder, stored JSON, `_context`, tests with `where`, schema, config
+  function), the output protocol and exit codes, refusals naming the file, the Canopy.js template, Canopy's
+  `deploy/dev` (equal to its vectors), and a secret canary (an `env.secret` value set in the environment
+  never appears on stdout). The built CLI on Canopy's `deploy/dev` prints bundles equal to the vectors under
+  Bun, Node 26 and Deno. In Canopy after `bun install`: `tsc -b`, `vectors:authoring-policy --check`,
+  `vectors:authoring-config --check` and the schema, config and policy authoring replays pass; `bun.lock`
+  unchanged.
+- **Not covered**: `examples/express-dropin/canopy/policies/tickets.test.ts` imports `@canopy/policy/testing`
+  (the TypeScript server package that `canopy policies test` uses) and has no default export, so the
+  emitter sees its policies (equal to the vector) but none of its cases; its vector replays the canonical
+  source. Moving examples to `canopy.js/policy/testing` belongs with the Rust `policies test` (R3b) or R7.
+  The vendored TypeScript policy engine, config resolver, query and matcher files under `src/core` remain
+  (removing them is the R2 item "deleting sync-core.ts").
+- **Client size gate, upstream regression**: the authoring change leaves the client and transforms modules
+  byte identical, but commit `4293707b` (`perf(matcher)`) grows the client module from 81,646 to 82,630
+  Brotli bytes (quality 11), over the 81,920 byte gate. Canopy.js keeps the committed client and transforms
+  artifacts (only the authoring entries were added to its manifest), so `check:wasm` against a fresh Canopy
+  build reports those four files until that is resolved. The authoring module is 1,356,553 bytes (376 KB
+  Brotli), mostly from `regex` with Unicode tables pulled by `canopy-schema` and `url`/ICU pulled by
+  `canopy-config`, both from other work.
+- Binaryen 133 for the split build is at `target/binaryen/binaryen-version_133/bin` (official release,
+  SHA-256 checked against the release digest); set `CANOPY_WASM_OPT` and `CANOPY_WASM2JS` to it.
+
+## Checkpoint (2026-11-26): maintainer decisions, CLI commands, Studio image
+
+- Decisions of 2026-11-26: (1) the R2 optimistic update gate is accepted at the measured ratio, at most 3x for this stage (written in docs/plans/005-all-server-code-in-rust.md §7); (2) a policy test case in filter form runs only against MongoDB and passes when every matching document gives the expected outcome; an empty or mixed match fails; without MongoDB it is not run (written in conformance/authoring/README.md); (3) the Security finding on PR #6 is handled by excluding crates/canopy-authn/src/server/claims.rs in .github/trufflehog-exclude.txt.
+- Commits: a2059d40 (Rust CLI: admin list, create and reset-totp; realtime enable-images and disable-images; auth import --from csv with dry run and the admin API import; golden replay on MongoDB 8.0.34 and 9.0.8; firebase, auth0 and cognito imports not built yet), 4692950d (the TruffleHog exclusion), 55dfb7e7 (the two decisions in the docs). bbb00fcf (auth import --from firebase, auth0 and cognito; tests sign in an imported Firebase scrypt user and an Auth0 bcrypt user and check the rehash to Argon2id). Canopy.js branch refactor/rust-core: 2b3855c (canopy-stack runs Studio on the canopy image through CANOPY_GATEWAY_IMAGE, api and realtime on canopy-legacy through CANOPY_IMAGE, and `up --build` builds both; 248 tests pass on Bun and Node 26).
+- In progress: R3 split between two claudeAgent tasks: R3a (Canopy.js builders validated by the Rust authoring module and `canopy.js/emit`) and R3b (Rust CLI project loading through the emitter, `canopy build`, publishing from a bundle, policies lint, test, explain, diff, push, pull, history, rollback, config print).
+- Still open: the R2 matching gate (missed in 3 to 4 of 6 filters) and the wasm2js gate (missed, at most 3x) were not part of the decision and remain open.
+
+## Checkpoint (2026-11-25): R2 committed on branches, allocator measured, CI fixes
+
+### Commits on refactor/rust-port
+
+- `f1955faf` (`test(authn)`): the claims hook unit test case with a credential URI (`https://user:pass@...` in [`crates/canopy-authn/src/server/claims.rs`](../../../crates/canopy-authn/src/server/claims.rs)) carries a `trufflehog:ignore` marker, because TruffleHog reported it as an unverified URI secret and failed the Security workflow on `9af1d9c1`. Security on PR #6 still fails, and the `trufflehog:ignore` marker of `f1955faf` does not fix it: the Security workflow runs on `pull_request`, so TruffleHog scans every commit from master to the PR head. Run locally (TruffleHog 3.100.1 over `git merge-base origin/master HEAD`..refactor/rust-port with the workflow's arguments), it reports one finding only: the original unmarked test URL with a user name and password in commit `9af1d9c1`, `crates/canopy-authn/src/server/claims.rs` line 276. A later commit cannot clear a line in an older commit, and history is not rewritten (no force push). The remaining options, a path exclusion for that file in `.github/trufflehog-exclude.txt` or excluding the URI detector, both weaken scanning, so they are a maintainer decision.
+- `34fee103` (`test(rest)`): the cursor-pages deep page plan test flaked because, under load, MongoDB abandons a `system.profile` write when it cannot take a ticket within its zero millisecond lock deadline (log event 20703); the test now profiles only its tagged finds through a profiling filter (which also writes them to the diagnostic log) and reads the same metrics (`keysExamined`, `docsExamined`, `nreturned`, `planSummary`) from `getLog` when the profiler entry is missing. Found and fixed by `codex_sudhan`; before, 1 broader parallel run reproduced the flake on 8.0.34; after, 7 targeted runs passed on each of 8.0.34 and 9.0.8.
+- `a0aa019c` (`feat(wasm)`): the R2 work of [`packages/wasm`](../../../packages/wasm) (`DocumentCache` in the client module; `sortBson`, `projectBson`, `updateBson` and `UpdateCache` in the transforms module; the Node-API compatible handles behind a `binding` feature; transforms at `opt-level = 3` and `wasm-opt -O3`) and [`bench/baselines/r2`](../../../bench/baselines/r2) `root-entry.ts` and `startup.mjs`, committed after clippy for every feature set on the host and Wasm target, rustfmt, the package tests and the R2 replay on Bun and Node 26 (wasm and js) passed.
+- `5388379f` (`fix(wasm)`): `build.ts` writes the wasm2js translations with LF, because wasm2js on Windows writes CRLF and the manifest hash then disagreed with the LF bytes Git commits.
+
+### Canopy.js
+
+- The R2 adoption is committed on a new branch `refactor/rust-core` (pushed to origin; master untouched): `a3e4a12` `fix(core)` syncs `realtime.server` `auto` and BSON symbols from Canopy; `a4bcb19` `feat(client)` runs the client paths on the Rust core (vendored Wasm under `src/core/wasm` with manifest, `src/client/bson.ts`, `src/client/engine.ts`, the store changes, removal of the vendored lite matcher and updater, devtools warnings asking the core, a changeset `rust-core.md`).
+- Suites: 247 of 248 pass with the Wasm core and with `CANOPY_TEST_CORE=js`; the one failure is `test/cli/compose.test.ts`, real drift because Canopy now runs Studio as a canopyd role while the Canopy.js template and canopy-stack still use a separate `canopy-studio` image (being fixed, see below).
+
+### R2 optimistic update, allocator measurement and native probe
+
+- Measured on a loaded machine (two Codex agents building), so only ratios are meaningful. Bun, one update of a six field document: TypeScript 3.1 to 3.4 µs; Rust retained update plus decoding its change set 8.0 to 8.7 µs; bare `updateBson` 7.8 to 8.2 µs. Node 26: 2.4, 6.3 and 6.2 µs. Ratio about 2.6x (gate: at most 2x).
+- A talc global allocator for the transforms module (A/B interleaved in one process) was about 10 % slower than the default dlmalloc on both runtimes, so it was reverted.
+- A native probe of the same pipeline (opt-level 3, fat LTO, Windows) took 6.1 µs: decoding the two field update 1.46 µs, decoding the document 2.11 µs, cloning it 0.85 µs, applying the update 1.75 µs, encoding the document 0.99 µs. So Wasm adds only about 1.3x over native; the cost is the allocation heavy Document tree (`Vec<(String, Value)>`, one heap allocation per key and per string value).
+- The next lever is a small inline key representation in canopy-protocol's Document, a refactor across every crate that uses `Document::fields()` or its `(String, Value)` iterators, estimated at 30 to 35 % fewer allocations, while the gate needs about 42 % off the Wasm side. This is a maintainer decision ([plan 005 §7](../../plans/005-all-server-code-in-rust.md#7-the-wasm-core-in-canopyjs-bundle-and-startup-gate): the stage stops when a gate is missed).
+
+### R3 readiness
+
+- [Plan 005 §5](../../plans/005-all-server-code-in-rust.md#5-stages) lists R3's dependencies as the R2 authoring module and R1 publishing, both available, so R3 does not wait on the matching and update gates.
+- One open maintainer question from [`conformance/authoring/README.md`](../../../conformance/authoring/README.md) remains: the semantics of the filter form of a policy test case for empty or mixed matches.
+
+### In progress (not committed)
+
+- The R4 CLI task (admin list, create and reset-totp; realtime enable-images and disable-images; auth import --from csv --dry-run): done, committed in a2059d40.
+- The Canopy.js Studio alignment: done, committed in 2b3855c on refactor/rust-core.
+
+## Checkpoint (2026-11-25): R5 split stacks and the CI split job on Rust auth (not committed)
+
+The default split stacks no longer need the TypeScript `canopy-control` image: `/auth/v1`, `/auth/v1/jwks`,
+`/.well-known/jwks.json` and `/admin/v1/users` are served by `canopyd`.
+
+### What changed
+
+- **Shape.** The `auth` service keeps its own process (so stopping `control` leaves sign in working, and
+  stopping `auth` leaves `/admin/v1` working), but it is now the `canopy` image with `CANOPY_ROLE=control` and
+  `CANOPY_AUTH_ENGINE=rust`, reading `--config /app/auth.json`. No Rust change was needed: two control role
+  processes are safe (the migration lease, a setup token per node, the signing key lease; the auth service
+  gets no policy bundle and no webhooks). The edge routing (`Caddyfile.split`) is unchanged. The auth
+  service has no Prometheus metrics any more (canopyd's control role serves none), so its metrics port is gone.
+- [`deploy/compose/split.yaml`](../../../deploy/compose/split.yaml): `auth` on the gateway image, mounting
+  `${CANOPY_AUTH_CONFIG:-./split-gateway.json}` (no built in auth without the overlay).
+  [`split-auth.yaml`](../../../deploy/compose/split-auth.yaml) mounts
+  [`split-auth.json`](../../../deploy/compose/split-auth.json) (`auth.kind` builtin, no email verification,
+  mail logged: development only, since Rust auth refuses the log transport in production).
+- [`split-e2e.yaml`](../../../deploy/compose/split-e2e.yaml) and
+  [`split-e2e-auth.json`](../../../deploy/compose/split-e2e-auth.json): the SDK auth settings (anonymous,
+  email verification, log mail, `claims` at `http://127.0.0.1:28181/claims` with the secret from
+  `$env` `CANOPY_SPLIT_E2E_CLAIMS_KEY`). A `claims-relay` service (the pinned Caddy image,
+  `caddy reverse-proxy --from :28181 --to host.docker.internal:28181`) shares the auth container's network
+  namespace (`network_mode: service:auth`), so the hook URL stays loopback and `claims_url_allowed` is
+  untouched. `auth` gets `extra_hosts: host.docker.internal:host-gateway` (the relay shares its hosts file).
+  The suite gained `CANOPY_SPLIT_E2E_CLAIMS_LISTEN` (`packages/sdk-e2e/test/split.ts`): in CI it listens on
+  `0.0.0.0`, because the relay reaches the runner's bridge address, not its loopback.
+- [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) (images job): the split smoke now runs
+  on Rust auth, then once more with `--typescript-auth`; the SDK auth step sets `CANOPY_AUTH_CONFIG`
+  `./split-e2e-auth.json`, the claims URL, listen address and a fresh `whsec_` key, and recreates
+  `auth claims-relay` with `--force-recreate`. The stack is fresh per job, so `seedSplitPolicy` runs once on
+  its databases.
+- [`split-smoke.ts`](../../../deploy/compose/split-smoke.ts): `--typescript-auth`, and a new sign in with
+  its writes after `control` stops (proves auth does not depend on control).
+- **TypeScript fallback kept**, opt in: [`split-auth-typescript.yaml`](../../../deploy/compose/split-auth-typescript.yaml)
+  (after `split-auth.yaml`) runs the `canopy-control` image with `CANOPY_SPLIT_AUTH_ONLY=on` and a TypeScript
+  config (default `split-control.ts`). Why: Rust auth has not passed the R5 external security review or the
+  24 CPU hour fuzz gate, and TypeScript configs may use what Rust auth refuses (a claims hook written as a
+  function, `emailPassword: false`) or need the auth service's metrics. CI builds `canopy-control:ci` only
+  for this smoke. `split-e2e-control.ts` and the suite's `sdk_e2e_hooks` branch are kept for running the SDK
+  suite against the fallback by hand.
+- Helm ([`templates/split.yaml`](../../../deploy/helm/canopy/templates/split.yaml),
+  [`values.yaml`](../../../deploy/helm/canopy/values.yaml)): the auth component runs `split.data.image` with
+  `CANOPY_ROLE=control`, `CANOPY_AUTH_ENGINE=rust` and `--config /app/auth.json` (a new `auth.json` key of the
+  split ConfigMap: the gateway config with `auth` = `{kind: builtin}` merged with `split.auth.settings` when
+  `publicUrl` is set), or the Secret `split.auth.configSecret`. In production the chart fails without a mail
+  transport in either. `split.auth.image` and `split.auth.configMap` are removed; no auth metrics Service.
+  [`deploy/kubernetes/split.yaml`](../../../deploy/kubernetes/split.yaml) edited to match by hand
+  (`canopy:latest`, `auth.json` key, no `canopy-auth-metrics`); its checksum annotations were not
+  regenerated. [`deploy/README.md`](../../../deploy/README.md) updated.
+- [`packages/deploy-tests/test/deploy-manifests.test.ts`](../../../packages/deploy-tests/test/deploy-manifests.test.ts):
+  the split tests now check Rust auth in Compose, the auth overlay's config, the relay (network namespace and
+  its port equal to the claims URL's, the secret variable passed to `auth`), the TypeScript overlay, and the
+  Kubernetes and Helm auth component.
+- Not changed: `deploy/compose/canopy.yaml` and `edge/Caddyfile` (the legacy single API stack enables no built
+  in auth; its `api` is the TypeScript server and moves with the data plane).
+
+### Evidence
+
+- No Docker daemon on this machine, so the stack ran natively: four processes of the debug `canopyd`
+  (data `CANOPY_ROLE=api` with the `split-auth.yaml` gateway JSON, control, auth with the committed
+  `split-e2e-auth.json`) behind a Node 26 stand in for the edge that routes as `Caddyfile.split` and
+  `split-e2e.caddy` do (including WebSocket upgrades), with fresh app and meta databases and `canopy_auth`
+  dropped after each run.
+- `packages/sdk-e2e/test/auth.e2e.test.ts` through that edge: 5 of 5 on Bun and 5 of 5 on Node 26.13.1, on
+  MongoDB 8.0.34 and on 9.0.8 (four runs). A first run whose key file was missing failed all 5 with
+  `the hook answered 401` (fails closed).
+- The `split-smoke.ts` checks with the committed `split-auth.json` and the example policy bundle (8.0.34):
+  setup, `/admin/v1/users` 401, `/internal` 404, service and user writes, JWKS; with control stopped
+  `/admin/v1/setup` 503, `/admin/v1/users` 401, JWKS and a new sign in with its writes; with auth stopped
+  `/admin/v1/users` and `/auth/v1/settings` 503 while existing tokens and service writes keep working.
+- `deploy-manifests.test.ts` 32 of 32; changing the relay port alone fails it. Biome, `tsc` of the
+  `sdk-e2e` and `server` test projects and `tools/repo-check workspace dashes` pass.
+
+### Only CI can prove
+
+The images, the relay (`network_mode: service:auth` sharing the hosts file, host gateway reachability, Caddy's
+`reverse-proxy` command), the `--force-recreate` step, the TypeScript fallback smoke, the Studio Playwright
+suite against the Rust auth service's `/admin/v1/users`, and `helm template` or `helm lint` (no Helm here).
+
+### Notes
+
+- The data role reads built in signing keys only from `canopy_auth` (`crates/canopyd/src/main.rs`), ignoring
+  `CANOPY_AUTH_DB` and `mongodb.authDatabase`; a split stack whose auth service uses another auth database
+  would mint tokens data cannot verify. Not fixed here.
+
+## Checkpoint (2026-11-25): R5 HTTPS claims hook in Rust (commit 9af1d9c1)
+
+The last R5 gap the SDK auth suite exposed (decision O3). The contract is documented in
+[07-auth §4](../../design/07-auth.md#4-claims).
+
+### What was built
+
+- [`crates/canopy-webhooks/src/signing.rs`](../../../crates/canopy-webhooks/src/signing.rs): the public
+  `Signer` (the `whsec_` or raw secret, `v1,<base64 HMAC SHA-256>` over `id.timestamp.body`), now used by
+  the webhook dispatcher and by auth. No cycle: `canopy-authn` already reached `canopy-mongo` and
+  `canopy-engine`, so the new dependency adds only `canopy-webhooks`. A unit test checks the Standard
+  Webhooks reference signature.
+- [`crates/canopy-authn/src/server/claims.rs`](../../../crates/canopy-authn/src/server/claims.rs):
+  `ClaimsHook` (`url`, `secret`, `timeout` of 200 ms), `claims_url_allowed` (HTTPS, or HTTP on a loopback
+  host outside production; no credentials), `MAX_CLAIMS_ANSWER_BYTES` (4096). `/token` posts
+  `{user, session: {id}}` (the `AuthUser` fields of the TypeScript hook input, without `db` and `signal`) with
+  `webhook-id` (`msg_` and a UUID), `webhook-timestamp` and `webhook-signature`; no redirects, one deadline
+  over connect and answer. The answer checks are the TypeScript `checkHookResult` (only `app_metadata` and
+  `roles`, reserved roles refused, `null` or an empty body adds nothing). Every failure answers 500
+  `{code: CANOPY_AUTH_HOOK_FAILED, message: "The claims hook failed: <reason>"}`, writes
+  `auth.claims_hook_failed` with `details.reason`, and issues no token or session refresh.
+- [`mod.rs`](../../../crates/canopy-authn/src/server/mod.rs): `AuthOptions::claims_hook`, `MAX_TOKEN_BYTES`;
+  an oversize token now answers `CANOPY_AUTH_HOOK_FAILED` with "The access token is N bytes, over the 4096
+  byte cap" and audits `{reason: "token too large", bytes}` as TypeScript does (it was `CANOPY_INTERNAL`).
+  `TokenError::TokenTooLarge` carries the size.
+- [`crates/canopyd/src/builtin_auth.rs`](../../../crates/canopyd/src/builtin_auth.rs): `auth.claims`
+  (`url`, `secret` as text or the canonical `{"$env": {"name": ...}}` reference read from the environment)
+  is mapped; the startup refusal of `claims` is gone.
+- [`packages/sdk-e2e/test/auth.e2e.test.ts`](../../../packages/sdk-e2e/test/auth.e2e.test.ts): in split
+  mode with `CANOPY_SPLIT_E2E_CLAIMS_URL` (and `CANOPY_SPLIT_E2E_CLAIMS_KEY`) set, the suite serves the hook
+  itself, verifies each signature with `node:crypto` and answers 503 while the failure test runs, 204
+  otherwise; it also checks every call was signed and carried the user. Without it, the TypeScript auth
+  service path (`sdk_e2e_hooks` and `deploy/compose/split-e2e-control.ts`) is unchanged.
+
+### Evidence
+
+- `cargo test -j 2 -p canopy-authn` (lib 30, `auth_oracle` 5, the new `claims_hook` 4, the rest) and
+  `cargo test -j 2 -p canopyd --test builtin_auth` (7, two new) pass on MongoDB 8.0.34 and 9.0.8;
+  `cargo test -j 2 -p canopy-webhooks` passes; `cargo clippy -j 2 -p canopy-webhooks -p canopy-authn -p canopyd
+  --all-targets -- -D warnings` is clean. `claims_hook.rs` uses a hook server that checks the signature
+  with its own HMAC code and covers success (claims in the token, the request body and headers), a 204 and
+  `null`, a timeout, 503, a 307 not followed, malformed JSON, a list, an oversize answer (with and without
+  a content length), a forbidden claim, a reserved role, a non object `app_metadata`, an oversize token,
+  another secret, and the URL refusals. Mutations (signing another timestamp; dropping the forbidden
+  claim check) fail it.
+- SDK auth end to end against `canopyd` with `CANOPY_AUTH_ENGINE=rust` (role `all`, the debug build,
+  MongoDB 8.0.34, `server.trustedProxies` loopback, `keys` with `pk_client_auth` and a secret key,
+  `auth.claims.url` `http://127.0.0.1:28181/claims` with the secret from `$env`): 5 of 5 on Bun and 5 of 5 on
+  Node 26.13.1, each on fresh databases. With another verification key in the suite's hook, all 5 fail with
+  `AuthHookFailedError: ... the hook answered 401`. The in process TypeScript run still passes 5 of 5.
+  Run with `CANOPY_SPLIT_E2E_URL`, `CANOPY_SPLIT_E2E_CONTROL_LOG` (canopyd's stderr), `CANOPY_SECRET_KEYS`,
+  `CANOPY_DB`, `CANOPY_META_DB`, `CANOPY_SPLIT_E2E_CLAIMS_URL` and `CANOPY_SPLIT_E2E_CLAIMS_KEY`.
+
+### Notes
+
+- `seedSplitPolicy` cannot run twice against the same canopyd databases (its wait for the policy removal
+  times out), so each run needs fresh databases.
+- The CI split stack still runs the TypeScript auth service; a Docker canopyd would need an HTTPS hook URL
+  (loopback HTTP only reaches its own container).
+
+## Checkpoint (2026-11-25): R5 provider ID token sign in and token refresh in Rust (commit ccadaaad)
+
+### What was built
+
+- [`crates/canopy-authn/src/server/oauth/flow.rs`](../../../crates/canopy-authn/src/server/oauth/flow.rs):
+  `POST /sign-in/social` accepts provider ID tokens for Google, Apple, Microsoft and discovery configured
+  OIDC providers. The router checks signatures against the provider key set (including Google, since the token
+  does not originate from the token endpoint here) and validates issuer, audience, expiry and nonce claims
+  before applying OAuth account linking rules.
+- [`crates/canopy-authn/src/server/oauth/account_tokens.rs`](../../../crates/canopy-authn/src/server/oauth/account_tokens.rs):
+  `POST /refresh-token` and `POST /get-access-token` refresh a linked account's provider tokens using the
+  stored refresh token for the live session of its owner, preserving existing scopes and refusing concurrent
+  token overwrites.
+- [`crates/canopy-authn/src/server/oauth/providers.rs`](../../../crates/canopy-authn/src/server/oauth/providers.rs):
+  provider token verification and key set lookup for direct ID token validation.
+- [`conformance/http/auth/cases/provider-tokens.json`](../../../conformance/http/auth/cases/provider-tokens.json):
+  four new recorded oracle cases in the `provider-tokens` group.
+
+### Evidence
+
+- [`tests/auth_oracle.rs`](../../../crates/canopy-authn/tests/auth_oracle.rs): replays 16 groups and 48 cases
+  (adding `provider-tokens`), matching on MongoDB 8.0.34 and 9.0.8.
+
+## Checkpoint (2026-11-25): test servers on port 0 and profiler wait (commit 8ffaac62)
+
+- [`packages/testing/src/listening.ts`](../../../packages/testing/src/listening.ts): servers start on port 0
+  and parse the bound port from the startup log, preventing port collisions under concurrent test runs.
+  Used by express drop in, realtime server and chaos test suites.
+- [`packages/realtime/src/bin/canopy-realtime.ts`](../../../packages/realtime/src/bin/canopy-realtime.ts):
+  logs the port actually bound.
+- [`packages/rest/test/cursor-pages.test.ts`](../../../packages/rest/test/cursor-pages.test.ts): tags measured
+  queries with a unique comment and awaits the matching profiler entry rather than giving up under load.
+
+## Checkpoint (2026-11-25): R5 auth fuzz campaign (commit a3e547f6)
+
+Commit a3e547f6 added the workflow [fuzz-campaign.yml](../../../.github/workflows/fuzz-campaign.yml). Dispatch it with
+`gh workflow run fuzz-campaign.yml -f hours=5.5` once the workflow is on the default branch. The default
+selection covers the five `authn_*` targets. Pass `-f targets=authn_cookies,authn_tokens` to select specific
+targets. The campaign and nightly workflow share the corpus cache within the same branch.
+
+On a four core runner one 5.5 hour job budgets 22 CPU hours per target, so two full campaigns budget 44.
+Download the `fuzz-ledger-*` artifacts from each run and sum `cpu_seconds` from `fuzz-ledger.jsonl` by target
+for the commit being qualified. Count each run and attempt once. Each target needs at least 86,400 measured
+CPU seconds from clean jobs. Check the job summaries for the result, time and corpus size. Investigate
+findings or incomplete runs before claiming the gate. The campaign has yet to run on GitHub Actions.
+
+## Checkpoint (2026-11-25): account linking, error page, native /admin/v1/users, test replica sets recreated
+
+### Commits since 6135ea14
+
+- `2191a195` (`feat(auth): link and unlink provider accounts and serve the error page in Rust`):
+  `/link-social` (the callback links only while the session that started the flow is live, its token
+  encrypted in the flow state as Better Auth stores it, and the provider verified the same address; refuses
+  an account another user owns), `/unlink-account` (fresh session; refuses the last account, also under
+  concurrent unlinks), `/auth/v1/error` (Better Auth's error page with escaped values, or a redirect home with
+  the error in production; `AuthOptions.production`, which `canopyd` sets from `CANOPY_ENV`). The social and
+  OIDC oracle groups gained these cases: 44 cases pass on MongoDB 8.0 and 9.0. `bunfig.toml` excludes the
+  vendored error page HTML from formatting because it must stay byte exact.
+- `9ed38c26` (`feat(control): serve /admin/v1/users from the Rust control plane`):
+  `/admin/v1/users` served natively by `canopyd` (control and all roles, `CANOPY_AUTH_ENGINE=rust`): 204
+  recorded steps across four admin roles, plus an auth side effects oracle.
+- `5eb14a81` (`fix(testing): install MongoDB from a file and without its debug symbols`):
+  the test mongod installer writes the verified archive into the staging folder and extracts it
+  with tar on Windows, skipping the 2.3 GB of .pdb debug symbols and fixing the 9.0.8 extraction failure.
+- `963df093` (`perf(matcher): stop copying the update while applying it`):
+  Committed earlier today (recorded in the R2 checkpoint below without its commit hash), made the in process
+  updater about 40 % faster natively.
+
+### Test servers recreated and process rules
+
+On 2026-11-25 around 20:09 a cleanup step stopped every mongod process on the machine, and the earlier test
+servers' files under `%TEMP%` were gone. The test replica sets were recreated natively: MongoDB 8.0.34 on port
+37017 and 9.0.8 on 37090, binaries and data under `target/mongo/8.0` and `target/mongo/9.0` (git ignored),
+started with `packages/testing/scripts/mongod.ts`.
+Rule for every agent from now on: stop only processes you started, by process id; never stop mongod processes
+you did not start; keep temporary files and cargo output under the repository's `target/` folder, never `%TEMP%`
+or a drive root. (Also recorded in [README.md](README.md)).
+
+### SDK auth suite against Rust auth (rerun on committed HEAD 9be856e2 era)
+
+4 of 5 pass on Bun and Node 26; only the claims hook test fails because the HTTPS claims hook is not built.
+
+### In progress (uncommitted)
+
+- The HTTPS claims hook: committed in `9af1d9c1` (`claudeAgent`).
+- ID token sign in and provider token refresh: committed in `ccadaaad` (`codex`).
+- Fix for `mongod.ts` failing to install MongoDB 9.0.8 on Windows: committed in `5eb14a81`.
+- R2 (uncommitted, waiting on a quiet machine to measure; see the R2 checkpoints below).
+
+### What remains of plan 005
+
+- R5 remaining: R5.3 leftovers (ID token sign in and provider token refresh committed in `ccadaaad`);
+  `/admin/v1/users` done; the claims hook done (committed in `9af1d9c1`); then switching the stacks and the
+  CI split job to Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
+- R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev,
+  init, doctor, type generation, platform packages and launcher.
+
+## Checkpoint (2026-11-25): R2 re-measured after the BSON crossing and the deferred sort; gates still missed
+
+The maintainer chose "fix, then re-measure" after the first R2 measurement (the checkpoint "R2 Canopy.js runs
+its client paths on the Rust core; gates missed" below). Both fixes are built; startup now meets its gate,
+matching and the optimistic update do not. Nothing of R2 is committed in either repository.
+
+### What changed (not committed)
+
+- **Canopy** ([`packages/wasm`](../../../packages/wasm)): the client module gained `DocumentCache`, which
+  decodes BSON documents laid end to end once, retains each in a numbered slot and decides retained slots
+  with a compiled filter (`retain`, `release`, `matchFilter`). The transforms module gained `sortBson`
+  (positions in sorted order), `projectBson` and `updateBson`, all taking and returning BSON. The transforms
+  module stays at `opt-level = "z"`: an `opt-level = 3` build made its wasm2js fallback 289 KB Brotli (from
+  about 175 KB) for a 21 % faster update, which cannot close the update gap alone.
+- **Canopy.js**: `src/client/bson.ts` is a BSON codec for the client value model on Web standard APIs only,
+  with interned keys and direct ASCII paths (about 0.6 to 1.5 µs to encode and 1 to 1.8 µs to decode a six
+  field document on Bun and Node 26), tested in `test/client/bson.test.ts`. `src/client/engine.ts` encodes
+  each document once (a `WeakMap` from the document object to its bytes), sends a document as raw BSON the
+  first time it is matched and retains it in the client module from the second time on, released through a
+  `FinalizationRegistry` (raw BSON on every call where that is missing). The store renders a live query's
+  first snapshot in server order (the server's snapshot read already sorts with the `_id` tie breaker),
+  numbering members in arrival order while a snapshot starts over no members, and loads the core after first
+  paint; the first change after the core arrives sorts with `sortBson`. A resubscribe on `welcome` over
+  existing members does not number them, so a reconnect keeps the client's order. `updateEngine` is a getter
+  that starts the load.
+
+### Evidence
+
+- Canopy.js suites, all four configurations (Bun and Node 26, each with the Wasm core and with
+  `CANOPY_TEST_CORE=js`): 244 of 245 pass; the one failure is the pre-existing compose template drift
+  (`test/cli/compose.test.ts`). The suites include the conformance replay through the client in both formats
+  and tests for a change that arrives before the core loads.
+- Rust: clippy is clean for every feature set of `packages/wasm` on the Wasm target and the host, rustfmt
+  passes, the Wasm tests pass and the R2 replay (`bench/baselines/r2/conformance.mjs`) passes on Bun and
+  Node 26.
+
+### Gates of plan 005 §7 (Windows 11, Ryzen 5 5600H)
+
+Startup is two interleaved rounds of 50 runs of `bench/baselines/r2/startup.mjs` against `canopyd` from
+`bun run dev` on MongoDB 8.0.34. The microbenchmarks time the client engine against the TypeScript lite
+matcher and updater of the untouched tree on the six scenarios of `bench/workloads/matcher/scenarios.ts`
+(best of 15 passes over 1,000 documents; one update as the median of 30 batches), on Bun, on Node 26 (two
+runs) and in headless Chromium at 4x CPU slowdown (three runs; its timer resolution is 0.1 µs, so per
+document values below 1 µs are coarse).
+
+| Measure | Result | Gate |
+|---|---|---|
+| Client module | 81,646 Brotli bytes with `DocumentCache` (transforms 102,006) | Met (at most 81,920) |
+| Root entry, R0 app, `bun build --minify --splitting` | Eager JavaScript 23,787 before, 21,040 after (2,747 smaller). After first paint the client also loads glue 4,763 and both Wasm modules, 183,652 bytes | Met for JavaScript; missed by about 124 KB counting the Wasm (+185,668) |
+| First live query, Chromium 4x | Medians 194.8 and 190.2 ms before, 202.3 and 183.9 ms after (+0.3 % on the mean of the rounds); strict CSP 194.9 before, 192.9 after; no Wasm request before the first result; module evaluation 53.7 to 13.8 ms | Met (at most +5 %) |
+| Compile and instantiate | Not measured on its own: both now happen after the first result | Not measured |
+| Matching, Bun (TypeScript and Rust, ns per document) | Equality 52.7 and 106.4 (2.0x); range and `$in` 664.5 and 254.7; `$or` 503.5 and 333.3; dotted path 155.4 and 199.7 (1.29x); `$elemMatch` 437.0 and 304.0; DLS and user filter 109.8 and 156.8 (1.43x) | Missed in 3 of 6 (at most 1.2x) |
+| Matching, Node 26 | Equality 60 to 74 and 124 to 128 (1.7 to 2.1x); range 316 and 249 to 260; `$or` 247 to 268 and 259 to 285 (1.06x); dotted path 114 to 123 and 205 to 209 (1.7 to 1.8x); `$elemMatch` 216 to 220 and 275 to 357 (1.3 to 1.6x); DLS and user filter 60 to 68 and 108 to 112 (1.6 to 1.9x) | Missed in 4 of 6 |
+| Matching, Chromium 4x | Rust 300 to 400 against 0 to 100 (equality), 900 to 1,300 against 400 to 800 (range), 1,100 to 3,000 against 700 to 1,000 (`$or`), 800 to 1,200 against 300 to 500 (dotted path), 1,400 to 2,300 against 600 to 800 (`$elemMatch`), 100 to 400 against 100 to 200 (DLS and user filter) | Missed |
+| First match of fresh documents (encode and retain) | 2.7 to 9.2 µs per document on Bun, 3.7 to 7.2 on Node 26, 14 to 31 on Chromium 4x | Not gated |
+| Optimistic update, one document | Chromium 4x 60 to 76 µs against 8.5 to 15.5 µs; Bun 12.7 against 3.4 µs (3.7x); Node 26 13.2 to 13.4 against 3.0 to 3.1 µs (4.3x) | Missed (at most 2x and under 50 µs) |
+| Without WebAssembly, wasm2js on Bun | Matching 273.6 against 46.8 ns (5.8x, equality), 535.7 against 134.8 (4.0x, dotted path), 743.7 against 234.6 (3.2x, `$elemMatch`), the other three at most 2.4x; update 35.9 against 3.5 µs (10x). Hermes not run | Missed (at most 3x) |
+| Sorting and projecting 1,000 documents | Bun 1.33 and 1.70 ms (8.9 and 10.9 ms before the BSON crossing), Node 26 1.23 and 1.94 to 2.02 ms, Chromium 4x 5.4 to 5.9 and 8.3 to 8.4 ms | Not gated |
+
+Against the first measurement: matching went from 6.5 to 7.7 µs per document to 0.1 to 0.36 µs, the update
+on Chromium 4x from 128 to 60 to 76 µs, and startup from +20 to +31 % to +0.3 %. What is left is a fixed cost
+per call: crossing into the module and back costs about as much as the TypeScript matcher spends on a simple
+filter, and one update pays encoding, decoding in Rust (about 4 to 5 µs for the owned document model), the
+update itself (about 7 µs for a six field document at `opt-level = "z"`) and decoding the result in
+JavaScript.
+
+### Follow up: optimistic updates on documents kept in Rust (maintainer's choice 1, not committed)
+
+- `packages/wasm`: the transforms module gained `UpdateCache` (`retain`, `release`, `update`). An update
+  reads the document of one slot, keeps the result in a new slot (so earlier versions stay valid) and
+  returns the new slot plus only the top level fields the update touched, with the field names in order
+  when they changed (added, removed or renamed fields, replacements). Four host tests cover the reported
+  changes. The client module is byte for byte unchanged (81,646 Brotli bytes); transforms grew to 103,649
+  (wasm2js 178,862).
+- Canopy.js: `engine.ts` applies updates through it, decoding a document once and building the result from
+  the original and the touched fields; without `FinalizationRegistry` it keeps the whole document path.
+  Three new tests (every earlier version stays valid, MongoDB field order on add, remove, rename and
+  replacement, a refused update leaves the document usable). All four suite configurations pass 247 of
+  248 (the compose drift), including the 812 applied update vectors of the conformance replay.
+- Measured with about half the CPU used by other programs, so absolute times are noisy; the TypeScript and
+  Rust times of each pass are comparable. One update on Bun: 12.4 to 15.4 µs repeating on one document
+  object, 8.7 to 10.5 µs chained on its own results, against 3.3 to 5.3 µs. Chromium 4x: 56 to 101 µs
+  against 14 to 15.5 µs. Fresh document objects cost more (20 to 28 µs on Bun) because each is decoded once.
+- Where the time goes (Bun): the Rust updater alone takes 5.5 to 8.6 µs on the kept document, more than the
+  whole TypeScript update; decoding the touched fields 0.7 µs; slot bookkeeping under 0.2 µs. The crossing
+  is no longer the cost: the updater (`canopy_matcher::update::apply_update` at `opt-level = "z"`) is. The
+  update gate stays missed; the next lever is the speed of that updater (its per call parsing and copying,
+  or a faster build of the transforms module, which is not size gated).
+
+### Follow up: a faster updater (maintainer's choice, 2026-11-25)
+
+- Committed: `963df093` (`perf(matcher): stop copying the update while applying it`),
+  `canopy_matcher::update::apply_update` borrows operands, paths and path segments from the update (and the
+  `$rename` source from the document) instead of owning copies, and reads the current value by reference,
+  moving an array out only for the array operators. Natively, a two field update on a six field document went
+  from 3.17 to 1.74 µs at `opt-level = 3` and from 3.88 to 2.43 µs at `"z"` (about 40 % faster natively);
+  `canopy-matcher` and `canopy-policy` tests and the MongoDB update vectors pass on 8.0 and 9.0.
+- Not committed: `packages/wasm/scripts/build.ts` builds the transforms module at `opt-level = 3` with
+  `wasm-opt -O3` (the client module keeps `"z"` and is unchanged at 81,646 Brotli bytes). Transforms grows
+  to 134,580 Brotli bytes and its wasm2js translation to 289,514; neither is size gated, but both add to
+  what the root entry downloads after first paint. The bare update in Wasm on Bun went from 4.0 to 5.8 µs
+  to 3.0 to 3.4 µs in the same runs.
+- Measurements after these changes are not reliable: the machine ran another program using about half the
+  CPU, and the TypeScript update alone swung from 1.4 to 6.4 µs between passes. In Chromium (unthrottled)
+  one chained update costs about 11.8 µs; a CPU profile puts half in Wasm, a quarter in native time with no
+  frame (likely the `WeakMap` and `FinalizationRegistry` bookkeeping), about a tenth in decoding the 42 byte
+  change set and 5 % in garbage collection. The update gate is still missed on Chromium 4x (about 4x).
+  Next: measure on a quiet machine, profile a build that keeps Wasm function names, and drop the per update
+  `FinalizationRegistry` registration for intermediate versions if the profile confirms it.
+
+### Options for the maintainer (the stage stops here, per §7)
+
+1. Keep documents on the Rust side for updates too: apply an optimistic update to the retained slot and
+   return only the changed fields, so an update no longer encodes and decodes the whole document.
+2. Size and speed work on the transforms module (per function `opt-level`, a faster owned document model),
+   within the wasm2js budget.
+3. A narrower client module that decides in batch only where batches exist (snapshots, change events over
+   many queries), with the per document paths measured against their own gate.
+4. Change the matching and update gates (the maintainer's call; this checkpoint does not relax them). A
+   TypeScript copy of the semantics stays excluded (ADR 0018).
+
+## Checkpoint (2026-11-25): SDK auth end to end check against Rust auth, CLI progress and in progress tasks
+
+### Commits since f5f060e6
+
+- `d6258983` (`feat(cli): start the canopy binary in Rust`): [`crates/canopy-cli`](../../../crates/canopy-cli): invocation parsing, help, version, login verification, vector replay of 11 of 57 CLI vectors. Also allowed `ar_archive_writer` in the dependency review of `.github/workflows/security.yml` (fuzz lockfile reaches it through the `psm` build script, as `deny.toml` already allowed).
+- `12336c2e` (`fix(ci): keep the test mongod within its open file limit`): the macOS test mongod died with "24: Too many open files" during the migrations oracle (two runs). Fix: the CI raises `kern.maxfiles` and `kern.maxfilesperproc` on macOS, and [`packages/testing/scripts/mongod.ts`](../../../packages/testing/scripts/mongod.ts) starts mongod with `wiredTigerFileHandleCloseIdleTime=30` and `wiredTigerFileHandleCloseMinimum=250` (defaults are 600 and 2000; both parameters exist on 8.0 and 9.0).
+- `34e64c65` (`feat(auth): sign in with social and OpenID Connect providers in Rust`): stage R5.3 social and OIDC sign in in Rust (see the R5.3 checkpoint below).
+- `e5b1cba4` (`feat(cli): store admin tokens and manage them from the Rust CLI`): credentials (keychain, DPAPI protected file, 0600 file), login storing, logout, `--env` environments, admin tokens create, list and revoke; 14 of 57 CLI vectors replay (see the R4 checkpoint below).
+
+### SDK auth end to end against Rust auth (R5 exit check)
+
+Run by hand against `canopyd` with `CANOPY_AUTH_ENGINE=rust` on MongoDB 8.0: all 5 tests of [`packages/sdk-e2e/test/auth.e2e.test.ts`](../../../packages/sdk-e2e/test/auth.e2e.test.ts) failed. Causes:
+1. The `canopy-mail` log transport emits through tracing, which `canopyd` never prints, so the verification mail line `{to, subject, body}` the suite reads from the log never appears. Fixed in `9be856e2`: `Mailer::with_log` hands each mail of the log transport to canopyd's JSON log.
+2. `canopyd` refused `auth.anonymous` although the router implements it. Fixed in `9be856e2`: the setting turns the router's anonymous sign in on (off by default).
+3. The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not built.
+
+With a pre verified user, password sign in, `/token`, the 80 % access token reuse, sign out and session revocation with realtime all behaved as TypeScript. Rerun on committed HEAD `9be856e2` era: 4 of 5 pass on Bun and Node 26; only the claims hook test fails because the HTTPS claims hook is not built.
+
+### In progress (uncommitted)
+
+- R2 BSON crossing and deferred sort: built and re-measured (see the checkpoint above); matching and the optimistic update still miss their gates, uncommitted pending the maintainer's choice.
+
+### R5.6b app user administration
+
+- Rust serves `/admin/v1/users` in the `control` and `all` roles with `CANOPY_AUTH_ENGINE=rust`.
+  The routes support user lookup, creation, updates, banning, deletion, invites, legacy imports and
+  session revocation on the shared auth database.
+- The HTTP oracle covers 204 recorded steps across all four admin roles. The auth effects oracle
+  covers role changes, bans, invites, and imported passwords that rehash on sign in.
+- Both oracles passed on MongoDB 8.0.34 and 9.0.8. Authenticated HTTP smoke checks created and listed
+  an app user through each daemon role on both versions. Clippy passed for `canopy-authn`,
+  `canopy-control`, and `canopyd` with all targets and warnings denied.
+- The full `canopy-control` and `canopyd` suites passed on both versions with `RUST_TEST_THREADS=1`
+  after an earlier parallel run hit a Windows socket abort in the wire connection capacity test.
+- Both auth engines gate magic link verification on `auth.magicLink`. Accepting an admin invite
+  requires that setting to be enabled.
+
+### What remains of plan 005
+
+- R5 remaining: R5.3 leftovers (ID token sign in and provider token refresh committed in `ccadaaad`);
+  `/admin/v1/users` done; the claims hook done (committed in `9af1d9c1`); then switching the stacks and the
+  CI split job to Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
+- R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev,
+  init, doctor, type generation, platform packages and launcher.
+
+## Checkpoint (2026-11-25): R5.3 social and OIDC sign in in Rust (commit 34e64c65)
+  
+### What was built
+
+- [`crates/canopy-authn/src/server/oauth/`](../../../crates/canopy-authn/src/server/oauth/) (public as
+  `canopy_authn::server::oauth`):
+  - `mod.rs`: the provider settings (`SocialProvider` with `SocialProviderKind` Google, GitHub, Apple,
+    Microsoft and Discord, `ClientSecret::Static` or `ClientSecret::AppleKey` for Apple's ES256 client secret
+    minted per token exchange from team id, key id and the PKCS#8 `.p8` key; `OidcProvider`), the injectable
+    transport `ProviderHttp` (`ProviderRequest`, `ProviderResponse`) and its production
+    `ReqwestProviderHttp` (rustls, no redirects followed, 5 s connect and 10 s total timeouts, answers capped
+    at 1 MiB), and the registry: discovery of every OIDC provider at `AuthRouter::open` (a failed discovery is
+    retried when the provider is next asked for, as the TypeScript engine does), and key sets cached 10
+    minutes with one refetch for an unknown key id after a 30 s cooldown.
+  - `jwt.rs`: ID token decoding with a 16 KiB bound, signature checks with the key set (RS256/384/512,
+    PS256/384/512, ES256, ES384, EdDSA; `none` and every HS algorithm refused whatever the discovery document
+    lists; key id and key `alg` must match), and the claims (issuer, non empty subject, audience as string or
+    list, `exp`, `iat` and `nbf` with 30 s of skew, maximum age, nonce).
+  - `providers.rs`: authorization URLs with the parameters in the TypeScript order, the code exchange
+    (`client_secret_post`, PKCE except Discord), and the identity of each provider: GitHub (`/user` and
+    `/user/emails`), Google (ID token claims), Apple and Microsoft (ID token verified with their key sets;
+    Microsoft binds `iss` to `tid` and the tenant, `organizations` and `consumers`), Discord (`/users/@me`
+    and its avatar URL), generic OIDC (verified ID token, then `userinfo` only when the token has no email,
+    with the subject matched).
+  - `flow.rs`: `POST /sign-in/social` (state, PKCE verifier and nonce in `verifications` as
+    `auth-state:<state>` with the TypeScript JSON value, the signed `canopy.state` cookie for 5 minutes,
+    `disableRedirect`, `scopes`, `loginHint`, `errorCallbackURL`, `newUserCallbackURL`, `requestSignUp`),
+    `GET /callback/{id}` (state lookup, state cookie of the same browser, expiry, provider errors, `iss`,
+    nonce binding, exchange, identity, then the error page codes of the recording), `POST /callback/{id}`
+    (Apple's form post sent on to the GET callback; no origin check, it reads and writes nothing), the linking
+    rules (an account already linked signs in and gets fresh tokens; an existing address is linked only when
+    the provider and the user both verified it, else `account_not_linked`; a new address creates the user and
+    account in one transaction with `auth.sign_up`), banned users (`BANNED_USER` on the error page), and
+    `GET /list-accounts`.
+- [`mod.rs`](../../../crates/canopy-authn/src/server/mod.rs): `AuthOptions` gained `social_providers`,
+  `oidc_providers` and `provider_http`; provider ids are added to `/settings` `external`; the dispatcher
+  routes the three new paths and validates `errorCallbackURL` and `newUserCallbackURL` of `/sign-in/social`
+  (`INVALID_ERROR_CALLBACK_URL`, `INVALID_NEW_USER_CALLBACK_URL`).
+- [`crates/canopyd/src/builtin_auth.rs`](../../../crates/canopyd/src/builtin_auth.rs): `auth.providers`
+  (with `tenantId` for Microsoft and `teamId`, `keyId`, `privateKey` as an alternative to `clientSecret` for
+  Apple) and `auth.oidc` (https discovery URLs in production) are mapped to the router;
+  `CANOPY_AUTH_ENGINE=rust` no longer refuses them.
+
+### Evidence
+
+- [`tests/auth_oracle.rs`](../../../crates/canopy-authn/tests/auth_oracle.rs) replays 15 groups, 41 cases
+  and 310 steps (adds `social` and `oidc`) on MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090). The mock
+  providers ([`tests/support/idp.rs`](../../../crates/canopy-authn/tests/support/idp.rs)) answer through
+  the transport and enforce PKCE, client secret and redirect URI; every step compares the calls made to the
+  providers (method, URL, headers, form body) with the recording, `provider` steps replay the browser at the
+  authorization endpoint, and the startup must make exactly one discovery request.
+- [`tests/oauth_flows.rs`](../../../crates/canopy-authn/tests/oauth_flows.rs) (both replica sets): ID tokens
+  refused for another issuer, an expired token, `alg: none`, HS256 signed with the client secret when the
+  provider publishes RS256, a key id missing from the key set, another nonce and another audience, each
+  ending on `unable_to_get_user_info` with no user or session; the key set refetch cooldown; the linking
+  rules; a state of another browser and an expired state; Apple's form post. A mutation that disables the
+  issuer check fails the suite. Nine unit tests in `jwt.rs` cover the verifier without MongoDB.
+- `cargo test -j 2 -p canopy-authn` passes on both replica sets;
+  `cargo test -j 2 -p canopyd --test builtin_auth` passes on both (new: refusal of incomplete provider
+  settings, and a started process answering `/sign-in/social` for GitHub and a Microsoft tenant, a 404 for
+  an OIDC provider whose discovery is unreachable, and `state_mismatch` for a foreign callback);
+  `cargo clippy -j 2 -p canopy-authn --all-targets -- -D warnings` is clean. The same clippy run with
+  `-p canopyd` stops only on `control.rs` (`build` takes 8 arguments), part of the concurrent
+  `/admin/v1/users` work, not of this stage.
+
+### Behavior kept from the recording, worth a decision
+
+- **Google's ID token signature is not checked.** The TypeScript engine decodes it (it arrives from the
+  token endpoint over TLS, which OIDC Core 3.1.3.7 allows) and the recording has no call to Google's key set,
+  so the replay forbids one. Rust checks its issuer, audience, expiry and age. Google sign in sends no nonce.
+- **Social sign in skips the second factor**, as Better Auth does: a user with `twoFactorEnabled` gets an
+  `aal1` session through any provider.
+
+### What remains
+
+- `/link-social`, `/unlink-account`, and `/auth/v1/error` built in `2191a195`.
+- ID token sign in and refresh of provider access tokens built in `ccadaaad`.
+- Still not built: Microsoft profile photo, encrypted provider tokens.
+- Apple, Microsoft and Discord have no recorded oracle; they follow Better Auth 1.7.18's provider code.
+
+## Checkpoint (2026-11-25): R4 Rust CLI groundwork (commits d6258983 and e5b1cba4)
+
+- The [Rust CLI](../../../crates/canopy-cli) was started in commit `d6258983` with invocation parsing,
+  help, version, login verification, and vector replay of 11 of 57 CLI vectors. That commit also allowed
+  `ar_archive_writer` in the dependency review of `.github/workflows/security.yml` (the fuzz lockfile reaches
+  it through the `psm` build script, as `deny.toml` already allowed).
+- Commit `e5b1cba4` added credentials (keychain, DPAPI protected file, 0600 file), login storing, logout,
+  `--env` environments, and admin tokens create, list and revoke, bringing vector replay to 14 of the 57
+  TypeScript invocations. Coverage includes help, version, no command, unknown command and option suggestions,
+  an invalid dev port, login help and both refusals, logout help and its missing URL, and admin token create,
+  list and revoke. The loopback HTTP fixture checks the methods, paths, bearer header and request bodies.
+  No MongoDB is needed.
+- Login verifies the token before saving it to the OS keychain or the TypeScript compatible
+  credentials file. Default Windows files use DPAPI when available. Login can register an
+  environment, and the remote token commands resolve it through the environment file or the
+  explicit admin URL and token. Logout removes the credential for that project.
+- On Windows, `cargo clippy -j 2 -p canopy-cli --all-targets -- -D warnings` and
+  `cargo test -j 2 -p canopy-cli` passed. Tests cover credential file compatibility, the Windows
+  DPAPI round trip, login and logout with a saved environment, and refusal of nonlocal HTTP.
+  The CLI reuses reqwest and rustls for HTTPS and uses rpassword for the hidden terminal prompt.
+- The replay compares stdout, stderr, exit status and changes to files in a temporary project.
+  Run `cargo test -j 2 -p canopy-cli --test vectors -- --nocapture` to see the 43 pending invocations.
+- What remains for R4: every command that needs the project config (blocked on R3's emitter), auth import,
+  dev, init, doctor, type generation, platform packages and launcher.
+  Pending project and server work includes `config` (2, config resolution and loader errors),
+  `dev` (2, config loading and startup), `init` (2, scaffolding and discovery), and `doctor` (2,
+  MongoDB diagnostics).
+  Pending database and authoring work includes `policies` (15, DSL and publishing workflows),
+  `schema` (3) and `pull` (2, schema loading, inference and validators), `migrate` (3, meta migrations),
+  `realtime` (2, collection options), `indexes` (2, advice and DDL), and `keys` (3, configured
+  meta database operations and auditing).
+  Pending administrative work includes `auth` (2, import preview and remote import) and `admin` (3,
+  local admin management). The separate type generation fixture remains open.
+
+## Checkpoint (2026-11-25): R2 Canopy.js runs its client paths on the Rust core; gates missed
+
+### What changed (not committed)
+
+- **Canopy** ([`packages/wasm`](../../../packages/wasm)): the client module gained `Filter.matchEjsonArray`
+  (one call decides an EJSON array of documents). The Node-API parity exports (`matchMany`, `matches`,
+  `matchesEjson`, `matchConcatenated`, `handle`, `FilterHandle`, `matchBson`) moved behind a new `binding`
+  feature, on by default, so the combined build keeps them and the split client drops them. The transforms
+  module gained `sortOrder` (positions in sorted order, so the caller keeps its objects), `projectDocuments`
+  and `updateDocuments` (atomic, canonical EJSON arrays). Clippy is clean for every feature set on the Wasm
+  target; `bunx vitest run --project wasm` passes 4 with 1 skipped; the R2 replay
+  (`bench/baselines/r2/conformance.mjs`) still passes on Bun and Node 26 in both formats. Two runners were
+  added: [`root-entry.ts`](../../../bench/baselines/r2/root-entry.ts) (sizes) and
+  [`startup.mjs`](../../../bench/baselines/r2/startup.mjs) (first live query, optional strict CSP).
+- **Canopy.js**: `scripts/sync-wasm.ts` copies the client and transforms artifacts (Wasm, web glue,
+  wasm2js entry and translation, declarations; 12 files) into `src/core/wasm` with a SHA-256
+  `manifest.json`; `--check` fails when a file differs from the manifest or from Canopy's build
+  (`--manifest-only` for checkouts without a Rust build), `--dist` copies them next to `dist/core` (run by
+  `bun run build`). New scripts `sync:wasm` and `check:wasm` (part of `check`). `src/client/engine.ts` loads
+  both modules once, in parallel, at client creation: the Wasm build where `WebAssembly` exists and
+  compiles, the wasm2js build otherwise (no `WebAssembly`, or a CSP refusal); on `file:` URLs it reads the
+  bytes through `process.getBuiltinModule("node:fs")`, so Node needs no `fetch` of `file:`. The store
+  compiles filters lazily, predicts membership for all touched documents in one `matchEjsonArray` call,
+  projects only changed members in one call and sorts with `sortOrder`; queries keep their previous state
+  until the core arrives, then render. `updateEngine` now settles when the core has loaded. `QuerySpec`
+  gained an optional `fields`; nothing else in the public API changed. Devtools ask the core whether a
+  filter runs in process. `sync-core.ts` no longer vendors `@canopy/matcher`, `/lite` and `/update` (the
+  matcher files that `policy` and `query` reach stay vendored for the authoring task) and leaves
+  `src/core/wasm` alone; `src/core/matcher/lite.ts` and `update-lite.ts` are deleted, and no file under
+  `src/client`, the bindings or devtools imports `core/matcher`, `query`, `policy`, `schema` or `config`
+  (checked by a test). The sync also brought in pending upstream core changes (config `realtime.server`
+  `auto`, an errors.ts lint comment, the Caddyfile).
+
+### Evidence
+
+- Canopy.js suites: 229 of 230 pass on Bun (`bun --bun vitest run`) and on Node 26
+  (`fnm exec --using=26 -- node node_modules/vitest/vitest.mjs run`), each with the Wasm core and with
+  `CANOPY_TEST_CORE=js` (the whole suite on the wasm2js core). The one failure, `test/cli/compose.test.ts`,
+  is pre-existing and unrelated: it also fails on the untouched tree, because Canopy's
+  `deploy/compose/canopy.yaml` gained a policies volume and a health check the template here lacks. Lint,
+  format, `check:core`, `check:wasm` and `tsc -b && tsc -p scripts` pass.
+- Conformance through the client engine (`test/client/conformance.test.ts`, both formats, Bun and Node 26):
+  the matcher vectors are replayed through `engine.ts` on the client's own values; a recorded input is
+  used when it encodes back to the same BSON bytes (an integral double reads as a JavaScript number, so it
+  cannot reach the client). Filters: 1,946 decided over 286 documents, 9 refused as recorded, 45 skipped.
+  Sorts: 121 in MongoDB's order, 79 refused. Projections: 122 cases over 286 documents (34,892 comparisons),
+  78 refused. Updates: 812 applied, 903 refused as recorded, 4 Decimal128 refusals, 281 skipped (195 with
+  array filters, which the optimistic layer never passes). The protocol vectors pass through the client
+  and every binding in both formats. The query vectors are canonicalization and hashing, which only the
+  authoring module exports; the client never canonicalizes queries, so they belong to the next task.
+- After `bun run build` in Canopy.js and `bun install` here: `bun run typecheck` passes; the `sdk-e2e`
+  project passes 81 with 4 skipped (the sharded cluster) on MongoDB 8.0.34 (port 37017); Studio typecheck
+  and `vite build` pass, and Vite emits both `.wasm` files as assets.
+
+### Gates of plan 005 §7 (Windows 11, Ryzen 5 5600H)
+
+| Measure | Result | Gate |
+|---|---|---|
+| Client module | 79,938 Brotli bytes (transforms 102,347) | Met (at most 81,920) |
+| Root entry, R0 app, `bun build --minify --splitting` | Eager JavaScript 23,785 before, 17,723 after, plus 4,682 of glue at client creation; the first live query also downloads both Wasm modules, 182,285 bytes | Met for JavaScript (1,380 smaller); missed by about 121 KB counting the Wasm (+180,905) |
+| First live query, Chromium 4x, canopyd dev on MongoDB 8.0.34, 2 × 50 runs | Median 255.4 and 289.2 ms before, 334.6 and 348.8 ms after (+20 to +31 %); 359.8 ms under strict CSP | Missed (at most +5 %) |
+| Matching, 1,000 documents, six scenarios, through the client engine | 6.5 to 7.7 µs per document on Bun and Node 26, against 48 to 395 ns for the TypeScript matcher | Missed (at most 1.2×) |
+| Optimistic update, one document | Chromium 4x: 128 µs against 13 µs. Bun 12.3 against 2.8 µs, Node 26 14.9 against 2.5 µs, Bun wasm2js 57.9 µs | Missed (at most 2× and under 50 µs) |
+| Sorting 1,000 members | 8.9 ms (Bun) and 8.5 ms (Node 26) against 1.1 and 1.6 ms; projecting 1,000 takes 10.9 ms | Not gated; a render cost of large queries |
+
+Why: the boundary is EJSON text. Each crossing pays `canonicalString` in JavaScript and an EJSON parse in
+Rust, about 7 µs for a 220 byte document, which dwarfs the matcher itself (the bench's retained BSON pages
+match in 57 to 234 ns). For startup, every live query sorts (the `_id` tie breaker), so the transforms
+module is needed for the first render as well as the client module; in every run after the change, the
+`ready` frame is handled 1 to 3 ms after the core resolves, while `welcome` arrives about 50 ms earlier.
+Under strict CSP both Wasm files are still fetched before the compile is refused. Per §7 the stage stops for
+the maintainer's choice; options seen here: a BSON boundary (a JavaScript BSON encoder with a per document
+cache, feeding `matchConcatenated` or retained pages), documents kept on the Rust side with handles in the
+store, sort in the client module (over its budget) or a first render in snapshot order so transforms load
+lazily, and `'wasm-unsafe-eval'` in the Studio CSP (Studio now falls back to wasm2js under its current CSP).
+
+### Remaining for R2
+
+The gate decision above; the authoring module in Canopy.js (policy, schema and config DSLs) and deleting
+`sync-core.ts`; generated frame types; the EJSON codec of the protocol stays TypeScript for now (it is the
+synchronous public `canopy.js/protocol` value model, and the bench measured the Rust codec slower per frame);
+Deno, Firefox, WebKit, Node 24 and Hermes runs of the Canopy.js client; Canopy.js CI building or fetching the
+Wasm artifacts; the compose template drift.
+
+## Checkpoint (2026-11-25): R1 admin oracle complete, R5 auth core in Rust, split deployment committed
+
+### Commits since 2397abd7
+
+- `24ce4870` (`feat(deploy): run the control plane as a role of the canopy image`): the Rust `control` service in compose, Helm and Kubernetes, the TypeScript `auth` service (`CANOPY_SPLIT_AUTH_ONLY=on`), edge routes, `/internal/*` refused at the edge.
+- `66a69506` (`feat(authn): serve magic links and email codes from Rust`): adds magic link sign in, email code verification, password reset by code, all canopy_auth indexes, and replays 20 cases across 114 steps in auth_oracle.rs on MongoDB 8.0 and 9.0.
+- `c2a6695a` (`feat(control): serve the realtime inspector and doctor from Rust`): connects the admin API to the Rust engine for realtime inspection and doctor checks, matching all 433 admin oracle steps on MongoDB 8.0 and 9.0.
+- `588aec7b` (`feat(authn): serve the core of built in auth from Rust`): implements the core /auth/v1 router in canopy-authn for email and password authentication, verification, password reset, session lifecycle, token minting, and the adaptive response floor, matching 13 cases across 86 steps.
+- `3054cb67` (`fix(testing): raise the open file limit of the mongod that mongod.ts starts`): raises the open file limit (64000, falling back to 24576 and then 10240) through a shell wrapper on macOS and Linux before launching mongod, preventing test crashes during heavy index creation.
+- `0cb165fa` (`feat(control): manage auth signing keys from Rust`): adds the signing keys delegate in canopy-control with transaction-backed creation, rotation and revocation under lease, matching 397 of 433 admin oracle steps.
+- `876d1e2e` (`fix(ci): gate the last auth interop test and report auth oracle drift`): gates the stored signing key cross-verification test behind CANOPY_TEST_TYPESCRIPT and makes the auth oracle recorder report the first differing line on mismatch.
+- `d0f18cfe` (`feat(control): serve the admin data routes from Rust`): adds the data delegate in canopy-control for collections, schema, statistics, OpenAPI, GraphQL explorer, and audited document reads and writes with view as support, matching 391 of 433 admin oracle steps.
+- `dcc8af65` (`fix(ci): run the auth interop tests where TypeScript is installed`): gates canopy-authn interop tests requiring TypeScript behind CANOPY_TEST_TYPESCRIPT, running them in the Rust engine CI job.
+
+### R1 admin API completion and realtime inspection
+
+- The Rust admin oracle ([`crates/canopy-control/tests/admin_oracle.rs`](../../../crates/canopy-control/tests/admin_oracle.rs)) now matches all 433 recorded steps on MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090) with zero pending steps across all four roles (owner 106, admin 110, developer 110, viewer 107).
+- Commit `c2a6695a` added the realtime inspector and doctor delegates.
+- In the `all` role of `canopyd` ([`crates/canopyd/src/main.rs`](../../../crates/canopyd/src/main.rs)), the process runs meta database migrations via `canopy_migrations::migrate` and mounts `/admin/v1` on the shared listener (or on `CANOPY_ADMIN_LISTEN` when configured). Inspection queries pass through the local engine command queue. Inspection capture starts on the first request and stops five minutes after the last request when no tail remains attached. The data event path adds no allocation or locking while capture is inactive. The trace buffer holds 256 traces and the events route returns the latest 100 summaries.
+- In split stack deployments, the control process sets `CANOPY_REALTIME_INTERNAL_URL` to point to the private data process URL. The data process exposes [`/internal/realtime`](../../../crates/canopyd/src/realtime_inspection.rs) for GET queries, authenticated with a bearer token derived from `CANOPY_MASTER_KEY` (`proof = hex(hmac_sha256(master, "canopy realtime inspection v1"))`). The server verifies the candidate bearer credential in constant time. Without `CANOPY_REALTIME_INTERNAL_URL`, control returns the realtime off response. The data process serves inspection independently and continues serving when control stops.
+
+### R5.1 and R5.2 built in auth in Rust
+
+- The `/auth/v1` router in [`crates/canopy-authn/src/server/`](../../../crates/canopy-authn/src/server/) (see guide in [09-auth-router.md](09-auth-router.md)):
+  - [`mod.rs`](../../../crates/canopy-authn/src/server/mod.rs): manages router options, request dispatch, CORS origin validation, body parsing, IP and identifier rate limiting (`address_hit`, `identifier_hit`), `/token` (access token minting), `/settings`, JWKS endpoints (`/auth/v1/jwks`, `/.well-known/jwks.json`), and index initialization.
+  - [`documents.rs`](../../../crates/canopy-authn/src/server/documents.rs): defines `User`, `Session`, `Account`, `Verification`, `AddressLimit`, and `IdentifierLimit` with `#[serde(flatten)] pub extra: Document`, ensuring unmapped fields written by TypeScript are retained on update.
+  - [`floor.rs`](../../../crates/canopy-authn/src/server/floor.rs): `ResponseFloor` adaptive response floor prevents account enumeration by holding responses to the longer of the configured floor (default 80 ms) or the third slowest response among the last 64 requests on that route, capped at 1 second. `FLOOR_ROUTES` covers nine routes: `/sign-in/email`, `/sign-up/email`, `/request-password-reset`, `/sign-in/magic-link`, `/email-otp/send-verification-otp`, `/email-otp/request-password-reset`, `/forget-password/email-otp`, `/send-verification-email`, and `/upgrade`.
+  - [`password.rs`](../../../crates/canopy-authn/src/server/password.rs): handles email and password sign up, sign in, email verification, password reset requests and callbacks, and password changes.
+  - [`session.rs`](../../../crates/canopy-authn/src/server/session.rs): handles session lookup, session listing, session revocation (single, others, all), user profile updates, and email changes.
+  - [`magic_link.rs`](../../../crates/canopy-authn/src/server/magic_link.rs): handles sending magic links (`/sign-in/magic-link`) and verifying callback tokens (`/magic-link/verify`) with single use enforcement.
+  - [`otp.rs`](../../../crates/canopy-authn/src/server/otp.rs): handles email OTP verification, password reset, and sign in with constant time checks, three attempt limit, and single use redemption.
+  - [`email.rs`](../../../crates/canopy-authn/src/server/email.rs): generates verification and password reset tokens, builds callback URLs, and hands emails to the mailer.
+- Index set: `open()` creates every index in `canopy_auth` with matching names and options:
+  - `users`: `{email: 1}` (unique, name `email`)
+  - `sessions`: `{token: 1}` (unique, name `token`), `{userId: 1}` (name `user`), `{expiresAt: 1}` (TTL 0s, name `ttl_expires`)
+  - `accounts`: `{providerId: 1, accountId: 1}` (unique, name `provider_account`), `{userId: 1}` (name `user`)
+  - `verifications`: `{identifier: 1}` (name `identifier`), `{expiresAt: 1}` (TTL 3600s, name `ttl_expires`)
+  - `rate_limits`: `{key: 1}` (unique, name `key`)
+  - `signing_keys`: `{createdAt: -1}` (name `created`)
+  - `identifier_limits`: `{expiresAt: 1}` (TTL 0s, name `ttl_expires`)
+- Replay: [`crates/canopy-authn/tests/auth_oracle.rs`](../../../crates/canopy-authn/tests/auth_oracle.rs) matches all 20 cases across 114 steps in the seven recorded groups on both MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090): `email-password`, `email-verification`, `password-reset`, `sessions`, `tokens`, `magic-link`, and `email-otp`.
+- Known gap: users with `twoFactorEnabled: true` receive HTTP 403 (`FORBIDDEN: Password sign in is unavailable for this user`) on password sign in until stage R5.4 wires two factor authentication.
+- Mounting status: the Rust auth router is not yet mounted in `canopyd`. TypeScript still serves `/auth/v1` in all stacks.
+
+### Deployment split (`24ce4870`, waiting for the first CI image build and split smoke)
+
+- The split deployment changes in the working tree separate the services cleanly:
+  - `control`: runs the `canopy` image with `CANOPY_ROLE=control`, serving `/admin/v1` (except app user administration), running meta database migrations, webhooks, and startup policy publication.
+  - `auth`: runs the TypeScript `canopy-control` image with `CANOPY_SPLIT_AUTH_ONLY=on`, serving `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users`.
+  - `edge`: Caddy routes `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users` to the auth service; routes remaining `/admin/v1` requests to control; routes REST, GraphQL, and realtime to data; routes `/studio` to Studio; blocks `/internal` and `/internal/*` with HTTP 404.
+  - Configured and tested across Docker Compose (`deploy/compose/split.yaml`, `split-auth.yaml`), Helm (`deploy/helm/canopy/`), Kubernetes (`deploy/kubernetes/split.yaml`), and smoke tests (`deploy/compose/split-smoke.ts`). Docker was not available locally, so the images and the live split smoke are first exercised by CI.
+
+### CI and testing fixes
+
+- macOS mongod open file limit: [`packages/testing/scripts/mongod.ts`](../../../packages/testing/scripts/mongod.ts) starts mongod through a shell wrapper on macOS and Linux that raises `ulimit -n` to 64000 (falling back to 24576, then 10240), fixing "Too many open files" errors during index creation in macOS Node 24 CI jobs.
+- Oracle drift reporting: [`packages/server/test/conformance/admin/record.ts`](../../../packages/server/test/conformance/admin/record.ts) and [`packages/auth-builtin/test/conformance/record.ts`](../../../packages/auth-builtin/test/conformance/record.ts) now report the exact first differing line number and contents when `--check` encounters drift, allowing fast diagnosis directly from CI logs.
+- Interop test gating: cross verification tests requiring TypeScript are gated behind `CANOPY_TEST_TYPESCRIPT` and run in the Rust engine CI job where workspace packages are installed.
+
+### Remaining work
+
+Ordered list matching plan 005:
+
+1. **R5.3 Social and OIDC:** Google, GitHub, Apple (ES256 signed client secret), Microsoft (tenant support), Discord, generic OIDC through discovery, PKCE, state and nonce in `verifications`, account linking, redirect allowlist.
+2. **R5.4 Two factor:** TOTP per RFC 6238 (the primitive now in [`crates/canopy-control/src/totp.rs`](../../../crates/canopy-control/src/totp.rs) will move to `canopy-authn`), backup codes, `aal2` sessions, ceremony cookie and bearer bridge, 15 minute fresh session rule.
+3. **R5.5 Passkeys wiring:** wire [`crates/canopy-webauthn`](../../../crates/canopy-webauthn) per spike [S16](../../spikes/S16-webauthn.md) into `/auth/v1`, registration and authentication endpoints, clone detection counter checks, `aal2` sessions.
+4. **R5.6 The rest:** anonymous sign in and upgrade, bearer authentication, app user administration behind `/admin/v1/users`, rate limits, `canopy auth import` verifiers (bcrypt, PBKDF2, Firebase scrypt, Argon2id, Better Auth scrypt), rehash on sign in.
+5. **Mounting and switching:** mount the Rust auth router in `canopyd` and switch the deployment stacks from TypeScript auth to Rust auth.
+6. **Fuzzing and security review:** run 24 CPU hours of nightly fuzzing per auth target, followed by external security review with no open P0 or P1 findings.
+7. **R1 leftovers:** generate the providers document from config in `canopyd`, server error logging.
+8. **R2 Canopy.js Wasm adoption:** adopt generated Wasm and JavaScript modules in Canopy.js, measuring against size, startup, browser, and Hermes matrix requirements.
+9. **R3 Builders, emitter, and publishing:** canonical document JSON Schemas, bundle emitter in `canopy.js/emit`, publishing from canonical bundles.
+10. **R4 Rust CLI:** `canopy-cli` binary shipping in the eight platform packages.
+11. **R7 Removal and cleanup:** remove TypeScript server packages, update design docs and references.
+
+## Checkpoint (2026-11-25): spike S16 WebAuthn relying party and CI repair
+
+- Spike S16 is done (commit `06c9ff26`, "feat(auth): verify passkeys with an own WebAuthn relying party",
+  [S16](../../spikes/S16-webauthn.md)): [`crates/canopy-webauthn`](../../../crates/canopy-webauthn) verifies
+  registration and authentication (none and packed attestation, ES256, EdDSA, RS256, strict CBOR, constant time
+  challenge and RP ID hash, exact origin and top origin rules, counter clone detection); 39 tests including
+  the W3C Level 3 test vectors ([`conformance/webauthn/`](../../../conformance/webauthn/)), every fixture
+  passkey authenticating and every recorded passkey request; six fuzz targets in the nightly matrix that have
+  not yet run for the R5 gate's 24 CPU hours each. Remaining for R5's passkey part: wiring into `/auth/v1`, the
+  fuzzing hours, the external review. R5's entry gate item "spike S16 recorded" is now met.
+- The CI repair (commit `1d6990a8`, "fix(ci): repair the wasm build type check, fuzz lockfile and security
+  jobs"): the wasm build script's bracket access, the fuzz lockfile, the Biome ignore in
+  `packages/protocol/src/errors.ts`, the CLI recorder's actor substitution, the dependency review exemption for
+  `zlib-rs` (listed in Cargo.lock only as a weak optional dependency of flate2 that nothing enables) and the
+  secret scanning exclusion of recorded fixtures (`.github/trufflehog-exclude.txt`).
+- In progress now: `codex_prajo_s_codex` on the email template routes of `/admin/v1` (template store in
+  `canopy-mail` and its delegate); `codex_sudhan_s_codex` on policy validate, simulate and explain in
+  `canopy-policy` and their admin routes.
+
+## Checkpoint (2026-11-25): R1 admin API in Rust
+
+- [`canopy-control`](../../../crates/canopy-control/src/lib.rs) serves `/admin/v1` on the `canopy-http`
+  request and response types. Its [router](../../../crates/canopy-control/src/api.rs) ports the route table
+  in registration order (matching and `Allow`), cookie, bearer and admin token authentication, the Origin
+  and CSRF checks of cookie sessions, the routes admin tokens may not use, the forced password change, the
+  RBAC of the four roles, and the audit of accepted and refused changes with the TypeScript field order.
+- Served natively: setup and claim, login with TOTP, rate limits and lockout, logout, the own password and
+  TOTP enrollment, admins, admin API tokens, API keys (SCRAM verifiers for secret keys), auth providers,
+  doctor, audit and request logs, settings with the allowlist lockout check, both danger zone actions, and
+  the webhook queue routes over `canopy-webhooks` (hook definitions passed in by the caller).
+  [`PolicyRoutes`](../../../crates/canopy-control/src/policies.rs) serves the policy and context reads,
+  validation, simulation, explain, publishing, rollback, history and collection toggles.
+  Policy reads and validation include lint findings, with the app collection's indexes when available.
+  Simulation uses the existing read path for counts and masked samples, and the existing target compiler
+  for update and delete counts. The [authoring diagnostics](../../../conformance/authoring/policy/diagnostics.json)
+  replay the TypeScript lint rules, access reports and in process policy evaluations.
+- [TOTP](../../../crates/canopy-control/src/totp.rs) is RFC 4226 and RFC 6238 on ring, checked against both
+  RFC appendices, public for the auth stage to reuse. Admin passwords are Argon2id with the TypeScript work
+  factors; verification accepts Bun written hashes and the legacy scrypt form. Sealed secrets open values
+  sealed by the TypeScript server (a Node vector in the tests).
+- [Email template routes](../../../crates/canopy-control/src/templates.rs) delegate list, history, preview,
+  save and reset to the [mail store](../../../crates/canopy-mail/src/store.rs). Current overrides and
+  their history commit in one transaction with optimistic version checks. The control role registers
+  the delegate for built in auth. The mailer can send a test preview through the configured transport.
+  Mail tests exercise concurrent edits and test delivery through a local SMTP relay on both replica sets.
+- The [data delegate](../../../crates/canopy-control/src/data.rs) serves collections, schema, statistics,
+  OpenAPI, the GraphQL explorer and document reads and writes in the control role. Collection toggles
+  use the policy publisher. View as resolves context lookups and uses the same policy snapshot for
+  document filtering and field visibility. Viewer document reads mask fields hidden from the authenticated
+  role. The [OpenAPI renderer](../../../crates/canopy-control/src/openapi.rs) derives operations and field
+  schemas from the selected role's grants and names policies without exposing their filters.
+- Groups owned elsewhere go through a `Delegate` trait and answer `404` without one. The realtime
+  inspector, app users and signing keys still need their delegates.
+- The [oracle replay](../../../crates/canopy-control/tests/admin_oracle.rs) rebuilds every recorded request
+  from earlier Rust answers, applies the recorder's substitutions to the Rust output, and binds the numbered
+  placeholders by unification, so a pending step cannot shift later numbering. On MongoDB 8.0.34 and 9.0.8,
+  the email template change in isolation brings the replay to 331 of 433 steps matched byte for byte
+  with their state diffs (owner 75, admin 79, developer 82, viewer 95). This includes every template
+  step and the audit list. The 102 pending steps in that run include policy diagnostics under parallel
+  development, the other delegated groups, and the doctor (its realtime and revocation checks).
+- With policy diagnostics and email templates enabled, before the data delegate, both replica sets matched
+  343 of 433 steps byte for byte (owner 79, admin 83, developer 86, viewer 95). This includes policy
+  validate, simulate, explain, context validate and collection policy details. The authoring replay covers
+  all 10 lint rules, 72 access reports and 15 in process simulations.
+- With the data delegate and policy diagnostics, the oracle matches 391 of 433 steps on MongoDB 8.0.34
+  (port 37017) and 9.0.8 (port 37090). Owner matches 92 with 14 pending, admin 96 with 14 pending,
+  developer 99 with 11 pending, and viewer 104 with 3 pending. All data steps match byte for byte
+  after substitutions, including the document write audit entries. The 42 pending steps cover realtime,
+  signing keys and doctor. The replay also verifies that a view as caller cannot see another user's
+  document through the admin list, document or GraphQL routes, and that OpenAPI omits fields and
+  operations the selected role cannot access.
+- `CANOPY_ROLE=control` in `canopyd` ([control.rs](../../../crates/canopyd/src/control.rs)) migrates the meta
+  database, publishes `CANOPY_POLICY_BUNDLE`, logs a setup token while no owner exists, runs the webhooks of
+  the config's `webhooks` section (or `CANOPY_WEBHOOKS`), and serves only `/admin/v1`, `/healthz` and
+  `/readyz`. It reads `CANOPY_ENV`, `CANOPY_PUBLIC_URL`, `CANOPY_ADMIN_ORIGINS`, `CANOPY_MASTER_KEY`,
+  `CANOPY_MASTER_KEY_PREVIOUS` and `CANOPY_WEBHOOK_SECRET`. The [role test](../../../crates/canopyd/tests/control.rs)
+  checks the migrations, the setup token, the schedule state and that data routes answer `404`.
+- Fixed in `canopy-webhooks`: requeueing a dead letter writes the delivery fields in the TypeScript order.
+- Remaining for R1: the providers document from the config in `canopyd`, app user session
+  revocation in the danger zone (R5), compose, Helm and Kubernetes running `control` as a role of the
+  `canopy` image, and the edge routing `/admin/v1` to it.
+
+### Realtime inspector and doctor
+
+- With the signing key and realtime delegates, MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090)
+  each match all 433 admin steps after the oracle substitutions. Owner matches 106, admin 110,
+  developer 110 and viewer 107. Each role has zero pending steps. The replay reads the fixture insert
+  from a MongoDB change stream and feeds it to the Rust engine. Doctor compares all recorded checks.
+- In the all role, the control routes read the engine through its command queue. The inspector starts
+  collecting events and lag on its first request. Capture stops when five minutes have elapsed since the last request
+  and no tail remains attached. The data event path adds no allocation or locking while capture is inactive.
+  The buffer holds 256 traces and the events route returns the latest 100 summaries.
+- In the split stack, set `CANOPY_REALTIME_INTERNAL_URL` on the control process to the data process URL on
+  the private network. The control process authenticates with a bearer credential derived from the shared
+  master key. The data process serves inspection independently of control. Without the internal URL,
+  control returns the realtime off response. Doctor reports revocation following when the local process
+  owns that watcher. The standalone control tests passed on both replica sets, covering rejected internal
+  credentials, engine reads through the admin API and continued data process service after control exits.
+
+## Checkpoint (2026-11-25): R0 `/admin/v1/users` over HTTP
+
+- [`users.json`](../../../conformance/http/admin/users.json) records every `/admin/v1/users` route for each
+  admin role over HTTP, with the admin oracle's determinism and substitutions; the state also follows
+  `revocations`. The [cases](../../../packages/server/test/conformance/admin/users.ts) run after the role
+  preamble on a fixture app user with two sessions; the README lists the fixture. `bun run vectors:http-admin`
+  writes it next to the role files (unchanged byte for byte) and `--check` compares all five.
+- Recorded on MongoDB 8.0.34. `--check` passed on 8.0.34 and 9.0.8 with Bun, and the server Vitest check
+  passed on 9.0.8 with Node 26.
+- Finding: a refused invite redirect still creates the user (`user-invite-foreign` writes an
+  `auth.sign_up` audit entry before the `401`). Recorded as is; worth a decision for R5.
+
+## Checkpoint (2026-11-25): R5 access tokens and JWKS
+
+- [The token module](../../../crates/canopy-authn/src/tokens.rs) reads the BSON signing key
+  documents, opens the active private key with the auth secret and signs EdDSA and ES256 tokens
+  with ring. It keeps the original documents and renders JWKS on the three existing paths, with
+  standby keys and retired keys within the verification grace period.
+- [The token tests](../../../crates/canopy-authn/tests/tokens.rs) compare all 15 decoded access
+  tokens and all five JWKS responses in the HTTP oracle at its recorded clocks. The verifier
+  checks signatures against the recorded key sets. Fresh tokens from the document fixture work
+  in canopy-auth and the TypeScript jose verifier, which both refuse altered signatures and
+  unknown key ids. The tests also cover the switch to a standby key, the grace period boundary
+  and revocation.
+- The lease, key creation and rotation writes, session lookup, and auth router integration
+  remain open.
+
+## Checkpoint (2026-11-25): R5 encrypted values and signed cookies
+
+- [Encrypted values](../../../crates/canopy-authn/src/secrets.rs) use SHA-256 of the auth secret
+  with XChaCha20-Poly1305, the stored nonce and tag layout, and the JSON string wrapper for private
+  JWKs. The [format tests](../../../crates/canopy-authn/tests/formats.rs) decrypt all four signing
+  keys, the TOTP secret and the backup codes. Bun tests exchange fresh ciphertext in both directions.
+- [Signed cookies](../../../crates/canopy-authn/src/cookies.rs) use padded standard base64,
+  constant time HMAC verification, and the same percent encoding and header attribute order as
+  TypeScript. Tests verify the literal session values from the document fixture. For HTTP cases,
+  the oracle replaces tokens and signatures with placeholders, so the tests substitute independently
+  signed values and compare the headers, including sign in, refresh and sign out.
+- Route integration and the full R5 replay remain open. The crypto and cookie tests run without MongoDB.
+
+## Checkpoint (2026-11-25): R5 password primitives
+
+- [canopy-authn](../../../crates/canopy-authn/src/passwords.rs) writes native Argon2id PHC strings
+  and verifies the eight password formats in the exported authentication documents. Verification
+  returns whether a successful sign in should replace the hash. The module applies the work
+  limits of the TypeScript native verifier and legacy importer before running a password KDF.
+  Legacy strings with invalid fields or empty tags are refused.
+- The [password tests](../../../crates/canopy-authn/tests/passwords.rs) replay all ten fixture
+  passwords with positive and negative checks and use Bun to verify fresh hashes in both
+  directions against the TypeScript implementation. They also cover bcrypt's 2x variant,
+  work factor limits, upgrade decisions and generated malformed hashes.
+- This checkpoint covers password primitives. Auth routes, credential updates and the
+  full R5 document and HTTP replay remain separate integration work.
+
+## Checkpoint (2026-11-25): R2 standalone size and startup
+
+- The client build retains the Rust EJSON codec, full matcher and owned BSON pages for
+  batched filtering. A third module supplies sorting, projection and atomic updates through
+  a lazy loader for Canopy.js. The authoring module supplies policy, query and collection
+  shape operations. All three build to Wasm and JavaScript.
+- The standalone client passes both requested limits. It is 81,704 Brotli bytes against
+  the 81,920 byte budget. Chromium at 4x CPU slowdown measured 8.85 ms median and 21.60 ms
+  p95 in 50 streaming runs. The [R2 benchmark](../../../bench/baselines/r2/README.md) records
+  the optimization steps, symbol sizes and conformance on Bun and Node 26 in both formats.
+- The same split module replay passes on Node 24, Deno, Chromium, Firefox and WebKit in
+  both formats. All three browsers refuse native Wasm with strict CSP and pass the
+  JavaScript replay. The Linux nightly job runs Deno and the three browsers.
+  The [runtime matrix](../../../bench/baselines/r2/README.md#build-and-replay) records
+  the Hermes CLI failures and the remaining vector coverage gaps.
+- Canopy.js still needs to adopt the generated loader. The root bundle, first live query,
+  optimistic update latency and Hermes and CSP gates still need measurement. Remaining
+  authoring work includes generated frame types, policy lint, unresolved config resolution
+  and the rest of the authoring contract replay.
+
+## Checkpoint (2026-11-25): R6 Studio serving
+
+- [Studio in canopyd](../../../crates/canopyd/src/studio.rs) serves `CANOPY_STUDIO_DIR` in the
+  standalone `studio` role and on the shared listener in `all`. The standalone listener starts
+  without MongoDB. A gateway front door that proxies to a TypeScript server leaves Studio on that
+  upstream admin surface.
+- The [Rust HTTP replay](../../../crates/canopyd/tests/studio.rs) checks every response against the
+  Bun oracle and verifies that the Node oracle differs only in the implicit health and readiness
+  content type. The test compares the application headers and body bytes after excluding HTTP
+  transport framing. It also covers directory traversal, encoded separators, absolute paths,
+  drive paths, UNC paths, and an unset or missing asset directory. The CSP remains the recorded
+  policy because the current Studio build does not load WebAssembly.
+- The Studio build and all nine Playwright tests passed with a local edge routing Studio to
+  `canopyd` and the APIs to `canopy-server`, using MongoDB 8.0.34 on port 37017. Smoke checks
+  also passed for the Rust `all` listener and the current in process `canopy dev` listener.
+  The replay and strict all targets Clippy passed in a clean checkout copy and again in the
+  shared checkout after the schema refactor compiled. The license check passed with the existing
+  `jsonpath-rust` manifest warning.
+- The scratch `canopy` image builds Studio in a separate stage and serves it from `/app/studio`.
+  Compose, Helm and Kubernetes launch the `studio` role as its own service. Its Caddy routes and
+  its independence from the data and control services are preserved. The TypeScript API and
+  realtime image uses the `canopy-legacy` tag.
+- CI runs the stack smoke and Studio Playwright suites through the edge. The container release
+  checks the split stack with the published architecture tags before promoting the release tags.
+- The Linux x64 scratch image built locally from the R6 Studio commit and these deployment changes.
+  The standalone probe and redirect passed without MongoDB. Both split stack smoke modes and all
+  nine Studio Playwright tests passed through Caddy with MongoDB 9 and the TypeScript control image.
+  All 26 deploy manifest tests passed, and Helm lint passed in both chart modes.
+- Packaging the assets with the Rust CLI is pending. The `canopy-studio` Dockerfile and
+  `packages/studio` server remain for removal in R7.
+
+## Checkpoint (2026-11-25): R1 policy publishing
+
+- [Canonical parsing](../../../crates/canopy-policy/src/canonical.rs) validates version 1 policy
+  bundles and feeds the existing compiler. The [publishing fixture](../../../conformance/authoring/policy/publishing.json)
+  contains TypeScript stored documents and bundle hashes for all 15 authoring sets. Regenerate or
+  check it with the existing `vectors:authoring-policy` script.
+- [The policy publisher](../../../crates/canopy-mongo/src/publish.rs) lives in `canopy-mongo` and
+  reuses its BSON conversion and MongoDB driver. A transaction validates the resulting set and
+  writes the current document, history and audit. A guard document in `policy_publication`
+  serializes Rust publishers so concurrent policy and context changes cannot validate against
+  different snapshots. Rollback republishes the selected history document at the next version.
+- Start `canopyd` with `CANOPY_POLICY_BUNDLE` set to a canonical JSON bundle path and database
+  policies enabled. Startup applies changed definitions together and preserves omitted collections.
+  An unchanged bundle produces no new history or audit documents. Admin HTTP integration is pending.
+- The [publishing replay](../../../crates/canopyd/tests/data_plane.rs) passed on MongoDB 8.0.34
+  (port 37017) and 9.0.8 (port 37090). It checks the owner, admin and developer policy and
+  context oracles, competing first publishes, legacy history backfill and enforcement by a live
+  `canopyd` REST request after startup publishing.
+
+## Checkpoint (2026-11-25): R1 auth mail
+
+- [`canopy-mail`](../../../crates/canopy-mail/src/lib.rs) reads resolved built in auth mail settings
+  and the current override document in the meta database's `settings` collection. It renders all six
+  email kinds and delivers through SMTP, Resend, Postmark, or SES. The development log transport and
+  auth recipient limit are retained. The control and auth roles still need to instantiate the mailer.
+- SMTP uses Lettre for MIME and relay negotiation over rustls. The HTTP providers use reqwest with
+  the same rustls setup as S3. SES and S3 share [`canopy-sigv4`](../../../crates/canopy-sigv4/src/lib.rs),
+  which uses ring. The workspace license audit passed with the existing exceptions, including
+  `webpki-roots` for the root certificates. No new license exception was added.
+- [Template vectors](../../../conformance/mail/templates.json) capture 16 renders from TypeScript.
+  Regenerate with `bun run vectors:mail` and verify with `bun run vectors:mail --check`.
+- The Rust replay matches all 16 renders. The transport tests exercise SMTP and all three HTTP
+  providers over loopback, and verify the SES signature against TypeScript. The shared signer
+  passes the AWS GetObject and GetBucketLifecycle examples and the existing S3 backend tests.
+  The settings integration test passed on MongoDB 8.0.34 and 9.0.8. The mail crate passed Clippy
+  on all targets with warnings denied.
+
+## Checkpoint (2026-11-25): R1 webhooks
+
+- [`canopy-webhooks`](../../../crates/canopy-webhooks/src/lib.rs) loads trigger and schedule definitions
+  from `webhook_hooks` at startup. It captures MongoDB changes with a persisted resume token, matches
+  filters with the shared matcher, and queues UTC cron fires, catch up and manual runs.
+- Workers claim deliveries with MongoDB leases, sign HTTP requests using Standard Webhooks, and retry
+  with jitter and `Retry-After`. Dead lettering and requeue use MongoDB transactions. The start handle
+  drains attempts and capture writes during shutdown. Control role integration is pending.
+- The [Rust replay](../../../crates/canopy-webhooks/tests/deliveries.rs) checks the TypeScript oracle's
+  POST bodies, independently verified signatures, retry timing and final MongoDB documents. It also
+  checks live capture, competing workers, lease expiry and the `Retry-After` override. The replay passed
+  on MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090).
+- The crate reuses the workspace's reqwest and rustls stack for HTTP, ring for HMAC and jitter entropy,
+  `httpdate` for HTTP dates, and `time` for UTC calendar arithmetic. Cron parsing is local and the
+  license check passed.
+
+## Checkpoint (2026-11-25): R1 meta database migrations
+
+- [`canopy-migrations`](../../../crates/canopy-migrations/src/lib.rs) ports all six meta database
+  migrations through the official MongoDB driver. It renews the lease during long steps and commits
+  each version together with an ownership check and lease renewal. Control startup integration is pending.
+- The [Rust replay](../../../crates/canopy-migrations/tests/upgrades.rs) passed on MongoDB 8.0.34
+  and 9.0.8. It covers every starting version, direct and incremental upgrades, no-op replays,
+  and recovery from the oracle's partial webhook DDL and expired lease. It also checks concurrent
+  runners, retry after failed DDL, and preservation of an existing custom TTL.
+
+## Checkpoint (2026-11-25): R0 policy authoring
+
+- [Policy authoring schemas and vectors](../../../conformance/authoring/README.md#policy-set-documents)
+  define version 1 policy sets and test cases. The recorder uses the installed Canopy.js builders
+  and verifies 15 policy sets, 15 concrete test cases, one declarative filter case and seven refusals.
+- The replay checks draft 2020-12 schema validity, stored policy documents and bundle hashes, and
+  in memory outcomes for the decoded concrete test cases. R3 still needs the maintainer's review
+  of filter case execution and of suite declaration callbacks versus custom assertions under O5.
+
+## Checkpoint (2026-11-25): R0 auth oracle and canopy_auth fixture
+
+- The [`/auth/v1` oracle](../../../conformance/http/auth/README.md) records 44 cases in 16 groups (email and
+  password, verification, password reset, magic link, email OTP, two factor, passkeys, anonymous, GitHub and
+  Google, generic OIDC, sessions, bearer, tokens and JWKS, the user admin behind `/admin/v1/users`, rate
+  limits, refusals) with mail, provider calls and the documents left in `canopy_auth`, `canopy.audit_log` and
+  `canopy.revocations`.
+- The [`canopy_auth` fixture](../../../conformance/auth/documents/README.md) holds users of every hash kind,
+  sessions, accounts of every provider kind, a two factor secret, two passkeys and EdDSA and ES256 keys,
+  with a manifest and a proof run on every check. It confirms the XChaCha20-Poly1305 `symmetricEncrypt`
+  format and the session cookie signature (details under Done).
+
+## Checkpoint (2026-11-25): R0 config and collection schema authoring
+
+- The [authoring contracts](../../../conformance/authoring/README.md#unresolved-config) define version 1
+  documents for unresolved config and collection shapes. The config vectors preserve symbolic environment
+  references and compare resolution and source attribution against TypeScript. The suite includes a secret
+  canary, per mode and command function evaluation, and an emission refusal for the SDK auth callback.
+- The collection vectors run Canopy.js builders, replay the pull fixture, and validate the existing type
+  generation shapes. Both owning packages replay the vectors and validate the documents using Ajv.
+- Maintainer review remains for the R0 formats and diagnostics, including the raw document escape,
+  the claims hook field names and the proposed schema error code. The Rust consumers are R3 work.
+
+## Checkpoint (2026-11-25): R0 Canopy.js performance baselines
+
+- [Canopy.js R0 baselines](../../../bench/baselines/r0/README.md) records client root and core bundle sizes, Chromium startup under 4x CPU slowdown, and matcher throughput across Node 26 and Bun.
+
+## Checkpoint (2026-11-25): R0 TypeScript CLI capture
+
+- The [CLI oracle](../../../conformance/cli/README.md) captures 57 invocations from the TypeScript
+  dispatcher, including startup and refusals for `dev`, help and refusals for `login` and `logout`,
+  a two backend policy test, conditional publishing, rollback, schema pull, key and admin management,
+  and live admin API calls for user import and admin token management.
+- The vectors include arguments, environment overrides, stdin, both output streams, exit code,
+  exact file changes after substitutions, and changed meta and auth documents as canonical Extended
+  JSON. The type generation case captures the schema generator directly because the dispatcher has no
+  type generation command.
+- Captured with Bun on MongoDB 8.0.34 at port 37017. The recorder's `--check` and the CLI Vitest replay
+  passed on MongoDB 9.0.8 at port 37090 with Bun and Node 26 on Windows. The README lists the
+  substitutions and replay commands.
+
+## Checkpoint (2026-11-25): R0 admin and Studio HTTP captures
+
+- [Admin oracle](../../../conformance/http/admin/README.md) captures 433 HTTP steps across owner,
+  admin, developer and viewer in development. It checks coverage against the TypeScript server's
+  registered routes, with app user management assigned to the auth oracle. It includes TOTP setup,
+  failed and replayed codes, bearer and cookie sessions, CSRF, long lived token creation, use and
+  revocation, policy and context version histories, webhook queue operations, and a realtime trace
+  and lag sample from a fixture insert. Each step includes the changed meta database documents.
+- [Studio oracle](../../../conformance/http/studio/README.md) captures 18 cases on each runtime.
+  The Bun and Node captures preserve the difference in the health response content type.
+- Admin was captured on MongoDB 8.0.34 at port 37017. The admin checks passed on MongoDB 9.0.8 at
+  port 37090 with Bun and Node 26. Both runtimes passed the Studio check and the Vitest checks in
+  the owning packages. The oracle READMEs describe the fixture inputs and substitutions.
+
+## Checkpoint (2026-11-25): starting state
+
+**State.** [ADR-0018](../../adr/0018-all-server-code-in-rust.md) accepted and plan 005 written on
+`refactor/rust-port` at `9e9c94f` (not committed yet). No stage has started. Nothing is in progress.
+
+**What exists to build on (from plan 004, see its [progress log](../004-rust-data-plane/08-progress.md)):**
+
+- `canopyd` (`crates/canopyd`) serves REST, GraphQL, realtime, storage and the MongoDB wire endpoint; stages D1
+  to D6 passed their gates on CI; D7 is done in code (the default route set is `all`, `@canopy/embedded`
+  exists) and its release gate was waiting on Q17, which ADR-0018 now answers with "no".
+- `canopyd` already verifies built in auth tokens from `canopy_auth.signing_keys` (EdDSA and ES256), API keys,
+  revocations and view tokens, and applies the `/auth/v1` and Data API rate limits (`crates/canopy-auth`,
+  `conformance/auth/rate-limits.json`).
+- The split stack (`deploy/compose/split.yaml`, Helm `split.enabled`, `deploy/kubernetes/split.yaml`) runs
+  `canopyd` beside the TypeScript `canopy-control`, which serves built in auth, `/admin/v1`, webhooks,
+  migrations and publishes the policy folder at startup.
+- Eight `@canopy/canopyd-<suffix>` platform packages are packed, installed and smoke tested by
+  `native-release.yml`; today they are optional dependencies of `@canopy/realtime`.
+- `canopy-wasm` builds through wasm-bindgen in `packages/wasm` (one module, 681 KB uncompressed, not size
+  tuned); Canopy.js does not use it yet and still vendors the TypeScript core with `scripts/sync-core.ts`.
+- `conformance/` holds the oracles of D1 to D5 (find, reads, writes, GraphQL, storage, cursor, policy,
+  pipeline, schema, matcher, query, protocol, errors, rate limits). None covers `/auth/v1`, `/admin/v1`,
+  webhooks, migrations, the CLI or the authoring DSLs yet.
+- No Rust crate uses `proptest` or `cargo mutants` yet; `fuzz/` holds the existing `cargo fuzz` targets.
+
+**Waiting on the maintainer before R0 closes:** the thresholds of plan 005 §7 (Wasm size and startup), and
+open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name).
+
+## Next tasks
+
+| # | Task | Stage | Size | Agent |
+|---|---|---|---|---|
+| 1 | R5: internal review findings closed in Rust, fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
+| 2 | R2 speed gates met across all hosts (matching worst median 0.93x; single update 2.41x, 36.75 µs; chained update 2.70x, 33.75 µs; startup p95 23.20 ms in Chromium 4x, 1.19 ms Node 26); client module 78,049 Brotli bytes (3,871 bytes headroom); Hermes speed gate dropped by maintainer decision; Canopy.js suites pass in Chromium, Firefox, WebKit, Bun, Node 24, Node 26, Deno; unverified items: React Native on devices, Hermes speed gate known gap, Canopy.js browser CI on master | R2 | Big | `claudeAgent` |
+| 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
+| 4 | R4 done: all 61 golden steps replay including --env (76428729), canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b), Windows Ctrl+C and Ctrl+Break manual checks | R4 | Big | `claudeAgent` |
+| 5 | R7 gated: prep map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
+
+## Done
+
+### Auth oracle and canopy_auth fixture (R0)
+
+- [`conformance/http/auth`](../../../conformance/http/auth/README.md): 44 cases in 16 groups, every
+  `/auth/v1` flow of `packages/auth-builtin` (list in its README), with each step's request, status, headers,
+  Set-Cookie names, values and attributes, body, mail, provider calls, and the `canopy_auth`,
+  `canopy.audit_log` and `canopy.revocations` documents after each case. Recorder:
+  `packages/auth-builtin/test/conformance/` (fake clock from 2031-01-01, seeded Web Crypto randomness and
+  Ed25519 and P-256 key generation, memory mail, mock GitHub, Google and generic OIDC providers behind a
+  routed `fetch`, two software WebAuthn authenticators with `none` and `packed` self attestation). Script:
+  `bun run vectors:http-auth` (`packages/testing/scripts/http-auth-vectors.ts`, `--check`, `--uri`, `--group`,
+  `--rewrite-documents`). Vitest: `packages/auth-builtin/test/conformance-auth.test.ts`.
+- Each case runs twice under two seeds. Whatever differs becomes a placeholder, numbered by first
+  appearance. Any other difference fails the recording. Every substitution kind is listed in the README.
+  Access tokens are recorded decoded, and their signatures are verified with the case's key set. Session and
+  ceremony cookie signatures are checked as HMAC-SHA256.
+- [`conformance/auth/documents`](../../../conformance/auth/documents/README.md): a `canopy_auth` database
+  written by the TypeScript server with users of every hash kind (native Argon2id, Better Auth scrypt,
+  imported bcrypt, PBKDF2 SHA-1, SHA-256 and SHA-512, Firebase scrypt, Argon2id), sessions, GitHub, Google and
+  OIDC accounts, a two factor secret, two passkeys and EdDSA and ES256 keys, plus `manifest.json`. The check
+  proves it: every key and secret decrypts, every password signs in and is rehashed, sessions, passkeys and
+  provider accounts are accepted, and tokens from both stored keys verify. A tampered copy is proved to
+  fail in the Vitest file.
+- **Formats confirmed** from the fixture with an XChaCha20-Poly1305 written apart from Better Auth
+  (`formats.ts`): `symmetricEncrypt` writes hex of a 24 byte nonce, ciphertext and 16 byte tag under
+  SHA-256(secret), with no `$ba$` envelope (Canopy passes a plain secret). `signing_keys.privateKey` is that
+  hex inside a JSON string literal, around the private JWK. The session cookie is
+  `__Secure-canopy.session_token` = `token.base64(HMAC-SHA256(secret, token))`, percent encoded.
+- Recorded with Bun on MongoDB 8.0.34 (port 37017). `--check` passes on 8.0.34 and 9.0.8 (port 37090) with
+  Bun and with Node 26.12.1.
+- **Normalized because the TypeScript server differs by runtime:** Bun's `Response.json` content type
+  carries `;charset=utf-8`, Node labels string bodies `text/plain;charset=UTF-8`, and Web Crypto JWK member
+  order differs (it changes the stored key JSON and its ciphertext). Audit and revocation documents are
+  written concurrently, so they are sorted by time and content instead of insertion.
+- **Not deterministic, substituted instead:** ES256 signatures, Argon2id salts (`Bun.password` under Bun),
+  ObjectIds, the Google mock's per process RSA key, and the response floor (recorded only as "held at least
+  75 ms"). The fixture database holds random salts and ObjectIds, so it is written once and proved on every
+  check rather than compared byte for byte.
+- **Open:** the auth oracle records the `UserAdmin` calls behind `/admin/v1/users` (results and documents);
+  their HTTP layer is recorded separately in `conformance/http/admin/users.json` (see the R0 checkpoint
+  on `/admin/v1/users`). Also not covered: Apple, Microsoft and Discord, `packed`
+  attestation with an `x5c` chain, RS256 passkeys, the claims hook, key rotation over time, revocations from
+  another node, and an http public URL (cookies without `__Secure-`). Findings worth a decision for R5: a
+  client using the `x-canopy-ceremony` bridge must send an `Origin` (a native client without one gets `403
+  MISSING_OR_NULL_ORIGIN`), and the generic OIDC provider starts through `/sign-in/social`.
+
+### Webhooks and meta migrations (R0)
+
+- [Webhook deliveries](../../../conformance/webhooks/deliveries.json) capture eight MongoDB change stream
+  cases with matching and rejected filters for insert, update, replace and delete. They also cover scheduled
+  fires, deduplication, catch up and a run from the authenticated admin route. The receiver captures POST
+  paths, application headers and raw bodies. Each signature is checked independently against the fixture
+  secret. The failure cases capture two retries and a dead letter each for HTTP 500, timeouts and HTTP 410.
+  A later delivery succeeds on the same hook because exhausting retries does not disable it.
+- [Meta migrations](../../../conformance/migrations/upgrades.json) capture 21 individual upgrades across
+  starting versions 0 through 6, plus direct upgrades to the latest version and no-op replays. Each
+  snapshot contains canonical EJSON for the collections, documents and indexes, including the
+  `migrations` collection. The recovery case pauses the first runner after partial version 4 DDL, checks
+  that a live lease rejects a second runner, expires the lease and resumes the upgrade.
+- Webhook inputs use fixture change stream tokens, cluster time and wall time before signing. The clock,
+  retry jitter and admin run UUID are fixed. Transport-generated HTTP headers are outside the vectors.
+  Migration snapshots replace application timestamps, the random lease owner and live lease expiry
+  with fixture values. Scratch database names are omitted.
+- Recorded on MongoDB 8.0.34 (port 37017). Both recorders pass `--check` on MongoDB 8.0.34 and 9.0.8
+  (port 37090) on Bun and Node 26. Both server Vitest replay checks pass against 9.0.8 on those runtimes.
+
+### Type generation and canopy pull (R0)
+
+- [Type generation](../../../conformance/typegen/generate.json) captures four cases with exact TypeScript
+  bytes. The inputs cover all schema sources, BSON and legacy values from the schema inference fixtures,
+  nested documents and arrays, optional and nullable fields, unions, literal values, escaping, alias
+  collisions and both generator options. The viewer case applies read visibility in optional mode.
+  The generator emits both Document and Insert from the same shape, making only the root _id optional
+  for Insert. It does not consume a separate write field rule.
+- [Canopy pull](../../../conformance/typegen/pull.json) captures nine real CLI invocations against a
+  database seeded with a validator, indexes and sampled documents. Cases cover TypeScript and JavaScript
+  output, inferred enums, a single document sample, nested output paths, appending a validator collection,
+  checking current LF and CRLF files, and duplicate or missing collections and invalid samples. Each
+  captures arguments, stdout, stderr, exit code and changed files.
+- The pull vectors substitute the MongoDB URI and scratch database name, omit the temporary working
+  directory, and store relative paths. File text uses LF with an explicit marker for the CRLF fixture.
+  On Windows the CRLF case reports the same result as LF and preserves the existing file bytes.
+  No timestamp substitutions are needed.
+- Recorded on MongoDB 8.0.34 (port 37017). The recorder passes on 8.0.34 and 9.0.8 (port 37090)
+  on Bun and Node 26. Both CLI Vitest replay checks pass on 9.0.8 on both runtimes.
+
+### Canopy.js performance baselines (R0)
+
+- [Canopy.js R0 baselines](../../../bench/baselines/r0/README.md) records client root and core bundle sizes, Chromium startup under 4x CPU slowdown, and matcher throughput across Node 26 and Bun.

@@ -8,7 +8,8 @@
  * The binaries go to `<folder>/binaries/<version>`, and a later run with the same version reuses them instead
  * of downloading again (CI caches that folder alone). The data, `mongod.log` and `mongod.pid` (the process
  * id of the server) go to `<folder>`; a run over the data of an earlier one restarts that replica set.
- * Prints the connection string on success. The server keeps running after the script exits.
+ * Prints the connection string on success. The server keeps running after the script exits. Its storage cache
+ * is capped at 1 GB, which a test replica set never fills, so the server leaves memory to the test processes.
  */
 import { execFileSync, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -21,7 +22,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { MongoClient, MongoServerError } from "mongodb"
 
 function usage(message: string): never {
@@ -81,34 +83,20 @@ function reports(mongod: string, version: string): boolean {
   }
 }
 
-/** Extracts a verified archive from memory. The Windows ZIP reader needs a seekable stream. */
-function extract(archive: Uint8Array, staging: string): void {
-  if (process.platform === "win32") {
-    const script = `
-      $ErrorActionPreference = 'Stop'
-      Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-      $archive = [System.IO.MemoryStream]::new()
-      [Console]::OpenStandardInput().CopyTo($archive)
-      $archive.Position = 0
-      $zip = [System.IO.Compression.ZipArchive]::new($archive)
-      try {
-        [System.IO.Compression.ZipFileExtensions]::ExtractToDirectory($zip, (Get-Location).Path)
-      } finally {
-        $zip.Dispose()
-      }
-    `
-    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-      cwd: staging,
-      input: archive,
-      stdio: ["pipe", "inherit", "inherit"],
-    })
-    return
-  }
-  execFileSync("tar", ["-xzf", "-"], {
-    cwd: staging,
-    input: archive,
-    stdio: ["pipe", "inherit", "inherit"],
-  })
+/**
+ * Extracts a verified ZIP or gzipped tar archive without keeping Windows debug symbols. The archiver skips
+ * them where it honors `--exclude` (bsdtar, GNU tar); BusyBox tar unpacks them anyway, so they are removed
+ * afterwards.
+ */
+export function extract(archive: string, staging: string): void {
+  const tar =
+    process.platform === "win32"
+      ? join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "tar.exe")
+      : "tar"
+  execFileSync(tar, ["-xf", archive, "-C", staging, "--exclude", "*.pdb"], { stdio: "inherit" })
+  for (const entry of readdirSync(staging, { recursive: true, withFileTypes: true }))
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(".pdb"))
+      rmSync(join(entry.parentPath, entry.name))
 }
 
 /**
@@ -138,13 +126,16 @@ async function install(version: string, dir: string): Promise<string> {
   const staging = `${target}.partial`
   rmSync(staging, { recursive: true, force: true })
   mkdirSync(staging, { recursive: true })
-  extract(archive, staging)
-  rmSync(target, { recursive: true, force: true })
-  renameSync(staging, target)
-  const mongod = findMongod(target)
+  const archivePath = join(staging, process.platform === "win32" ? "mongodb.zip" : "mongodb.tgz")
+  writeFileSync(archivePath, archive)
+  extract(archivePath, staging)
+  rmSync(archivePath)
+  const mongod = findMongod(staging)
   if (mongod === undefined) throw new Error(`The archive from ${url} has no mongod`)
   if (!reports(mongod, version)) throw new Error(`${mongod} does not report version ${version}`)
-  return mongod
+  rmSync(target, { recursive: true, force: true })
+  renameSync(staging, target)
+  return join(target, relative(staging, mongod))
 }
 
 async function waitFor<T>(what: string, attempt: () => Promise<T | undefined>): Promise<T> {
@@ -172,23 +163,42 @@ async function main(): Promise<void> {
   const mongod = await install(version, dir)
   const log = join(dir, "mongod.log")
   const output = openSync(join(dir, "mongod.out"), "a")
-  const child = spawn(
-    mongod,
-    [
-      "--replSet",
-      "rs0",
-      "--port",
-      String(port),
-      "--ipv6",
-      "--bind_ip",
-      "127.0.0.1,::1",
-      "--dbpath",
-      data,
-      "--logpath",
-      log,
-    ],
-    { detached: true, stdio: ["ignore", output, output] },
-  )
+  const args = [
+    "--replSet",
+    "rs0",
+    "--port",
+    String(port),
+    "--ipv6",
+    "--bind_ip",
+    "127.0.0.1,::1",
+    "--dbpath",
+    data,
+    "--logpath",
+    log,
+    "--wiredTigerCacheSizeGB",
+    "1",
+    "--setParameter",
+    "enableTestCommands=1",
+    "--setParameter",
+    "wiredTigerFileHandleCloseIdleTime=30",
+    "--setParameter",
+    "wiredTigerFileHandleCloseMinimum=250",
+  ]
+  // macOS starts processes with a soft limit of 256 open files, which a test run that creates many
+  // databases exhausts, so the server starts from a shell that raises its own limit first.
+  const child =
+    process.platform === "win32"
+      ? spawn(mongod, args, { detached: true, stdio: ["ignore", output, output] })
+      : spawn(
+          "/bin/sh",
+          [
+            "-c",
+            'ulimit -n 64000 2>/dev/null || ulimit -n 24576 2>/dev/null || ulimit -n 10240 2>/dev/null; exec "$0" "$@"',
+            mongod,
+            ...args,
+          ],
+          { detached: true, stdio: ["ignore", output, output] },
+        )
   child.unref()
   if (child.pid !== undefined) writeFileSync(join(dir, "mongod.pid"), `${child.pid}\n`)
   let exited: number | null | undefined
@@ -231,12 +241,17 @@ async function main(): Promise<void> {
   process.stdout.write(`mongodb://localhost:${port}/?replicaSet=rs0\n`)
 }
 
-main().then(
-  () => process.exit(0),
-  (error: unknown) => {
-    process.stderr.write(
-      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-    )
-    process.exit(1)
-  },
-)
+if (
+  import.meta.main ??
+  (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url)
+) {
+  main().then(
+    () => process.exit(0),
+    (error: unknown) => {
+      process.stderr.write(
+        `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+      )
+      process.exit(1)
+    },
+  )
+}

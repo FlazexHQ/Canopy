@@ -245,7 +245,8 @@ fn compiled(result: &Compiled) -> Value {
     Value::Document(out)
 }
 
-fn access(fields: &FieldAccess) -> Value {
+/// Encodes field access in the policy report format.
+pub fn field_access_document(fields: &FieldAccess) -> Value {
     let mut out = Document::new();
     match fields {
         FieldAccess::All => out.insert("kind", text("all")),
@@ -279,7 +280,8 @@ fn policy(explained: &ExplainedPolicy) -> Value {
     Value::Document(out)
 }
 
-fn explanation(explained: &Explanation) -> Value {
+/// Encodes a clause explanation in the policy report format.
+pub fn explanation_document(explained: &Explanation) -> Value {
     let mut out = Document::new();
     out.insert("collection", text(&explained.collection));
     out.insert("op", text(explained.op.as_str()));
@@ -302,14 +304,14 @@ pub fn access_report_document(report: &AccessReport) -> Result<Document, CanopyE
     out.insert("bypass", Value::Bool(report.bypass));
     out.insert("exposed", Value::Bool(report.exposed));
     out.insert("granted", Value::Bool(report.granted));
-    out.insert("using", explanation(&report.using));
+    out.insert("using", explanation_document(&report.using));
     if let Some(check) = &report.check {
-        out.insert("check", explanation(check));
+        out.insert("check", explanation_document(check));
     }
     out.insert("effective", compiled(&report.effective));
-    out.insert("readable", access(&report.readable));
+    out.insert("readable", field_access_document(&report.readable));
     if let Some(writable) = &report.writable {
-        out.insert("writable", access(writable));
+        out.insert("writable", field_access_document(writable));
     }
     out.insert("immutable", strings(&report.immutable));
     out.insert("effectiveFilter", Value::Document(report.effective.to_filter()));

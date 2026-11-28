@@ -1,0 +1,767 @@
+# Deploy this set in place of canopy.yaml. It uses the same canopy Secret and external MongoDB replica set.
+# Replace the example files in ConfigMap canopy-split-policies before exposing the edge.
+# Control publishes them to the shared meta database at startup. Restart control after changing them.
+# Point ingress at Service canopy. The direct MongoDB wire listener is on Service canopy-data port 27018.
+# Configure gateway.json for storage. Mount settings containing credentials from a Secret.
+# canopy-auth runs canopyd's control role with CANOPY_AUTH_ENGINE=rust and serves built in auth from auth.json.
+# For built in auth, add an auth section with kind builtin and a mail transport to auth.json (mount it from a
+# Secret when it holds credentials) and set an HTTPS CANOPY_PUBLIC_URL in the shared Secret.
+# In gateway.json configure auth.issuer as that URL plus /auth/v1, auth.audience as the URL,
+# auth.builtinJwks as true, auth.algorithms as ["EdDSA"],
+# auth.rolesClaim as roles and auth.checkRevocations as true. Use the same CANOPY_META_DB on data, control and auth.
+# Release manifests can also be rendered with Helm.
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: canopy-data
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: canopy
+      app.kubernetes.io/instance: canopy
+      app.kubernetes.io/component: data
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canopy-split
+data:
+  Caddyfile: |
+    {
+      admin off
+    }
+
+    {$CANOPY_SITE::8080} {
+      @internal path /internal /internal/*
+      handle @internal {
+        respond "Not found" 404
+      }
+
+      handle /edge/healthz {
+        respond "ok" 200
+      }
+
+
+      @auth path /auth/v1 /auth/v1/* /.well-known/jwks.json /admin/v1/users /admin/v1/users/*
+      handle @auth {
+        reverse_proxy {$CANOPY_AUTH_UPSTREAM:auth:8080}
+      }
+
+      @control path /admin/v1 /admin/v1/*
+      handle @control {
+        reverse_proxy {$CANOPY_CONTROL_UPSTREAM:control:8080}
+      }
+
+      @studio path /studio /studio/*
+      handle @studio {
+        reverse_proxy {$CANOPY_STUDIO_UPSTREAM:studio:8080}
+      }
+
+      handle {
+        reverse_proxy {$CANOPY_DATA_UPSTREAM:data:8080} {
+          flush_interval -1
+        }
+      }
+
+      handle_errors 502 503 504 {
+        header Content-Type "application/problem+json"
+        header Retry-After "5"
+        respond `{"type":"urn:canopy:error:unavailable","title":"Unavailable","status":503,"code":"CANOPY_UNAVAILABLE"}` 503
+      }
+    }
+
+  gateway.json: |
+    {
+      "server": {
+        "metricsHost": "0.0.0.0"
+      },
+      "wire": {
+        "port": 27018
+      }
+    }
+  auth.json: |
+    {
+      "server": {
+        "metricsHost": "0.0.0.0"
+      },
+      "wire": {
+        "port": 27018
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canopy-data
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: data
+spec:
+  selector:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: data
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: wire
+      port: 27018
+      targetPort: wire
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canopy-data-metrics
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: data
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canopy-control
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: control
+spec:
+  selector:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: control
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canopy-auth
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: auth
+spec:
+  selector:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: auth
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canopy-studio
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: studio
+spec:
+  selector:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: studio
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canopy
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: edge
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: edge
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canopy-data
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: data
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: canopy
+      app.kubernetes.io/instance: canopy
+      app.kubernetes.io/component: data
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: canopy
+        app.kubernetes.io/instance: canopy
+        app.kubernetes.io/component: data
+      annotations:
+        checksum/canopy-split: b8bd1c7292b13c05e1d42f9d2be9da74e5c327f5794f11fb5ce7b132315927b9
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: data
+          image: "canopy:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9464
+            - name: wire
+              containerPort: 27018
+          envFrom:
+            - secretRef:
+                name: canopy
+          env:
+            - name: CANOPY_DB
+              value: "app"
+            - name: CANOPY_ENV
+              value: "production"
+            - name: CANOPY_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CANOPY_ROLE
+              value: api
+            - name: CANOPY_POLICIES
+              value: database
+            - name: CANOPY_DATA_PLANE_ROUTES
+              value: all
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: settings
+              mountPath: /app/gateway.json
+              subPath: gateway.json
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: settings
+          configMap:
+            name: canopy-split
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canopy-split-policies
+data:
+  policy-bundle.json: |
+    {
+      "version": 1,
+      "collections": [
+        {
+          "collection": "notes",
+          "exposed": true,
+          "realtime": true,
+          "policies": [
+            {
+              "name": "permissive read #1",
+              "kind": "permissive",
+              "ops": [
+                "read"
+              ],
+              "roles": [
+                "authenticated"
+              ],
+              "using": {
+                "ownerId": {
+                  "$auth": "sub"
+                }
+              }
+            },
+            {
+              "name": "permissive insert #2",
+              "kind": "permissive",
+              "ops": [
+                "insert"
+              ],
+              "roles": [
+                "authenticated"
+              ],
+              "check": {
+                "ownerId": {
+                  "$auth": "sub"
+                }
+              }
+            },
+            {
+              "name": "permissive update #3",
+              "kind": "permissive",
+              "ops": [
+                "update"
+              ],
+              "roles": [
+                "authenticated"
+              ],
+              "using": {
+                "ownerId": {
+                  "$auth": "sub"
+                }
+              },
+              "check": {
+                "ownerId": {
+                  "$auth": "sub"
+                }
+              }
+            },
+            {
+              "name": "permissive delete #4",
+              "kind": "permissive",
+              "ops": [
+                "delete"
+              ],
+              "roles": [
+                "authenticated"
+              ],
+              "using": {
+                "ownerId": {
+                  "$auth": "sub"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "contexts": {}
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canopy-control
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: control
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: canopy
+      app.kubernetes.io/instance: canopy
+      app.kubernetes.io/component: control
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: canopy
+        app.kubernetes.io/instance: canopy
+        app.kubernetes.io/component: control
+      annotations:
+        checksum/canopy-split: b8bd1c7292b13c05e1d42f9d2be9da74e5c327f5794f11fb5ce7b132315927b9
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: control
+          image: "canopy:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: canopy
+          env:
+            - name: CANOPY_DB
+              value: "app"
+            - name: CANOPY_ENV
+              value: "production"
+            - name: CANOPY_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CANOPY_ROLE
+              value: control
+            - name: CANOPY_REALTIME_INTERNAL_URL
+              value: http://canopy-data:8080
+            - name: CANOPY_POLICY_BUNDLE
+              value: /app/policies/policy-bundle.json
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: settings
+              mountPath: /app/gateway.json
+              subPath: gateway.json
+              readOnly: true
+            - name: policies
+              mountPath: /app/policies
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: settings
+          configMap:
+            name: canopy-split
+        - name: policies
+          configMap:
+            name: canopy-split-policies
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canopy-auth
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: canopy
+      app.kubernetes.io/instance: canopy
+      app.kubernetes.io/component: auth
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: canopy
+        app.kubernetes.io/instance: canopy
+        app.kubernetes.io/component: auth
+      annotations:
+        checksum/canopy-split: b8bd1c7292b13c05e1d42f9d2be9da74e5c327f5794f11fb5ce7b132315927b9
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: auth
+          image: "canopy:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: canopy
+          env:
+            - name: CANOPY_DB
+              value: "app"
+            - name: CANOPY_ENV
+              value: "production"
+            - name: CANOPY_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CANOPY_ROLE
+              value: control
+            - name: CANOPY_AUTH_ENGINE
+              value: rust
+          args: ["--config", "/app/auth.json"]
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: settings
+              mountPath: /app/auth.json
+              subPath: auth.json
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: settings
+          configMap:
+            name: canopy-split
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canopy-studio
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: studio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: canopy
+      app.kubernetes.io/instance: canopy
+      app.kubernetes.io/component: studio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: canopy
+        app.kubernetes.io/instance: canopy
+        app.kubernetes.io/component: studio
+      annotations:
+        checksum/canopy-split: b8bd1c7292b13c05e1d42f9d2be9da74e5c327f5794f11fb5ce7b132315927b9
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: studio
+          image: "canopy:latest"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CANOPY_ROLE
+              value: studio
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canopy-edge
+  labels:
+    app.kubernetes.io/name: canopy
+    app.kubernetes.io/instance: canopy
+    app.kubernetes.io/component: edge
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: canopy
+      app.kubernetes.io/instance: canopy
+      app.kubernetes.io/component: edge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: canopy
+        app.kubernetes.io/instance: canopy
+        app.kubernetes.io/component: edge
+      annotations:
+        checksum/canopy-split: b8bd1c7292b13c05e1d42f9d2be9da74e5c327f5794f11fb5ce7b132315927b9
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: edge
+          image: "caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CANOPY_AUTH_UPSTREAM
+              value: canopy-auth:8080
+            - name: CANOPY_CONTROL_UPSTREAM
+              value: canopy-control:8080
+            - name: CANOPY_DATA_UPSTREAM
+              value: canopy-data:8080
+            - name: CANOPY_STUDIO_UPSTREAM
+              value: canopy-studio:8080
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /edge/healthz
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /edge/healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /edge/healthz
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: settings
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-config
+          emptyDir: {}
+        - name: settings
+          configMap:
+            name: canopy-split

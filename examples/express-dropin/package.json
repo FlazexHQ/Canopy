@@ -10,7 +10,7 @@
     "sidecar": "node --env-file=canopy.env node_modules/@canopy/realtime/dist/bin/canopy-realtime.js",
     "policies:lint": "canopy policies lint --dir canopy/policies",
     "policies:test": "canopy policies test --dir canopy/policies",
-    "doctor": "node --env-file=canopy.env node_modules/@canopy/cli/dist/cli.js doctor --dir canopy/policies",
+    "doctor": "node --env-file=canopy.env node_modules/@canopy/cli/dist/launcher.mjs doctor --dir canopy/policies",
     "typecheck": "tsc -b . web",
     "test": "vitest run"
   },

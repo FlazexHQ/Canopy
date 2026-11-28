@@ -1,0 +1,513 @@
+{
+  "change-streams-clusterTime.json": {
+    "pass": ["clusterTime is present"],
+    "refuse": []
+  },
+  "change-streams-disambiguatedPaths.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "disambiguatedPaths is not present when showExpandedEvents is false/unset",
+        "probe": "updateDescription",
+        "reason": "Updates carry a readable image and omit MongoDB update descriptions"
+      },
+      {
+        "description": "disambiguatedPaths is present on updateDescription when an ambiguous path is present",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "disambiguatedPaths returns array indices as integers",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      }
+    ]
+  },
+  "change-streams-errors.json": {
+    "pass": [
+      "The watch helper must not throw a custom exception when executed against a single server topology, but instead depend on a server error"
+    ],
+    "refuse": [
+      {
+        "description": "Change Stream should error when an invalid aggregation stage is passed in",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "Change Stream should error when _id is projected out",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "change stream errors on ElectionInProgress",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      }
+    ]
+  },
+  "change-streams-nsType.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "nsType is present when creating collections",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "nsType is present when creating views",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      }
+    ]
+  },
+  "change-streams-pre_and_post_images.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "fullDocument:whenAvailable with changeStreamPreAndPostImages enabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocument:whenAvailable with changeStreamPreAndPostImages disabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocument:required with changeStreamPreAndPostImages enabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocument:required with changeStreamPreAndPostImages disabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocumentBeforeChange:whenAvailable with changeStreamPreAndPostImages enabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocumentBeforeChange:whenAvailable with changeStreamPreAndPostImages disabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocumentBeforeChange:required with changeStreamPreAndPostImages enabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocumentBeforeChange:required with changeStreamPreAndPostImages disabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocumentBeforeChange:off with changeStreamPreAndPostImages enabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      },
+      {
+        "description": "fullDocumentBeforeChange:off with changeStreamPreAndPostImages disabled",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Pre and post image options are unsupported"
+      }
+    ]
+  },
+  "change-streams-resume-allowlist.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "change stream resumes after a network error",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after HostUnreachable",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after HostNotFound",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NetworkTimeout",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after ShutdownInProgress",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after PrimarySteppedDown",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after ExceededTimeLimit",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after SocketException",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NotWritablePrimary",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after InterruptedAtShutdown",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after InterruptedDueToReplStateChange",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NotPrimaryNoSecondaryOk",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NotPrimaryOrSecondary",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after StaleShardVersion",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after StaleEpoch",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after RetryChangeStream",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after FailedToSatisfyReadPreference",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after CursorNotFound",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      }
+    ]
+  },
+  "change-streams-resume-errorLabels.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "change stream resumes after HostUnreachable",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after HostNotFound",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NetworkTimeout",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after ShutdownInProgress",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after PrimarySteppedDown",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after ExceededTimeLimit",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after SocketException",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NotWritablePrimary",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after InterruptedAtShutdown",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after InterruptedDueToReplStateChange",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NotPrimaryNoSecondaryOk",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after NotPrimaryOrSecondary",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after StaleShardVersion",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after StaleEpoch",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after RetryChangeStream",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes after FailedToSatisfyReadPreference",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream resumes if error contains ResumableChangeStreamError",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      },
+      {
+        "description": "change stream does not resume if error does not contain ResumableChangeStreamError",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      }
+    ]
+  },
+  "change-streams-showExpandedEvents.json": {
+    "pass": ["when omitted, showExpandedEvents is not sent as a part of the aggregate command"],
+    "refuse": [
+      {
+        "description": "when provided, showExpandedEvents is sent as a part of the aggregate command",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "when showExpandedEvents is true, new fields on change stream events are handled appropriately",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "when showExpandedEvents is true, createIndex events are reported",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "when showExpandedEvents is true, dropIndexes events are reported",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "when showExpandedEvents is true, create events are reported",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "when showExpandedEvents is true, create events on views are reported",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "when showExpandedEvents is true, modify events are reported",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      },
+      {
+        "description": "when showExpandedEvents is true, shardCollection events are reported",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Expanded change stream events are unsupported"
+      }
+    ]
+  },
+  "change-streams.json": {
+    "pass": [
+      "Test with document comment",
+      "Test with document comment \u002d pre 4.4",
+      "Test with string comment",
+      "Test that comment is set on getMore",
+      "Test that comment is not set on getMore \u002d pre 4.4",
+      "$changeStream must be the first stage in a change stream pipeline sent to the server",
+      "The server returns change stream responses in the specified server response format",
+      "Executing a watch helper on a Collection results in notifications for changes to the specified collection",
+      "Change Stream should allow valid aggregate pipeline stages",
+      "Test wallTime field is set in a change event"
+    ],
+    "refuse": [
+      {
+        "description": "Test array truncation",
+        "probe": "updateOne",
+        "reason": "Pipeline updates are outside the wire write allowlist",
+        "code": 2
+      },
+      {
+        "description": "to field is set in a rename change event",
+        "probe": "dropCollection",
+        "code": 59,
+        "reason": "Collection DDL is outside the wire command allowlist"
+      },
+      {
+        "description": "Test unknown operationType MUST NOT err",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "Test newField added in response MUST NOT err",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "Test new structure in ns document MUST NOT err",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "Test modified structure in ns document MUST NOT err",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "Test server error on projecting out _id",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "Test projection in change stream returns expected fields",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only a match stage is allowed in the change stream pipeline"
+      },
+      {
+        "description": "Executing a watch helper on a Database results in notifications for changes to all collections in the specified database.",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only collection watches are supported"
+      },
+      {
+        "description": "Executing a watch helper on a MongoClient results in notifications for changes to all collections in all databases in the cluster.",
+        "probe": "watch",
+        "code": 2,
+        "reason": "Only collection watches are supported"
+      },
+      {
+        "description": "Test insert, update, replace, and delete event types",
+        "probe": "updateDescription",
+        "reason": "Updates carry a readable image and omit MongoDB update descriptions"
+      },
+      {
+        "description": "Test rename and invalidate event types",
+        "probe": "dropCollection",
+        "code": 59,
+        "reason": "Collection DDL is outside the wire command allowlist"
+      },
+      {
+        "description": "Test drop and invalidate event types",
+        "probe": "dropCollection",
+        "code": 59,
+        "reason": "Collection DDL is outside the wire command allowlist"
+      },
+      {
+        "description": "Test consecutive resume",
+        "probe": "failPoint",
+        "code": 59,
+        "reason": "The gateway does not support server failpoints"
+      }
+    ]
+  }
+}

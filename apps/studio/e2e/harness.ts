@@ -115,7 +115,13 @@ export async function withMongo<T>(use: (db: Db) => Promise<T>, suffix = ""): Pr
   if (uri === undefined || database === undefined) throw new Error("The global setup did not run")
   const client = new MongoClient(uri)
   try {
-    return await use(client.db(`${database}${suffix}`))
+    const name =
+      process.env["CANOPY_SPLIT_E2E_URL"] && suffix === "_meta"
+        ? (process.env["CANOPY_META_DB"] ?? "canopy")
+        : process.env["CANOPY_SPLIT_E2E_URL"] && suffix === "_auth"
+          ? (process.env["CANOPY_AUTH_DB"] ?? "canopy_auth")
+          : `${database}${suffix}`
+    return await use(client.db(name))
   } finally {
     await client.close()
   }

@@ -61,13 +61,13 @@ fn is_role_name(role: &str) -> bool {
 }
 
 /// `^[\w-]+(?:\.[\w-]+)*$`.
-fn is_claim_path(path: &str) -> bool {
+pub(crate) fn is_claim_path(path: &str) -> bool {
     path.split('.')
         .all(|segment| !segment.is_empty() && segment.bytes().all(|byte| is_word(byte) || byte == b'-'))
 }
 
 /// `^[A-Za-z_]\w{0,63}$`.
-fn is_lookup_name(name: &str) -> bool {
+pub(crate) fn is_lookup_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     bytes.first().is_some_and(|first| first.is_ascii_alphabetic() || *first == b'_')
         && bytes.len() <= 64

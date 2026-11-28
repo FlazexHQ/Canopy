@@ -1,16 +1,25 @@
 //! Resolved data plane configuration from the launcher JSON document.
 
+pub mod authoring;
+mod graphql;
+mod storage;
+mod wire;
+pub use storage::{BucketSettings, StorageBackend, StorageImages, StorageSettings};
+pub use wire::{WireSettings, WireTls};
 mod trusted_proxy;
+
+pub use graphql::{CollectionSettings, GraphqlSettings, Introspection, PersistedSettings, RelationSettings};
 
 pub use trusted_proxy::TrustedProxy;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_protocol::json::{Json, parse_json};
 
 /// Resolved JWT verification settings.
 #[derive(Debug, Clone)]
 pub struct JwtConfig {
+    /// Retirement grace in milliseconds when using the built in auth signing keys in MongoDB.
+    pub builtin_jwks_grace_ms: Option<i64>,
     /// Accepted issuer claims.
     pub issuers: Vec<String>,
     /// Accepted audience claims. An empty list disables audience checking.
@@ -94,12 +103,43 @@ pub enum DataPlaneRoute {
     /// The writes: `POST`, `PATCH` and `DELETE /rest/v1/{collection}`, `PATCH`, `PUT` and `DELETE
     /// /rest/v1/{collection}/{id}` and `POST /rest/v1/_batch`, with `OPTIONS` and `405` on their paths.
     Writes,
+    /// `GET` and `POST /graphql/v1`, with `OPTIONS` and `405` on that path.
+    Graphql,
+    /// The file storage API, except image transformations.
+    Storage,
 }
 
+/// The `dataPlane.routes` entry that selects every route whose surface is configured.
+pub const ALL_ROUTES: &str = "all";
+
 impl DataPlaneRoute {
+    /// Every route, in the order of [`DataPlaneRoute::NAMES`].
+    pub const ALL: [DataPlaneRoute; 10] = [
+        DataPlaneRoute::Find,
+        DataPlaneRoute::Count,
+        DataPlaneRoute::Distinct,
+        DataPlaneRoute::Aggregate,
+        DataPlaneRoute::Query,
+        DataPlaneRoute::Explain,
+        DataPlaneRoute::Document,
+        DataPlaneRoute::Writes,
+        DataPlaneRoute::Graphql,
+        DataPlaneRoute::Storage,
+    ];
+
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 8] =
-        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes"];
+    pub const NAMES: [&'static str; 10] = [
+        "find",
+        "count",
+        "distinct",
+        "aggregate",
+        "query",
+        "explain",
+        "document",
+        "writes",
+        "graphql",
+        "storage",
+    ];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
@@ -112,6 +152,8 @@ impl DataPlaneRoute {
             DataPlaneRoute::Explain => "explain",
             DataPlaneRoute::Document => "document",
             DataPlaneRoute::Writes => "writes",
+            DataPlaneRoute::Graphql => "graphql",
+            DataPlaneRoute::Storage => "storage",
         }
     }
 
@@ -125,9 +167,14 @@ impl DataPlaneRoute {
             "explain" => Ok(DataPlaneRoute::Explain),
             "document" => Ok(DataPlaneRoute::Document),
             "writes" => Ok(DataPlaneRoute::Writes),
+            "graphql" => Ok(DataPlaneRoute::Graphql),
+            "storage" => Ok(DataPlaneRoute::Storage),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
-                Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))
+                Err(format!(
+                    "dataPlane.routes may list {ALL_ROUTES}, {} and {last}, not {other}",
+                    first.join(", ")
+                ))
             }
         }
     }
@@ -163,7 +210,7 @@ fn view_key(jwk: &Json) -> Result<Vec<u8>, String> {
         return Err("viewTokens.jwk must be an Ed25519 public key".to_owned());
     }
     text("x")
-        .and_then(|x| URL_SAFE_NO_PAD.decode(x.trim_end_matches('=')).ok())
+        .and_then(|x| Base64UrlUnpadded::decode_vec(x.trim_end_matches('=')).ok())
         .filter(|x| x.len() == 32)
         .ok_or_else(|| "viewTokens.jwk has no valid x".to_owned())
 }
@@ -256,6 +303,12 @@ pub struct GatewayConfig {
     pub data_plane_routes: Vec<DataPlaneRoute>,
     /// Page sizes and the body limit of the Data API.
     pub rest_limits: RestLimits,
+    /// The GraphQL HTTP settings when GraphQL is enabled.
+    pub graphql: Option<GraphqlSettings>,
+    /// The file storage API, when configured.
+    pub storage: Option<StorageSettings>,
+    /// The MongoDB wire listener, when configured.
+    pub wire: Option<WireSettings>,
     /// The collections whose Data API aggregations may start with `$search` or `$vectorSearch`, as
     /// `rest.search` lists them.
     pub search_collections: Vec<String>,
@@ -399,20 +452,45 @@ fn full_document(value: Option<String>) -> ConfigResult<FullDocument> {
     }
 }
 
+/// What `all` in `dataPlane.routes` selects besides the Data API routes: GraphQL and storage when they are
+/// configured.
+struct Configured {
+    rest: bool,
+    graphql: bool,
+    storage: bool,
+}
+
 fn data_plane_routes(
     doc: &Json,
     fallback: Option<Vec<String>>,
-    rest_enabled: bool,
+    configured: &Configured,
 ) -> ConfigResult<Vec<DataPlaneRoute>> {
-    let names = strings(doc, &["dataPlane", "routes"]).or(fallback).unwrap_or_default();
+    let names =
+        strings(doc, &["dataPlane", "routes"]).or(fallback).unwrap_or_else(|| vec![ALL_ROUTES.to_owned()]);
     let mut routes = Vec::new();
-    for name in &names {
-        let route = DataPlaneRoute::parse(name)?;
+    let mut add = |route: DataPlaneRoute| {
         if !routes.contains(&route) {
             routes.push(route);
         }
+    };
+    for name in &names {
+        if name != ALL_ROUTES {
+            add(DataPlaneRoute::parse(name)?);
+            continue;
+        }
+        for route in DataPlaneRoute::ALL {
+            let wanted = match route {
+                DataPlaneRoute::Graphql => configured.graphql,
+                DataPlaneRoute::Storage => configured.storage,
+                _ => configured.rest,
+            };
+            if wanted {
+                add(route);
+            }
+        }
     }
-    if !routes.is_empty() && !rest_enabled {
+    let rest_enabled = configured.rest;
+    if !rest_enabled && routes.iter().any(|route| *route != DataPlaneRoute::Storage) {
         return Err("dataPlane.routes serves the Data API, which rest: false disables".to_owned());
     }
     Ok(routes)
@@ -464,6 +542,10 @@ pub struct Fallbacks {
     pub jwt_audience: Option<Vec<String>>,
     /// URL of the JWT verification keys.
     pub jwt_jwks_url: Option<String>,
+    /// Read the built in auth public keys from MongoDB.
+    pub jwt_builtin_jwks: bool,
+    /// Retirement grace for built in auth signing keys.
+    pub jwt_builtin_jwks_grace_seconds: Option<f64>,
     /// Accepted JWT signature algorithms.
     pub jwt_algorithms: Option<Vec<String>>,
     /// Name of the JWT roles claim.
@@ -540,9 +622,27 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
     }
     let port = number(&doc, &["server", "port"]).or(fallback.port).unwrap_or(8080.0);
     let metrics_port = number(&doc, &["server", "metricsPort"]).or(fallback.metrics_port).unwrap_or(9464.0);
+    let grace_ms = |seconds: Option<f64>| {
+        let seconds = seconds.unwrap_or(2_592_000.0);
+        if !(0.0..=f64::from(u32::MAX)).contains(&seconds) || seconds.fract() != 0.0 {
+            return Err("Built in JWKS grace must be a nonnegative whole number of seconds".to_owned());
+        }
+        i64::try_from(whole(seconds) * 1000).map_err(|error| error.to_string())
+    };
     let auth = match get(&doc, &["auth"]) {
         Some(Json::Null) => None,
+        Some(auth)
+            if text(auth, &["kind"]).as_deref() == Some("builtin")
+                && auth.get("issuer").is_none()
+                && flag(auth, &["builtinJwks"]) != Some(true) =>
+        {
+            None
+        }
         Some(auth @ Json::Object(_)) => Some(JwtConfig {
+            builtin_jwks_grace_ms: flag(auth, &["builtinJwks"])
+                .unwrap_or(false)
+                .then(|| grace_ms(number(auth, &["builtinJwksGraceSeconds"])))
+                .transpose()?,
             issuers: strings(auth, &["issuer"]).unwrap_or_default(),
             audiences: strings(auth, &["audience"]).unwrap_or_default(),
             jwks: get(auth, &["jwks"]).filter(|jwks| !matches!(jwks, Json::Null)).cloned(),
@@ -553,6 +653,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             clock_tolerance_s: number(auth, &["clockToleranceSeconds"]).map_or(60, whole),
         }),
         _ => fallback.jwt_issuer.map(|issuer| JwtConfig {
+            builtin_jwks_grace_ms: None,
             issuers: vec![issuer],
             audiences: fallback.jwt_audience.unwrap_or_default(),
             jwks: None,
@@ -563,11 +664,24 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             clock_tolerance_s: 60,
         }),
     };
+    let mut auth = auth;
+    if get(&doc, &["auth"]).is_none() && fallback.jwt_builtin_jwks {
+        let settings = auth.as_mut().ok_or("Built in JWKS requires an issuer and audience")?;
+        settings.builtin_jwks_grace_ms = Some(grace_ms(fallback.jwt_builtin_jwks_grace_seconds)?);
+    }
+    let builtin_jwks = auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some());
     if let Some(auth) = &auth {
         if auth.issuers.is_empty() {
             return Err("auth.issuer is required".to_owned());
         }
-        if auth.jwks.is_none() && auth.jwks_url.is_none() {
+        if builtin_jwks {
+            if auth.audiences.is_empty() {
+                return Err("Built in JWKS requires an issuer and audience".to_owned());
+            }
+            if auth.jwks.is_some() || auth.jwks_url.is_some() {
+                return Err("Built in JWKS cannot be combined with jwksUrl or jwks".to_owned());
+            }
+        } else if auth.jwks.is_none() && auth.jwks_url.is_none() {
             return Err("JWT auth needs jwksUrl or jwks".to_owned());
         }
     }
@@ -643,12 +757,19 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             return Err(format!("realtime.coalesceMs must be between 0 and {MAX_COALESCE_MS}, not {value}"));
         }
     };
-    let data_plane_routes = data_plane_routes(
-        &doc,
-        fallback.data_plane_routes,
-        !matches!(get(&doc, &["rest"]), Some(Json::Bool(false))),
-    )?;
+    let rest_enabled = !matches!(doc.get("rest"), Some(Json::Bool(false)));
     let rest_limits = rest_limits(&doc)?;
+    let storage = storage::settings(doc.get("storage"))?;
+    let graphql = if rest_enabled { graphql::settings(doc.get("graphql"))? } else { None };
+    let configured =
+        Configured { rest: rest_enabled, graphql: graphql.is_some(), storage: storage.is_some() };
+    let data_plane_routes = data_plane_routes(&doc, fallback.data_plane_routes, &configured)?;
+    if storage.is_none() && data_plane_routes.contains(&DataPlaneRoute::Storage) {
+        return Err("dataPlane.routes selects storage, which requires storage settings".to_owned());
+    }
+    if graphql.is_none() && data_plane_routes.contains(&DataPlaneRoute::Graphql) {
+        return Err("dataPlane.routes selects graphql, which graphql: false disables".to_owned());
+    }
     let writes = write_settings(&doc)?;
     let tracing = match get(&doc, &["telemetry", "tracing"]) {
         Some(Json::Bool(tracing)) => *tracing,
@@ -659,11 +780,13 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             Some(_) => return Err("CANOPY_TRACING must be true, false, 1 or 0".to_owned()),
         },
     };
+    let host = text(&doc, &["server", "host"]).or(fallback.host).unwrap_or_else(|| "0.0.0.0".to_owned());
+    let wire = wire::settings(doc.get("wire"), &host)?;
     Ok(GatewayConfig {
         mongodb_uri,
         database,
         meta_database,
-        host: text(&doc, &["server", "host"]).or(fallback.host).unwrap_or_else(|| "0.0.0.0".to_owned()),
+        host,
         port: u16::try_from(whole(port)).map_err(|_| "PORT is out of range")?,
         metrics_host: text(&doc, &["server", "metricsHost"]).unwrap_or_else(|| "127.0.0.1".to_owned()),
         metrics_port: (metrics_port > 0.0).then(|| u16::try_from(whole(metrics_port)).ok()).flatten(),
@@ -674,7 +797,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             .iter()
             .filter_map(|rule| TrustedProxy::parse(rule))
             .collect(),
-        check_revocations: flag(&doc, &["auth", "checkRevocations"]).unwrap_or(false),
+        check_revocations: flag(&doc, &["auth", "checkRevocations"]).unwrap_or(builtin_jwks),
         view_key: get(&doc, &["viewTokens", "jwk"]).map(view_key).transpose()?,
         node_id: text(&doc, &["server", "nodeId"]).or(fallback.node_id).unwrap_or_else(|| "n1".to_owned()),
         shards: number(&doc, &["server", "shards"])
@@ -706,6 +829,9 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         proxy_url: text(&doc, &["proxy", "url"]).or(fallback.proxy_url),
         data_plane_routes,
         rest_limits,
+        graphql,
+        storage,
+        wire,
         search_collections: strings(&doc, &["rest", "search"]).unwrap_or_default(),
         tracing,
         writes,
@@ -719,7 +845,7 @@ mod tests {
     #[test]
     fn reads_the_view_key_from_an_ed25519_jwk_and_refuses_other_keys() -> Result<(), String> {
         let key: Vec<u8> = (0u8..32).collect();
-        let x = URL_SAFE_NO_PAD.encode(&key);
+        let x = Base64UrlUnpadded::encode_string(&key);
         let jwk = parse_json(&format!(r#"{{"kty":"OKP","crv":"Ed25519","x":"{x}"}}"#))
             .map_err(|e| e.to_string())?;
         assert_eq!(view_key(&jwk), Ok(key));
@@ -756,6 +882,55 @@ mod tests {
         assert_eq!(config.mutations_url.as_deref(), Some("http://127.0.0.1:8080/rest/v1"));
         assert!(config.websocket && config.http_fallback);
         assert_eq!(config.cors, None);
+    }
+
+    #[test]
+    fn built_in_auth_without_token_settings_verifies_no_tokens() -> Result<(), String> {
+        let json =
+            |auth: &str| format!(r#"{{"mongodb":{{"uri":"mongodb://h","database":"app"}},"auth":{auth}}}"#);
+        let config = parse(&json(r#"{"kind":"builtin","magicLink":false}"#))?;
+        assert!(config.auth.is_none());
+        let config = parse(&json(r#"{"kind":"external","magicLink":false}"#));
+        assert_eq!(config.err().as_deref(), Some("auth.issuer is required"));
+        let config = parse(&json(r#"{"kind":"builtin","issuer":"i"}"#));
+        assert_eq!(config.err().as_deref(), Some("JWT auth needs jwksUrl or jwks"));
+        Ok(())
+    }
+
+    #[test]
+    fn built_in_jwks_requires_issuer_and_audience_and_excludes_other_sources() -> Result<(), String> {
+        let issuer = "https://project.example/auth/v1";
+        let audience = "https://project.example";
+        let json =
+            |auth: &str| format!(r#"{{"mongodb":{{"uri":"mongodb://h","database":"app"}},"auth":{auth}}}"#);
+        let config = parse(&json(&format!(
+            r#"{{"issuer":"{issuer}","audience":"{audience}","builtinJwks":true,"builtinJwksGraceSeconds":120}}"#
+        )))?;
+        assert!(config.check_revocations);
+        assert_eq!(config.auth.and_then(|auth| auth.builtin_jwks_grace_ms), Some(120_000));
+        for invalid in [
+            r#"{"issuer":"i","builtinJwks":true}"#,
+            r#"{"audience":"a","builtinJwks":true}"#,
+            r#"{"issuer":"i","audience":"a","builtinJwks":true,"jwks":{"keys":[]}}"#,
+            r#"{"issuer":"i","audience":"a","builtinJwks":true,"jwksUrl":"https://example.com/jwks"}"#,
+            r#"{"issuer":"i","audience":"a","builtinJwks":true,"builtinJwksGraceSeconds":-1}"#,
+        ] {
+            assert!(parse(&json(invalid)).is_err(), "{invalid}");
+        }
+        let config = resolve(
+            None,
+            Fallbacks {
+                mongodb_uri: Some("mongodb://h".to_owned()),
+                database: Some("app".to_owned()),
+                jwt_issuer: Some(issuer.to_owned()),
+                jwt_audience: Some(vec![audience.to_owned()]),
+                jwt_builtin_jwks: true,
+                ..Fallbacks::default()
+            },
+        )?;
+        assert!(config.check_revocations);
+        assert_eq!(config.auth.and_then(|auth| auth.builtin_jwks_grace_ms), Some(2_592_000_000));
+        Ok(())
     }
 
     #[test]

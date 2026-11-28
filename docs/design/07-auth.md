@@ -38,6 +38,23 @@ transactional, in its own database `canopy_auth`. User collections never touch t
 | Organizations / teams | after 1.0 | Can be modeled today with `app_metadata` + `$ctx` |
 | Prebuilt UI components (`canopy.js/react-auth`) | after 1.0 | |
 
+### 2.1. Sign up and verify an email address
+
+The Rust auth server attaches a signed proof to every successful `POST /auth/v1/sign-up/email` and
+`POST /auth/v1/upgrade` response. It sets an `HttpOnly`, `SameSite=Lax` cookie with a 30 day lifetime,
+named `__Secure-canopy.sign_up` over HTTPS and `canopy.sign_up` over HTTP. The same proof is sent in
+`set-auth-sign-up`, which CORS exposes on these responses. When the address is already taken, the
+response still carries a proof, so its presence does not reveal whether the address has an account.
+That proof cannot be used to verify the existing account.
+
+On the first verification, by link (`GET /auth/v1/verify-email`) or email code
+(`POST /auth/v1/email-otp/verify-email`), the server checks for a proof matching the account in the cookie
+or in `x-canopy-sign-up`. The header accepts one or more comma separated values. Without a matching proof,
+the server verifies the address, removes any password credential, and ends the account's existing sessions
+if it removes a credential. These changes happen in one MongoDB transaction. The server audits the removal
+as `auth.password_removed`. The user sets a new password with a password reset. This proof check applies to
+the Rust auth server. The TypeScript auth server does not implement it.
+
 ## 3. Token model
 
 ```mermaid
@@ -95,23 +112,65 @@ sequenceDiagram
 - **`app_metadata`** can only be written by `service` and admins, so it is safe for policies.
 - **`user_metadata`** can be edited by the user and **must never be used in policies.** The linter fails a
   publish that references it ([02 §13.2](02-document-level-security.md#132-lint-rules-canopy-policies-lint)).
-- **Custom claims hook.** Runs when a token is minted, the same idea as Supabase's custom access token hook:
+- **Custom claims hook.** An HTTPS endpoint of the app, called each time an access token is minted
+  (`GET /auth/v1/token`), the same idea as Supabase's custom access token hook. It replaces the TypeScript
+  function of earlier releases: the config carries only its URL and a secret reference.
 
 ```ts
 // canopy/canopy.config.ts
-auth: builtin({
+auth: {
+  kind: 'builtin',
   accessTokenTtl: '10m',
-  claims: async ({ user, db }) => {
-    const memberships = await db.collection('memberships')
-      .find({ userId: user.id }, { projection: { orgId: 1 } }).limit(50).toArray();
-    return { app_metadata: { org_ids: memberships.map((m) => m.orgId) } };
-  },
-}),
+  claims: { url: 'https://app.example.com/hooks/claims', secret: env.secret('CLAIMS_KEY') },
+},
 ```
 
-  The hook must finish within 200 ms, and the resulting JWT must be ≤ 4 KiB. If the hook throws or times out,
-  **no token is issued** (fail closed), and the SDK surfaces `CANOPY_AUTH_HOOK_FAILED`. For memberships that
-  change often, prefer `$ctx` lookups ([02 §10](02-document-level-security.md#10-context-lookups-ctx-membership-rules-without-joins)).
+  **Request.** `POST` to the URL with `content-type: application/json` and a body of the user and the
+  session the token is for (the user fields of the admin API, without any database handle):
+
+```json
+{
+  "user": {
+    "id": "u_8f3k2q", "email": "alice@example.com", "emailVerified": true, "name": "Alice",
+    "isAnonymous": false, "roles": ["tenant_admin"], "appMetadata": { "tenant_id": "t_42" },
+    "userMetadata": { "display_name": "Alice" }, "banned": false,
+    "createdAt": "2026-11-01T09:30:00.000Z", "updatedAt": "2026-11-20T17:02:11.000Z"
+  },
+  "session": { "id": "s_19ab7" }
+}
+```
+
+  `email` is absent for anonymous users, `name` when it is empty, `banReason` and `banExpires` when unset.
+  The request is signed exactly like a webhook delivery, with
+  [Standard Webhooks](https://www.standardwebhooks.com/) headers: `webhook-id` (`msg_` and a random id),
+  `webhook-timestamp` (Unix seconds) and `webhook-signature: v1,<base64 HMAC SHA-256>` over
+  `<webhook-id>.<webhook-timestamp>.<body>`. The secret has the webhook format: `whsec_` followed by the
+  base64 key, or any other text used as the key itself. The endpoint should verify the signature with a
+  Standard Webhooks library and refuse timestamps more than five minutes away from its clock.
+
+  **Answer.** A 2xx status with a JSON object holding at most two fields: `app_metadata`, an object merged
+  over the stored `app_metadata`, and `roles`, a list of names added to the stored roles (`anon`,
+  `authenticated`, `service` and `public` are refused). An empty body (for example a `204`) or `null` adds
+  nothing. Canopy owns every other claim: any other field fails the call.
+
+```json
+{ "app_metadata": { "org_ids": ["o1", "o7"] }, "roles": ["billing"] }
+```
+
+  **Limits.** The whole call, connecting included, must finish within 200 ms; the answer may hold at most
+  4 KiB; the resulting JWT must be at most 4 KiB. The URL must use HTTPS; plain HTTP is accepted only on a
+  loopback address (`localhost`, `127.0.0.1`, `::1`) outside production, and a URL with credentials is
+  refused at startup. Redirects are never followed.
+
+  **Failures fail closed.** A timeout, a connection error, a status other than 2xx (redirects included), an
+  answer over 4 KiB, a body that is not JSON, an answer that is not an object, a forbidden field or role, or a
+  token over 4 KiB: **no token is issued** and the session is not refreshed. The answer is status 500 with
+  `{"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed"}` (for an oversize token,
+  `The access token is <n> bytes, over the 4096 byte cap`), which the SDK surfaces as `AuthHookFailedError`.
+  The reason, which can carry transport details of the hook's host, is never returned to the client (the
+  TypeScript server still appends it as `The claims hook failed: <reason>`); the audit log records `auth.claims_hook_failed` with the user as actor, the client address and
+  `details.reason` (plus `details.bytes` for an oversize token). For memberships that change often, prefer
+  `$ctx` lookups ([02 §10](02-document-level-security.md#10-context-lookups-ctx-membership-rules-without-joins)).
 
 ## 5. API keys
 

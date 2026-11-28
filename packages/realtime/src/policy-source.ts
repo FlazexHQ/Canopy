@@ -1,5 +1,5 @@
 import { watch } from "node:fs"
-import { readdir, readFile } from "node:fs/promises"
+import { readdir, readFile, stat } from "node:fs/promises"
 import { extname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import {
@@ -50,15 +50,17 @@ export function directoryPolicies(dir: string): PolicySource {
   const root = resolve(dir)
   const load = async (): Promise<PolicySet> => {
     const entries = (await readdir(root, { withFileTypes: true }))
-      .filter((entry) => entry.isFile() && !/\.(?:test|spec)\./.test(entry.name))
-      .map((entry) => entry.name)
-      .sort()
+      .filter((entry) => !/\.(?:test|spec)\./.test(entry.name))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     const definitions: CollectionPolicies[] = []
     let contexts: ContextDefinitions = {}
     const version = Date.now()
-    for (const name of entries) {
-      const file = join(root, name)
+    for (const entry of entries) {
+      const name = entry.name
       const extension = extname(name)
+      if (extension !== ".json" && !MODULE_EXTENSIONS.has(extension)) continue
+      const file = join(root, name)
+      if (!entry.isFile() && !(entry.isSymbolicLink() && (await stat(file)).isFile())) continue
       let exported: unknown
       if (extension === ".json") {
         exported = parse(await readFile(file, "utf8"))
@@ -69,11 +71,9 @@ export function directoryPolicies(dir: string): PolicySource {
           }
           exported = fromStored(exported)
         }
-      } else if (MODULE_EXTENSIONS.has(extension)) {
+      } else {
         const module: unknown = await import(moduleSpecifier(file, version))
         exported = isDocument(module) ? module["default"] : undefined
-      } else {
-        continue
       }
       if (name.startsWith("_context.")) {
         if (!isDocument(exported)) throw new TypeError(`${name} must export context lookups`)

@@ -1,7 +1,7 @@
 # Values of the Canopy chart. MongoDB is not part of the chart: set the URI of a replica set in the secret.
 
 image:
-  repository: canopy
+  repository: canopy-legacy
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -49,3 +49,42 @@ resources:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# The split stack uses the same external MongoDB replica set as the default deployment.
+# Control can publish a canonical policy bundle at startup. The services share the meta database.
+split:
+  enabled: false
+  data:
+    image: canopy:latest
+  control:
+    replicaCount: 1
+    # Canonical policy bundle with version, collections and contexts.
+    policyBundle: {}
+    # Optional ConfigMap with a policy-bundle.json key. Restart control after updating it.
+    policyBundleConfigMap: ""
+  # Built in auth runs in canopyd (the control role with CANOPY_AUTH_ENGINE=rust) on the data image.
+  auth:
+    replicaCount: 1
+    # Settings merged into the auth section (kind builtin) of the auth service's config when publicUrl is
+    # set, such as anonymous, providers, oidc, claims or email. Production needs email.transport here or a
+    # configSecret.
+    settings: {}
+    # Optional Secret with key auth.json: a complete canopyd config for the auth service, with an auth
+    # section of kind builtin. Use it for mail and provider credentials. It replaces the generated config.
+    configSecret: ""
+  studio:
+    replicaCount: 1
+  edge:
+    image: caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b
+    replicaCount: 2
+  # Set to 0 to disable the MongoDB listener and Service port.
+  wirePort: 27018
+  # Set the public HTTPS URL without a trailing slash to enable built in auth.
+  publicUrl: ""
+  # Optional Secret key gateway.json for a complete gateway config, including any storage credentials.
+  # This file replaces the generated gateway config. Include the built in auth settings if enabled
+  # and keep the listener aligned with wirePort. Use S3 or R2, or provision storage for a local backend.
+  gatewayConfigSecret: ""
+  gatewayConfig:
+    server:
+      metricsHost: 0.0.0.0

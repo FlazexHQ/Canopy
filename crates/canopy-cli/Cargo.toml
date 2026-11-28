@@ -1,0 +1,52 @@
+[package]
+name = "canopy-cli"
+description = "The Canopy command line interface."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "canopy"
+path = "src/main.rs"
+
+[dependencies]
+canopy-authoring = { path = "../canopy-authoring" }
+canopy-config = { path = "../canopy-config" }
+canopy-control = { path = "../canopy-control" }
+canopy-data = { path = "../canopy-data" }
+canopy-matcher = { path = "../canopy-matcher" }
+canopy-migrations = { path = "../canopy-migrations" }
+canopy-mongo = { path = "../canopy-mongo" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-query = { path = "../canopy-query" }
+canopy-schema = { path = "../canopy-schema" }
+canopyd = { path = "../canopyd" }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+indexmap = { version = "2", features = ["serde"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls-no-provider"] }
+ring = "0.17"
+rpassword = "=7.4.0"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde_json = "1"
+strsim = "0.11"
+tempfile = "3"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+url = "2"
+
+[dev-dependencies]
+canopy-authn = { path = "../canopy-authn" }
+canopy-http = { path = "../canopy-http" }
+canopy-mail = { path = "../canopy-mail" }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+base64ct = { version = "1.8", features = ["alloc"] }
+bson = { version = "3", features = ["serde_json-1"] }
+
+[lints]
+workspace = true

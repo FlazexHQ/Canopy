@@ -353,11 +353,12 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
   )
 
   it.skipIf(findGatewayBinary() === undefined)(
-    "runs canopy-gateway on the public port in front of REST, with socket writes acknowledged after their echo",
+    "runs canopyd on the public port in front of REST, with socket writes acknowledged after their echo",
     async () => {
       const masterKey = "m".repeat(44)
       const { run, base, metrics } = await boot(POLICIES, {
         CANOPY_REALTIME_SERVER: "gateway",
+        CANOPY_DATA_PLANE_ROUTES: "",
         CANOPY_MASTER_KEY: masterKey,
       })
       try {
@@ -442,7 +443,7 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
         expect(messages.some((m) => m["t"] === "added" && m["id"] === "g4")).toBe(false)
         const started = Date.now()
         let scraped = ""
-        while (!/canopy_gateway_sessions 1\b/.test(scraped)) {
+        while (!/canopyd_sessions 1\b/.test(scraped)) {
           if (Date.now() - started > 10_000) throw new Error(`no gateway metrics:\n${scraped}`)
           await new Promise((resolve) => setTimeout(resolve, 200))
           scraped = await (await fetch(metrics)).text()

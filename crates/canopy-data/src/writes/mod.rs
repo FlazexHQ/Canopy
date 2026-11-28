@@ -10,13 +10,13 @@
 mod plan;
 mod request;
 mod scope;
+mod selected;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_engine::Ct;
 use canopy_mongo::mongodb::bson::{self, doc};
 use canopy_mongo::mongodb::error::PartialBulkWriteResult;
@@ -29,6 +29,7 @@ use canopy_mongo::mongodb::options::{
 use canopy_mongo::mongodb::{Client, ClientSession, Database, Namespace};
 use canopy_mongo::to_bson;
 use canopy_policy::{Compiled, Operation, PolicyEngine, RequestContext, Role};
+use canopy_protocol::bson::encode_document;
 use canopy_protocol::ejson::canonical_string;
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 use canopy_query::{DEFAULT_LIMITS, QueryLimits};
@@ -38,11 +39,12 @@ use crate::caller::Caller;
 use crate::errors::{from_driver_error, internal};
 use crate::find::validate_collection_name;
 use crate::policies::Policies;
-use crate::writes::plan::{Grouped, Plan, plan_write};
+use crate::writes::plan::{Grouped, Plan, Step, plan_write};
 use crate::writes::scope::{DriverError, Scope, Session, carried, custom, value_of};
 
 pub use plan::{Outcome, WriteLimits};
 pub use request::{IdType, WriteOp, WriteRequest, leaf_paths, merge_patch_to_update, parse_id, validate_id};
+pub use selected::WriteSelection;
 
 const MUTATION_ID_MIN: usize = 8;
 const MUTATION_ID_MAX: usize = 128;
@@ -240,6 +242,98 @@ impl WritePath {
         request: &WriteRequest,
     ) -> Result<Plan, CanopyError> {
         plan_write(&self.limits, &self.query_limits, self.scope(engine, ctx, request.collection())?, request)
+    }
+
+    /// The application database this path writes to.
+    pub fn database_name(&self) -> &str {
+        self.db.name()
+    }
+
+    /// Runs an acknowledged wire write in a transaction. A mutation ID preserves its original outcome.
+    /// A selection supplies filter, sort, upsert and image options for the write.
+    pub async fn execute_transactional(
+        &self,
+        caller: &Caller,
+        request: &WriteRequest,
+        selection: Option<&WriteSelection>,
+        mutation_id: Option<&str>,
+    ) -> Result<Outcome, CanopyError> {
+        validate_mutation_id(mutation_id)?;
+        let engine = self.policies.current();
+        let context = &caller.context;
+        let mut plan = match selection {
+            Some(selection) => selected::plan(
+                &self.query_limits,
+                self.scope(&engine, context, request.collection())?,
+                request,
+                selection,
+                self.observer.is_some(),
+            )?,
+            None => self.plan(&engine, context, request)?,
+        };
+        if let Step::Insert { verify_stored, .. } = &mut plan.step {
+            *verify_stored = true;
+        }
+        let key = RecordKey {
+            c: request.collection().to_owned(),
+            op: format!("wire_{}", request.op().as_str()),
+            fp: if mutation_id.is_some() {
+                self.wire_fingerprint(caller, request, selection, engine.version())?
+            } else {
+                String::new()
+            },
+        };
+        // Point writes resolve duplicate mutation IDs after aborting the transaction.
+        if !matches!(plan.step, Step::UpdateById { .. } | Step::DeleteById { .. })
+            && let Some(id) = mutation_id
+            && let Some((mut outcomes, _)) = self.replay(id, caller, &key).await?
+        {
+            return outcomes.pop().ok_or_else(internal);
+        }
+        let (mut outcomes, ct, replayed) =
+            self.transact(caller, &key, &[plan], mutation_id, false, false).await?;
+        let outcome = outcomes.pop().ok_or_else(internal)?;
+        if !replayed {
+            self.report(caller, request, &outcome, ct, mutation_id);
+        }
+        Ok(outcome)
+    }
+
+    fn wire_fingerprint(
+        &self,
+        caller: &Caller,
+        request: &WriteRequest,
+        selection: Option<&WriteSelection>,
+        policy_version: &str,
+    ) -> Result<String, CanopyError> {
+        let mut bound = Document::new();
+        bound.insert("database", Value::String(self.db.name().to_owned()));
+        bound.insert("request", Value::Document(request.object().clone()));
+        bound.insert(
+            "roles",
+            Value::Array(caller.context.roles.sorted().into_iter().map(Value::String).collect()),
+        );
+        if let Some(selection) = selection {
+            bound.insert("before", Value::Bool(selection.before));
+            bound.insert("after", Value::Bool(selection.after));
+            bound.insert("upsert", Value::Bool(selection.upsert));
+            if selection.before || selection.after {
+                bound.insert("policyVersion", Value::String(policy_version.to_owned()));
+                if let Some(claims) = &caller.context.claims {
+                    bound.insert("claims", Value::Document(claims.clone()));
+                }
+                if let Some(context) = &caller.context.ctx {
+                    bound.insert("context", Value::Document(context.clone()));
+                }
+            }
+            if let Some(sort) = &selection.sort {
+                bound.insert("sort", sort.clone());
+            }
+            if let Some(fields) = &selection.fields {
+                bound.insert("fields", fields.clone());
+            }
+        }
+        Ok(Base64UrlUnpadded::encode_string(digest(&SHA256, &encode_document(&bound)?).as_ref()))
     }
 
     /// Validates, authorizes and commits one write. Fails with `CANOPY_FORBIDDEN` when no policy grants the
@@ -836,7 +930,7 @@ impl WritePath {
         let service = caller.context.roles.contains(Role::SERVICE);
         self.ensure_indexes(service).await?;
         let combined = match (plans, mutation_id) {
-            ([plan], Some(id)) => match plan.with_idempotency() {
+            ([plan], Some(id)) => match plan.with_idempotency(read) {
                 Some(write) if self.client_bulk_write().await => Some((plan, id, write)),
                 _ => None,
             },
@@ -954,9 +1048,9 @@ impl WritePath {
             })?;
         let outcome =
             plan.finish_with_idempotency(&mut Session::transaction(session), &written, read).await?;
-        let actual = stored_outcome(&outcome);
+        let actual = stored_outcome(&outcome, false);
         let canonical = |value| canonical_string(value).map_err(custom);
-        if canonical(&actual)? != canonical(&stored_outcome(expected))? {
+        if canonical(&actual)? != canonical(&stored_outcome(expected, false))? {
             let mut fields = Document::new();
             if key.op == "batch" {
                 fields.insert("results", Value::Array(vec![actual]));
@@ -1265,15 +1359,14 @@ fn fingerprint(caller: &Caller, request: &Value) -> Result<String, CanopyError> 
         Value::Array(caller.context.roles.sorted().into_iter().map(Value::String).collect()),
     );
     let text = canonical_string(&Value::Document(bound))?;
-    Ok(URL_SAFE_NO_PAD.encode(digest(&SHA256, text.as_bytes())))
+    Ok(Base64UrlUnpadded::encode_string(digest(&SHA256, text.as_bytes()).as_ref()))
 }
 
 fn count(value: u64) -> Value {
     i32::try_from(value).map_or_else(|_| Value::from_js_number(value as f64), Value::Int32)
 }
 
-/// An outcome as an idempotency record keeps it: without documents, which are read again on replay.
-fn stored_outcome(outcome: &Outcome) -> Value {
+fn stored_outcome(outcome: &Outcome, keep_images: bool) -> Value {
     let mut out = Document::new();
     out.insert("matched", count(outcome.matched));
     out.insert("modified", count(outcome.modified));
@@ -1283,6 +1376,14 @@ fn stored_outcome(outcome: &Outcome) -> Value {
         out.insert("upsertedId", id.clone());
     }
     out.insert("changedIds", Value::Array(outcome.changed_ids.clone()));
+    if keep_images && let Some(documents) = &outcome.documents {
+        out.insert(
+            "documents",
+            Value::Array(
+                documents.iter().map(|doc| doc.clone().map_or(Value::Null, Value::Document)).collect(),
+            ),
+        );
+    }
     Value::Document(out)
 }
 
@@ -1301,9 +1402,10 @@ fn record_of(
     record.insert("fp", Value::String(key.fp.clone()));
     record.insert("at", Value::DateTime(i64::try_from(now).unwrap_or(i64::MAX)));
     if key.op == "batch" {
-        record.insert("results", Value::Array(outcomes.iter().map(stored_outcome).collect()));
+        record
+            .insert("results", Value::Array(outcomes.iter().map(|out| stored_outcome(out, false)).collect()));
     } else if let Some(first) = outcomes.first() {
-        record.insert("result", stored_outcome(first));
+        record.insert("result", stored_outcome(first, key.op.starts_with("wire_")));
     }
     to_bson(&record).map_err(|error| Stop::Failed(custom(error)))
 }
@@ -1325,7 +1427,22 @@ fn outcome_of(stored: &Value) -> Result<Outcome, CanopyError> {
         Some(Value::Array(items)) => items.clone(),
         _ => Vec::new(),
     };
+    let documents = match stored.get("documents") {
+        None => None,
+        Some(Value::Array(items)) => Some(
+            items
+                .iter()
+                .map(|item| match item {
+                    Value::Null => Ok(None),
+                    Value::Document(doc) => Ok(Some(doc.clone())),
+                    _ => Err(internal()),
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        _ => return Err(internal()),
+    };
     Ok(Outcome {
+        documents,
         matched: number(stored.get("matched")),
         modified: number(stored.get("modified")),
         deleted: number(stored.get("deleted")),
@@ -1363,6 +1480,37 @@ fn write_code(error: &DriverError) -> Option<i32> {
     }
 }
 
+/// The duplicated key the server reported for a refused write: the `keyValue` of the reply, or of its first
+/// duplicate key write error.
+fn key_value(error: &DriverError) -> Option<bson::Document> {
+    let reply = bson::Document::try_from(error.server_response()?.as_ref()).ok()?;
+    if let Ok(key) = reply.get_document("keyValue") {
+        return Some(key.clone());
+    }
+    reply.get_array("writeErrors").ok()?.iter().find_map(|write| {
+        let write = write.as_document()?;
+        (write.get_i32("code").ok()? == DUPLICATE_KEY)
+            .then(|| write.get_document("keyValue").ok().cloned())?
+    })
+}
+
+/// A duplicate key refusal; only `service` callers see the duplicated key, because it can reveal documents
+/// they could not otherwise read.
+fn duplicate_key_error(key: Option<bson::Document>, service: bool) -> CanopyError {
+    let duplicate = CanopyError::new(ErrorCode::DuplicateKey, "A document with the same unique key exists");
+    match key.filter(|_| service).and_then(|key| details_of("keyValue", key)) {
+        Some(details) => duplicate.with_details(details),
+        None => duplicate,
+    }
+}
+
+/// `{"<name>": value}` as canonical EJSON, the details a `service` caller sees.
+fn details_of(name: &str, value: bson::Document) -> Option<String> {
+    let raw = bson::RawDocumentBuf::try_from(&doc! { name: value }).ok()?;
+    let details = canopy_protocol::bson::decode_document(raw.as_bytes()).ok()?;
+    canopy_protocol::ejson::stringify(&Value::Document(details)).ok()
+}
+
 /// Converts the failure of a write into a [`CanopyError`]: the error it carries, a duplicate key, a validator
 /// refusal (whose reason only `service` callers see), or the read path's mapping.
 fn write_error(error: &DriverError, service: bool) -> CanopyError {
@@ -1380,9 +1528,7 @@ fn write_error(error: &DriverError, service: bool) -> CanopyError {
         }
     }
     match write_code(error) {
-        Some(DUPLICATE_KEY) => {
-            CanopyError::new(ErrorCode::DuplicateKey, "A document with the same unique key exists")
-        }
+        Some(DUPLICATE_KEY) => duplicate_key_error(key_value(error), service),
         Some(DOCUMENT_VALIDATION_FAILURE) => {
             let failure = CanopyError::named(
                 ErrorCode::ValidationFailed,
@@ -1398,20 +1544,9 @@ fn write_error(error: &DriverError, service: bool) -> CanopyError {
                     .and_then(|e| e.details.clone()),
                 _ => None,
             };
-            match reason {
-                Some(reason) if service => {
-                    let details = bson::RawDocumentBuf::try_from(&doc! { "reason": reason })
-                        .ok()
-                        .and_then(|raw| canopy_protocol::bson::decode_document(raw.as_bytes()).ok())
-                        .and_then(|details| {
-                            canopy_protocol::ejson::stringify(&Value::Document(details)).ok()
-                        });
-                    match details {
-                        Some(details) => failure.with_details(details),
-                        None => failure,
-                    }
-                }
-                _ => failure,
+            match reason.filter(|_| service).and_then(|reason| details_of("reason", reason)) {
+                Some(details) => failure.with_details(details),
+                None => failure,
             }
         }
         _ => from_driver_error(error, service),

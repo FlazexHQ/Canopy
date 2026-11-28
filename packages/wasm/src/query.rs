@@ -2,6 +2,7 @@
 
 use canopy_port::QueryKey;
 use canopy_protocol::{CanopyError, ErrorCode};
+use canopy_query::{DEFAULT_LIMITS, QueryInput, QueryKeyParts, canonical_query, parse_query};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -46,4 +47,25 @@ pub fn canonical_query_text(key: &JsValue) -> Result<String, JsValue> {
 #[wasm_bindgen(js_name = "queryHash")]
 pub fn query_hash_text(key: &JsValue) -> Result<String, JsValue> {
     canopy_port::query_hash_text(&key_of(key)?).map_err(|error| thrown(&error))
+}
+
+/// Validates a query document and returns the canonical observer key.
+#[wasm_bindgen(js_name = "canonicalizeQuery")]
+pub fn canonicalize_query(collection: &str, text: &str) -> Result<String, JsValue> {
+    let document = canopy_port::document_of(text, "The query").map_err(|error| thrown(&error))?;
+    let input = QueryInput {
+        filter: document.get("filter").cloned(),
+        sort: document.get("sort").cloned(),
+        limit: document.get("limit").cloned(),
+        fields: document.get("fields").cloned(),
+    };
+    let parsed = parse_query(&input, &DEFAULT_LIMITS).map_err(|error| thrown(&error))?;
+    canonical_query(&QueryKeyParts {
+        collection: collection.to_owned(),
+        filter: parsed.filter.filter,
+        sort: parsed.sort.map(|spec| spec.sort),
+        limit: parsed.limit,
+        projection: parsed.fields.map(|fields| fields.projection),
+    })
+    .map_err(|error| thrown(&error))
 }

@@ -28,8 +28,8 @@ Create a database user for Canopy with `read` (or `readWrite` for writes) on the
 `readWrite` on `canopy` and `canopy_auth`, then run `canopy init` against the cluster:
 
 ```bash
-bunx canopy init --mongodb-uri "mongodb+srv://canopy:PASSWORD@cluster0.example.mongodb.net/app"
-bunx canopy doctor
+bunx --package @canopy/cli canopy init --mongodb-uri "mongodb+srv://canopy:PASSWORD@cluster0.example.mongodb.net/app"
+bunx --package @canopy/cli canopy doctor
 ```
 
 ## 2. Translate the rules

@@ -14,7 +14,8 @@ canopy-mongo = { path = "../canopy-mongo" }
 canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 canopy-query = { path = "../canopy-query" }
-base64 = "0.22"
+canopy-schema = { path = "../canopy-schema" }
+base64ct = { version = "1.8", features = ["alloc"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 ring = "0.17"
 tokio = { version = "1", features = ["rt", "sync", "time"] }

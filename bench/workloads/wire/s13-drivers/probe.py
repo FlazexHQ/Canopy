@@ -51,7 +51,7 @@ with pymongo.MongoClient(
     retryWrites=False,
     serverSelectionTimeoutMS=3000,
 ) as client:
-    items = client.canopy_s13.items
+    items = client[os.getenv("CANOPY_S13_DATABASE", "canopy_s13")][os.getenv("CANOPY_S13_COLLECTION", "items")]
     if path := os.environ.get("CANOPY_S13_CRUD_CASE"):
         unified(items, path)
         raise SystemExit(0)

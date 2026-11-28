@@ -98,14 +98,14 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build the gateway and the S11 load driver with the shipping release profile
         run: |
-          cargo build --release --locked -p canopy-gateway
+          cargo build --release --locked -p canopyd
           cargo build --release --locked --manifest-path bench/spikes/S11/Cargo.toml --bin bench
       - name: Start a single node replica set
         if: env.REFERENCE_URI == ''
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
         env:
           CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
-      - name: Run the scenarios on canopy-gateway for each coalescing window, then on the Bun sidecar
+      - name: Run the scenarios on canopyd for each coalescing window, then on the Bun sidecar
         env:
           SCENARIOS: ${{ inputs.scenarios }}
           COALESCE: ${{ inputs.coalesce }}

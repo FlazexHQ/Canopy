@@ -1,0 +1,59 @@
+[package]
+name = "canopyd"
+description = "Canopy's native realtime server: canopy.v1 over WebSockets on Tokio and Hyper, one change stream read as raw BSON, the canopy-engine routing and writes forwarded to the TypeScript write path."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[lib]
+name = "canopyd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "canopyd"
+path = "src/main.rs"
+
+[dependencies]
+canopy-auth = { path = "../canopy-auth" }
+canopy-authn = { path = "../canopy-authn" }
+canopy-config = { path = "../canopy-config" }
+canopy-control = { path = "../canopy-control" }
+canopy-data = { path = "../canopy-data" }
+canopy-engine = { path = "../canopy-engine" }
+canopy-graphql = { path = "../canopy-graphql" }
+canopy-http = { path = "../canopy-http" }
+canopy-mail = { path = "../canopy-mail" }
+canopy-matcher = { path = "../canopy-matcher" }
+canopy-migrations = { path = "../canopy-migrations" }
+canopy-mongo = { path = "../canopy-mongo" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-realtime = { path = "../canopy-realtime" }
+canopy-storage = { path = "../canopy-storage" }
+canopy-webhooks = { path = "../canopy-webhooks" }
+canopy-wire = { path = "../canopy-wire" }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+ring = "0.17"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util", "io-std", "signal", "fs"] }
+tokio-rustls = { version = "0.26", default-features = false }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[dev-dependencies]
+base64ct = { version = "1.8", features = ["alloc"] }
+mongodb = { version = "=3.10.1", default-features = false, features = ["snappy-compression", "zlib-compression"] }
+opentelemetry-proto = { version = "0.33", default-features = false, features = ["gen-tonic-messages", "trace"] }
+prost = "0.14"
+
+[lints]
+workspace = true

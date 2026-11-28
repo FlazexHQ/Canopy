@@ -70,6 +70,15 @@ pub const SCALARS: [(&str, &str); 6] = [
 pub const SCALAR_NAMES: [&str; 6] = ["ObjectId", "DateTime", "Long", "Decimal", "Binary", "JSON"];
 
 const RESERVED_FILTER: [&str; 4] = ["and", "or", "nor", "raw"];
+const INHERITED_INPUT_FIELDS: [&str; 7] = [
+    "constructor",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "toLocaleString",
+    "toString",
+    "valueOf",
+];
 
 /// How the GraphQL names of a collection's fields map to the document fields they stand for, per input or
 /// output type.
@@ -536,17 +545,25 @@ pub fn build_schema(input: &SchemaInput<'_>) -> GeneratedSchema {
                 .described("Present because the caller can read no collection"),
         );
     }
-    builder.model.add(TypeDef::Object { name: "Query".into(), description: None, fields: query });
+    builder.model.add(TypeDef::Object {
+        name: "Query".into(),
+        description: None,
+        fields: root_fields(query),
+    });
     if !mutation.is_empty() {
         builder.model.mutation = true;
-        builder.model.add(TypeDef::Object { name: "Mutation".into(), description: None, fields: mutation });
+        builder.model.add(TypeDef::Object {
+            name: "Mutation".into(),
+            description: None,
+            fields: root_fields(mutation),
+        });
     }
     if !subscription.is_empty() {
         builder.model.subscription = true;
         builder.model.add(TypeDef::Object {
             name: "Subscription".into(),
             description: None,
-            fields: subscription,
+            fields: root_fields(subscription),
         });
     }
     GeneratedSchema {
@@ -555,6 +572,21 @@ pub fn build_schema(input: &SchemaInput<'_>) -> GeneratedSchema {
         default_limit: input.default_limit,
         max_limit: input.max_limit,
     }
+}
+
+fn root_fields(fields: Vec<FieldDef>) -> Vec<FieldDef> {
+    let mut positions = HashMap::new();
+    let mut unique: Vec<FieldDef> = Vec::new();
+    for field in fields {
+        match positions.get(&field.name) {
+            Some(&index) => unique[index] = field,
+            None => {
+                positions.insert(field.name.clone(), unique.len());
+                unique.push(field);
+            }
+        }
+    }
+    unique
 }
 
 struct WritableInput {
@@ -582,7 +614,10 @@ fn writable_input(builder: &mut Builder<'_>, model: &Model, op: Operation, suffi
             continue;
         }
         let gql = field_name(field);
-        if gql == "_extra" || fields.iter().any(|existing| existing.name == gql) {
+        if gql == "_extra"
+            || INHERITED_INPUT_FIELDS.contains(&gql.as_str())
+            || fields.iter().any(|existing| existing.name == gql)
+        {
             continue;
         }
         map.fields.push((gql.clone(), field.clone()));

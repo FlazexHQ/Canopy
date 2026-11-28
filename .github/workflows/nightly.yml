@@ -23,6 +23,50 @@ env:
   MONGODB_VERSION: 8.0.34
 
 jobs:
+  wasm-conformance:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
+    name: Split Wasm conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      - run: bun install --frozen-lockfile
+      - run: rustup target add wasm32-unknown-unknown
+      - name: Install Binaryen 133
+        shell: python
+        run: |
+          import hashlib
+          import io
+          import os
+          from pathlib import Path
+          import tarfile
+          from urllib.request import urlopen
+
+          release = "https://github.com/WebAssembly/binaryen/releases/download/version_133"
+          with urlopen(f"{release}/binaryen-version_133-x86_64-linux.tar.gz") as response:
+              archive = response.read()
+          if hashlib.sha256(archive).hexdigest() != "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489":
+              raise ValueError("Binaryen archive SHA-256 mismatch")
+          directory = Path(os.environ["RUNNER_TEMP"])
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+              tar.extractall(directory, filter="data")
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path:
+              path.write(f"{directory / 'binaryen-version_133' / 'bin'}\n")
+      - run: bun --filter @canopy/wasm build:native --split
+      - run: deno run --no-prompt --allow-read=conformance,packages/wasm/generated --node-modules-dir=manual bench/baselines/r2/conformance.mjs
+      - run: node apps/studio/node_modules/@playwright/test/cli.js install --with-deps chromium firefox webkit
+      - run: node bench/baselines/r2/browser.mjs
+
   replica-set:
     if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: ${{ matrix.name }}
@@ -71,7 +115,7 @@ jobs:
         run: bun --filter @canopy/native build:native
       - if: matrix.suite == 'simulation' || matrix.suite == 'chaos'
         name: Build the native gateway for realtime tests
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Save the Cargo registry and build output
         if: matrix.suite != 'writes' && steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -97,7 +141,7 @@ jobs:
           CANOPY_TEST_ENGINE: wasm
           CANOPY_DIFF_RUNS: "500"
       - if: matrix.suite == 'simulation'
-        name: Realtime simulation (10k seeds, on the TypeScript engine and on canopy-gateway)
+        name: Realtime simulation (10k seeds, on the TypeScript engine and on canopyd)
         run: bun --bun vitest run --project realtime -t "seeded simulation"
         env:
           CANOPY_SIM_SEEDS: "10000"
@@ -216,7 +260,7 @@ jobs:
           node-version: "24"
       - run: bun install --frozen-lockfile
       - name: Sharded cluster suite (Node)
-        run: node node_modules/vitest/vitest.mjs run --project client test/sharded.e2e.test.ts --testTimeout=120000
+        run: node node_modules/vitest/vitest.mjs run --project sdk-e2e test/sharded.e2e.test.ts --testTimeout=120000
         env:
           CANOPY_TEST_SHARDED_URI: mongodb://localhost:27017
       - if: failure()
@@ -357,6 +401,17 @@ jobs:
           - { target: update, dict: dict/ejson.dict }
           - { target: regex, dict: dict/regex.dict }
           - { target: frame, dict: dict/ejson.dict }
+          - { target: webauthn_cbor, dict: dict/webauthn.dict }
+          - { target: webauthn_cose_key, dict: dict/webauthn.dict }
+          - { target: webauthn_authenticator_data, dict: dict/webauthn.dict }
+          - { target: webauthn_client_data, dict: dict/webauthn.dict }
+          - { target: webauthn_registration, dict: dict/webauthn.dict }
+          - { target: webauthn_authentication, dict: dict/webauthn.dict }
+          - { target: authn_cookies, dict: dict/authn.dict }
+          - { target: authn_secrets, dict: dict/authn.dict }
+          - { target: authn_passwords, dict: dict/authn.dict }
+          - { target: authn_tokens, dict: dict/authn.dict }
+          - { target: authn_totp, dict: dict/authn.dict }
     env:
       FUZZ_TOOLCHAIN: nightly-2026-11-15
       CARGO_FUZZ_VERSION: 0.13.2
@@ -401,15 +456,21 @@ jobs:
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - name: Install and test with Bun on musl
         run: >-
-          docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
+          docker run --rm --network host -v "$PWD:/repo" -v "$PWD/../Canopy.js:/Canopy.js:ro" -w /repo -e CANOPY_TEST_MONGODB_URI
+          -e CANOPY_TEST_LAUNCHER=/repo/target/cli-launcher-musl/launcher.mjs
           oven/bun:${{ env.BUN_VERSION }}-alpine
-          sh -c "bun install --frozen-lockfile --ignore-scripts && bun --bun vitest run"
+          sh -c "bun install --frozen-lockfile --ignore-scripts && bun packages/cli/build-launcher.ts target/cli-launcher-musl && bun --bun vitest run"
       - name: Test with Node.js 24 on musl
         run: >-
-          docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
+          docker run --rm --network host -v "$PWD:/repo" -v "$PWD/../Canopy.js:/Canopy.js:ro" -w /repo -e CANOPY_TEST_MONGODB_URI
+          -e CANOPY_TEST_LAUNCHER=/repo/target/cli-launcher-musl/launcher.mjs
           node:24-alpine node node_modules/vitest/vitest.mjs run
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes

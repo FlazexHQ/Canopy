@@ -202,7 +202,7 @@ fn decode_wrapper(entries: &[(String, Json)]) -> Result<Value, CanopyError> {
             if !options.chars().all(|c| matches!(c, 'i' | 'm' | 's' | 'u' | 'x')) {
                 return Err(fail("$regularExpression"));
             }
-            Ok(Value::Regex(Box::new(Regex::new(pattern.clone(), options))))
+            Ok(Value::Regex(Box::new(Regex::new(pattern, options))))
         }
         "$minKey" => match inner {
             Json::Number(n) if *n == 1.0 => Ok(Value::MinKey),
@@ -306,8 +306,8 @@ pub fn js_string_to_number(text: &str) -> Option<f64> {
 }
 
 fn is_decimal_literal(text: &str) -> bool {
-    let (mantissa, exponent) = match text.find(['e', 'E']) {
-        Some(index) => (&text[..index], Some(&text[index + 1..])),
+    let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
         None => (text, None),
     };
     let (whole, fraction) = match mantissa.split_once('.') {
@@ -332,8 +332,8 @@ pub fn is_decimal128_text(text: &str) -> bool {
     if ["infinity", "inf", "nan"].iter().any(|word| unsigned.eq_ignore_ascii_case(word)) {
         return true;
     }
-    let (mantissa, exponent) = match unsigned.find(['e', 'E']) {
-        Some(index) => (&unsigned[..index], Some(&unsigned[index + 1..])),
+    let (mantissa, exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
         None => (unsigned, None),
     };
     let digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());

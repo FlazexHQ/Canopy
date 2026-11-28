@@ -30,8 +30,12 @@ jobs:
           allow-licenses: MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, CC0-1.0, BlueOak-1.0.0
           # unicode-ident (MIT or Apache 2.0, and Unicode 3.0 for its data tables) runs inside procedural macros
           # only. The remaining Unicode and certificate data crates match the gateway exceptions in
-          # deny.toml. libfuzzer-sys is confined to the separate fuzz workspace.
+          # deny.toml. libfuzzer-sys is confined to the separate fuzz workspace. zlib-rs is listed in
+          # Cargo.lock only as a weak optional dependency of flate2 that nothing enables, so it is never built.
+          # ar_archive_writer (Apache 2.0 with the LLVM exception) runs only in the build script of psm, as in
+          # deny.toml.
           allow-dependencies-licenses: >-
+            pkg:cargo/ar_archive_writer,
             pkg:cargo/icu_collections,
             pkg:cargo/icu_locale_core,
             pkg:cargo/icu_normalizer,
@@ -40,6 +44,7 @@ jobs:
             pkg:cargo/icu_properties_data,
             pkg:cargo/icu_provider,
             pkg:cargo/libfuzzer-sys,
+            pkg:cargo/zlib-rs,
             pkg:cargo/litemap,
             pkg:cargo/potential_utf,
             pkg:cargo/tinystr,
@@ -85,4 +90,5 @@ jobs:
           fetch-depth: 0
       - uses: trufflesecurity/trufflehog@3bd2b5887eb0efb8fa18bfd1d296032924e4ffdc # v3.99.9
         with:
-          extra_args: --results=verified,unknown
+          # Recorded test fixtures hold signed test tokens, never real credentials.
+          extra_args: --results=verified,unknown --exclude-paths=.github/trufflehog-exclude.txt

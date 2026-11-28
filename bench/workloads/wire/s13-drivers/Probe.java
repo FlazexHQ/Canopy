@@ -65,7 +65,8 @@ class Probe {
             .applyToClusterSettings(cluster -> cluster.serverSelectionTimeout(3, TimeUnit.SECONDS))
             .build();
         try (var client = MongoClients.create(settings)) {
-            var items = client.getDatabase("canopy_s13").getCollection("items");
+            var items = client.getDatabase(System.getenv().getOrDefault("CANOPY_S13_DATABASE", "canopy_s13"))
+                .getCollection(System.getenv().getOrDefault("CANOPY_S13_COLLECTION", "items"));
             var fixture = System.getenv("CANOPY_S13_CRUD_CASE");
             if (fixture != null) {
                 unified(items, fixture);

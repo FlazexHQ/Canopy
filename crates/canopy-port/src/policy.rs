@@ -3,8 +3,9 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use canopy_policy::{
-    Compiled, EngineHooks, FieldAccess, Operation, PolicyEngine, PolicyVariableIssue, RequestContext, Roles,
-    contexts_from_stored, create_policy_set, from_stored,
+    Compiled, EngineHooks, FieldAccess, Operation, PipelineLimits, PolicyEngine, PolicySet,
+    PolicyVariableIssue, RequestContext, Roles, SecurePipelineOptions, contexts_from_stored,
+    create_policy_set, from_stored, secure_pipeline,
 };
 use canopy_protocol::{CanopyError, Document, Value};
 
@@ -149,10 +150,14 @@ impl PortPolicyEngine {
         let definitions =
             collections.iter().map(|text| from_stored(&value_of(text)?)).collect::<Result<Vec<_>, _>>()?;
         let contexts = contexts_from_stored(Some(&value_of(contexts)?))?;
-        let set = create_policy_set(definitions, contexts)?;
+        Ok(Self::from_set(create_policy_set(definitions, contexts)?))
+    }
+
+    /// Builds an engine from an already validated policy set.
+    pub fn from_set(set: PolicySet) -> Self {
         let recorded = Arc::new(Recorded::default());
         let engine = PolicyEngine::with_hooks(set, Box::new(Hooks(Arc::clone(&recorded))));
-        Ok(PortPolicyEngine { engine, recorded })
+        Self { engine, recorded }
     }
 
     fn evaluation(&self, compiled: &Compiled) -> Result<Evaluation, CanopyError> {
@@ -216,6 +221,22 @@ impl PortPolicyEngine {
         self.clear();
         let compiled = self.engine.effective_read(collection, &filter, &request)?;
         self.evaluation(&compiled)
+    }
+
+    /// Secures an aggregation pipeline given as EJSON and returns the stages as canonical EJSON.
+    pub fn secure_pipeline(
+        &self,
+        collection: &str,
+        pipeline: &str,
+        request: &str,
+        limits: &PipelineLimits,
+        options: SecurePipelineOptions,
+    ) -> Result<String, CanopyError> {
+        let pipeline = value_of(pipeline)?;
+        let request = request_of(request)?;
+        let result = secure_pipeline(&self.engine, collection, &pipeline, &request, limits, options);
+        self.clear();
+        canonical(&Value::Array(result?.into_iter().map(Value::Document).collect()))
     }
 
     /// The fields the request may read.

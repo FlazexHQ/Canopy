@@ -5,7 +5,7 @@ description: Every canopy command and option.
 
 ```bash
 bun add -d @canopy/cli
-bunx canopy --help
+bunx --package @canopy/cli canopy --help
 ```
 
 Commands read `canopy.config.ts` (or `canopy/canopy.config.ts`), found by walking up from the working

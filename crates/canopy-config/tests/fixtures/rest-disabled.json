@@ -44,6 +44,8 @@
     "exemptService": true
   },
   "rest": false,
+  "graphql": false,
+  "wire": false,
   "log": {
     "level": "info"
   },
@@ -52,5 +54,6 @@
   },
   "audit": {
     "dataWrites": false
-  }
+  },
+  "storage": false
 }

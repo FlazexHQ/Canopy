@@ -58,6 +58,9 @@ jobs:
         os: [ubuntu-24.04, windows-2025, macos-15]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
       - name: Install the toolchain pinned in rust-toolchain.toml
         run: rustup toolchain install
       - name: Restore the Cargo registry and build output
@@ -102,6 +105,36 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" --strip-components=1
           "$RUNNER_TEMP/cargo-deny" --locked check
 
+  wasm-size:
+    name: Split WebAssembly client size
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install the pinned Rust toolchain and WebAssembly target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+      - name: Install Binaryen 133
+        env:
+          BINARYEN_VERSION: version_133
+          BINARYEN_SHA256: 2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489
+        run: |
+          directory="binaryen-$BINARYEN_VERSION"
+          archive="$directory-x86_64-linux.tar.gz"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/WebAssembly/binaryen/releases/download/$BINARYEN_VERSION/$archive"
+          echo "$BINARYEN_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$directory/bin" >> "$GITHUB_PATH"
+      - name: Build and measure the split WebAssembly modules
+        run: |
+          unset CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+          bun packages/wasm/scripts/build.ts --split
+
   native:
     name: Rust engine (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -114,7 +147,7 @@ jobs:
     env:
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
       CANOPY_REQUIRE_MONGODB: "1"
-      SUITES: --project native --project matcher --project policy --project realtime --project rest --project graphql --project storage --project client --project server
+      SUITES: --project native --project matcher --project policy --project realtime --project rest --project graphql --project storage --project client --project server --project deploy-tests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
@@ -145,7 +178,7 @@ jobs:
           bun --filter @canopy/native build:native
           bun --filter @canopy/wasm build:native
       - name: Build the native gateway, which the realtime conformance suite and the DLS equivalence test run against
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Save the Cargo registry and build output
         if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -177,6 +210,10 @@ jobs:
         with:
           path: ${{ runner.temp }}/mongodb/binaries/8.0.34
           key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
+      - name: Rust auth against the TypeScript server it replaces and the recorded auth answers
+        env:
+          CANOPY_TEST_TYPESCRIPT: "1"
+        run: cargo test --locked -p canopy-authn
       - name: The suites, the bypass corpus and the invariants on the native engine (Bun)
         shell: bash
         run: bun --bun vitest run $SUITES
@@ -335,6 +372,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/mongodb/binaries/8.0.34
           key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
+      - if: runner.os == 'macOS'
+        name: Let one process hold more open files than the macOS default allows
+        run: sudo sysctl -w kern.maxfiles=131072 kern.maxfilesperproc=65536
       - name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
       - if: steps.mongodb-cache.outputs.cache-hit != 'true'
@@ -356,7 +396,7 @@ jobs:
         name: Build the native gateway
         run: |
           rustup toolchain install
-          cargo build --release --locked -p canopy-gateway
+          cargo build --release --locked -p canopyd
       - if: matrix.runtime == 'bun'
         name: The standalone executables run without node_modules
         shell: bash
@@ -515,33 +555,139 @@ jobs:
     name: Docker images and compose stack
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - uses: ./.github/actions/canopy-js
-      - name: Build the standalone gateway image
-        run: docker build -f deploy/docker/canopy-gateway.Dockerfile -t canopy-gateway:ci .
+      - name: Build the Rust canopy image
+        run: docker build -f deploy/docker/canopyd.Dockerfile --build-context canopyjs=../Canopy.js -t canopy:ci .
+      - name: Build the TypeScript auth image of the fallback overlay
+        run: docker build -f deploy/docker/canopy-control.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-control:ci .
       - name: Build the canopy-realtime sidecar image
         run: docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime:ci .
-      - name: Build the canopy and Studio images and start the stack of separate services
-        run: docker compose -f deploy/compose/canopy.yaml up -d --build --wait --wait-timeout 240
+      - name: Build the legacy API and realtime image and start the stack with the Rust Studio role
+        run: |
+          docker compose -f deploy/compose/canopy.yaml build api realtime
+          docker compose -f deploy/compose/canopy.yaml up -d --no-build --wait --wait-timeout 240
         env:
-          CANOPY_IMAGE: canopy:ci
-          CANOPY_STUDIO_IMAGE: canopy-studio:ci
+          CANOPY_IMAGE: canopy-legacy:ci
+          CANOPY_GATEWAY_IMAGE: canopy:ci
       - name: Smoke test the stack, then the native gateway as the realtime service
         env:
-          CANOPY_IMAGE: canopy:ci
-          CANOPY_STUDIO_IMAGE: canopy-studio:ci
+          CANOPY_IMAGE: canopy-legacy:ci
+          CANOPY_GATEWAY_IMAGE: canopy:ci
         run: |
           deploy/compose/canopy-smoke.sh
           export CANOPY_REALTIME_SERVER=gateway
           docker compose -f deploy/compose/canopy.yaml up -d --no-build --wait --wait-timeout 180 api realtime
           docker compose -f deploy/compose/canopy.yaml logs realtime | grep '"realtimeServer":"gateway"'
-          bun deploy/binary/ws-smoke.ts ws://127.0.0.1:8080/realtime/v1 sk_dev_change_me
           deploy/compose/canopy-smoke.sh
+          bun deploy/binary/ws-smoke.ts ws://127.0.0.1:8080/realtime/v1 sk_dev_change_me
+      - name: Smoke test the split stack with Rust auth and the control plane stopped
+        env: &split-env
+          CANOPY_CONTROL_IMAGE: canopy-control:ci
+          CANOPY_GATEWAY_IMAGE: canopy:ci
+          CANOPY_PORT: "28080"
+          CANOPY_MONGO_PORT: "37017"
+          CANOPY_WIRE_PORT: "37018"
+          CANOPY_METRICS_PORT: "29464"
+          CANOPY_CONTROL_METRICS_PORT: "29465"
+          CANOPY_SPLIT_E2E_URL: http://localhost:28080
+          CANOPY_TEST_MONGODB_URI: mongodb://localhost:37017/?replicaSet=rs0&directConnection=true
+          CANOPY_PUBLISHABLE_KEYS: pk,pk_rest_reader,pk_rest_writes,pk_client_auth,pk_todo_e2e
+          CANOPY_SECRET_KEYS: sk_split_e2e
+          CANOPY_MASTER_KEY: split-stack-ci-master-key-0123456789abcdef
+          COMPOSE_FILE: ${{ github.workspace }}/deploy/compose/split.yaml:${{ github.workspace }}/deploy/compose/split-auth.yaml:${{ github.workspace }}/deploy/compose/split-e2e.yaml
+        run: bun deploy/compose/split-smoke.ts --no-build
+      - name: Smoke test the split stack with the TypeScript auth fallback
+        env: *split-env
+        run: bun deploy/compose/split-smoke.ts --no-build --typescript-auth
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Install Chromium
+        working-directory: examples/todo-react
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Start the split stack with built in auth
+        env: *split-env
+        run: docker compose up -d --no-build --wait --wait-timeout 240
+      - name: Run Studio Playwright against the canopy Studio role
+        env: *split-env
+        run: |
+          token="$(docker compose logs --no-color control | grep -oE 'canopy_setup_[A-Za-z0-9_-]+' | tail -n 1)"
+          test -n "$token"
+          cd apps/studio
+          STUDIO_E2E_SETUP_TOKEN="$token" node node_modules/@playwright/test/cli.js test
+      - name: Run SDK auth against Rust auth through the split edge
+        env: *split-env
+        run: |
+          export CANOPY_AUTH_CONFIG=./split-e2e-auth.json
+          export CANOPY_SPLIT_E2E_CLAIMS_URL=http://127.0.0.1:28181/claims
+          export CANOPY_SPLIT_E2E_CLAIMS_LISTEN=0.0.0.0
+          CANOPY_SPLIT_E2E_CLAIMS_KEY="whsec_$(openssl rand -base64 32)"
+          export CANOPY_SPLIT_E2E_CLAIMS_KEY
+          docker compose up -d --no-build --wait --wait-timeout 120 --force-recreate auth claims-relay
+          bun run test:all --project sdk-e2e test/auth.e2e.test.ts
+      - name: Run SDK data and realtime through the split edge
+        env: *split-env
+        run: |
+          export COMPOSE_FILE=deploy/compose/split.yaml:deploy/compose/split-e2e.yaml
+          export CANOPY_DB=sdk_split_e2e CANOPY_META_DB=sdk_split_meta
+          export CANOPY_GATEWAY_CONFIG="$RUNNER_TEMP/split-e2e-gateway.json"
+          bun -e '
+            import { generateKeyPairSync } from "node:crypto"
+            const { privateKey, publicKey } = generateKeyPairSync("ed25519")
+            const jwk = { ...publicKey.export({ format: "jwk" }), kid: "dev", alg: "EdDSA" }
+            await Bun.write(process.env.CANOPY_GATEWAY_CONFIG, JSON.stringify({
+              server: { metricsHost: "0.0.0.0" },
+              realtime: { checkpoints: "off" },
+              rateLimits: false,
+              auth: {
+                issuer: "https://todo-react.example/dev-issuer",
+                audience: "https://todo-react.example/api",
+                jwks: { keys: [jwk] }
+              }
+            }))
+            const value = JSON.stringify(privateKey.export({ format: "jwk" }))
+            console.log("::add-mask::" + value)
+            await Bun.write(process.env.RUNNER_TEMP + "/split-issuer-key", value)
+          '
+          TODO_DEV_ISSUER_KEY="$(cat "$RUNNER_TEMP/split-issuer-key")"
+          export TODO_DEV_ISSUER_KEY
+          docker compose up -d --no-build --wait --wait-timeout 120 data
+          bun run test:all --project sdk-e2e --maxWorkers 1 \
+            test/e2e.test.ts test/rest.e2e.test.ts test/rest-writes.e2e.test.ts \
+            test/mutations.e2e.test.ts test/offline.e2e.test.ts test/fallback.e2e.test.ts
+      - name: Run todo-react through the split edge
+        env: *split-env
+        run: |
+          export COMPOSE_FILE=deploy/compose/split.yaml:deploy/compose/split-e2e.yaml
+          export CANOPY_DB=todo_split_e2e CANOPY_META_DB=todo_split_meta
+          export CANOPY_GATEWAY_CONFIG="$RUNNER_TEMP/split-e2e-gateway.json"
+          TODO_DEV_ISSUER_KEY="$(cat "$RUNNER_TEMP/split-issuer-key")"
+          export TODO_DEV_ISSUER_KEY
+          bun --conditions=@canopy/source examples/todo-react/e2e/seed-split.ts
+          docker compose up -d --no-build --wait --wait-timeout 120 data
+          cd examples/todo-react
+          node node_modules/@playwright/test/cli.js test
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: split-e2e-traces
+          path: |
+            apps/studio/test-results
+            examples/todo-react/test-results
+          retention-days: 7
+      - if: failure()
+        env: *split-env
+        run: docker compose logs --tail 100
+      - if: always()
+        env: *split-env
+        run: docker compose down --volumes
       - name: The sidecar and gateway images start and report ready
         run: |
           docker run -d --name sidecar --network canopy_default -p 127.0.0.1:18080:8080 \
@@ -555,7 +701,7 @@ jobs:
           docker run -d --read-only --name gateway --network canopy_default \
             -p 127.0.0.1:18082:8080 -p 127.0.0.1:19464:9464 \
             -e MONGODB_URI="mongodb://database:27017/?replicaSet=rs0" -e CANOPY_DB=app \
-            -e CANOPY_NODE_ID=gateway -e CANOPY_PUBLISHABLE_KEYS=pk_dev canopy-gateway:ci
+            -e CANOPY_NODE_ID=gateway -e CANOPY_PUBLISHABLE_KEYS=pk_dev canopy:ci
 
           check_ready() {
             for ((attempt = 0; attempt < 60; attempt++)); do
@@ -569,11 +715,10 @@ jobs:
           check_ready sidecar-gateway 18081
           check_ready gateway 18082
           curl -fsS --max-time 2 http://127.0.0.1:19464/metrics
-      - run: bun install --frozen-lockfile
       - name: Build the standalone executables
         run: |
           rustup toolchain install
-          cargo build --release --locked -p canopy-gateway
+          cargo build --release --locked -p canopyd
           bun deploy/binary/build.ts --target linux-x64 --require-gateway --out "$RUNNER_TEMP/binaries"
       - name: The executables run without node_modules
         working-directory: ${{ runner.temp }}

@@ -1,4 +1,4 @@
-import type { Collection } from "mongodb"
+import { type Collection, ObjectId } from "mongodb"
 import type { AuthLogger } from "./logger.ts"
 
 /** Who performed an audited action. */
@@ -37,7 +37,7 @@ export class AuditLog {
 
   record(event: AuditEvent): void {
     const write = this.collection
-      .insertOne({ ...event, at: new Date() })
+      .insertOne({ _id: new ObjectId(), ...event, at: new Date() })
       .then(
         () => undefined,
         (error: unknown) =>

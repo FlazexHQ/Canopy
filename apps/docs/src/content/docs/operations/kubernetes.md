@@ -15,7 +15,7 @@ refuse to start until you provide them.
 
 Build the server image from `deploy/docker/canopy.Dockerfile` and push it to your registry, or use the
 `ghcr.io/flazexhq/canopy:<tag>` image from a published GitHub release. Releases also build
-`ghcr.io/flazexhq/canopy-realtime:<tag>` and `ghcr.io/flazexhq/canopy-gateway:<tag>`. All three images
+`ghcr.io/flazexhq/canopy-realtime:<tag>` and `ghcr.io/flazexhq/canopyd:<tag>`. All three images
 target Linux x64 and arm64.
 
 The Canopy server and realtime sidecar images include the native gateway. Set `CANOPY_REALTIME_SERVER=gateway`
@@ -49,7 +49,7 @@ archives contain `canopy`, `canopy-server`, the gateway beside them and `SHA256S
 archive with the same workflow identity before extracting it.
 
 ```sh
-archive=canopy-gateway-x86_64-unknown-linux-gnu.tar.gz
+archive=canopyd-x86_64-unknown-linux-gnu.tar.gz
 cosign verify-blob --bundle "$archive.sigstore.json" \
   --certificate-identity "$workflow/native-release.yml@refs/tags/$tag" \
   --certificate-oidc-issuer "$issuer" "$archive"

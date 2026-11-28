@@ -17,7 +17,7 @@
 # Required: MONGODB_URI, CANOPY_MASTER_KEY, CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS, CANOPY_METRICS_TOKEN.
 # Optional: CANOPY_SITE (a domain name for automatic HTTPS on ports 80 and 443; ":8080" serves plain HTTP for
 # a TLS proxy of your own), CANOPY_DB (app), CANOPY_PUBLIC_URL, CANOPY_CORS_ORIGINS, the CANOPY_JWT_* settings
-# of an external identity provider, CANOPY_POLICY_DIR (./policies), CANOPY_IMAGE, CANOPY_STUDIO_IMAGE.
+# of an external identity provider, CANOPY_POLICY_DIR (./policies), CANOPY_IMAGE, CANOPY_GATEWAY_IMAGE.
 # The metrics ports (9464 for api, 9465 for realtime) are published on the host loopback address only.
 
 name: canopy-production
@@ -28,7 +28,7 @@ x-canopy-image: &canopy-image
     dockerfile: deploy/docker/canopy.Dockerfile
     additional_contexts:
       canopyjs: ../../../Canopy.js
-  image: ${CANOPY_IMAGE:-canopy:latest}
+  image: ${CANOPY_IMAGE:-canopy-legacy:latest}
 
 x-canopy-hardening: &canopy-hardening
   restart: unless-stopped
@@ -100,16 +100,14 @@ services:
     <<: *canopy-hardening
     build:
       context: ../..
-      dockerfile: deploy/docker/canopy-studio.Dockerfile
+      dockerfile: deploy/docker/canopyd.Dockerfile
       additional_contexts:
         canopyjs: ../../../Canopy.js
-    image: ${CANOPY_STUDIO_IMAGE:-canopy-studio:latest}
+    image: ${CANOPY_GATEWAY_IMAGE:-canopy:latest}
+    environment:
+      CANOPY_ROLE: studio
     healthcheck:
-      test:
-        - CMD
-        - bun
-        - -e
-        - "const r = await fetch('http://127.0.0.1:8080/healthz'); process.exit(r.ok ? 0 : 1)"
+      test: ["CMD", "/usr/local/bin/canopyd", "--probe"]
       interval: 10s
       timeout: 5s
       retries: 6

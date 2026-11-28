@@ -4,7 +4,7 @@
 //! membership and path, merge boxes that send a document once per connection, resume buffers, resync when gap
 //! free delivery cannot be promised, and echo before ack for writes forwarded to the write path.
 //!
-//! The engine is single threaded and deterministic: the transport (`canopy-gateway`) owns the sockets, the
+//! The engine is single threaded and deterministic: the transport (`canopyd`) owns the sockets, the
 //! MongoDB driver and the clock, and calls [`Engine`] with what happened and the current time.
 
 mod auth;
@@ -24,14 +24,16 @@ mod wire;
 pub use auth::Principal;
 pub use ct::Ct;
 pub use echo::{EchoWaiter, Settled};
-pub use engine::{Config, Engine, Limits, MessageRate, MutationOutcome};
+pub use engine::{
+    BatchStats, BatchTrace, Config, Engine, InspectionTail, Limits, MessageRate, MutationOutcome,
+};
 pub use event::{
     Control, ControlKind, Diff, Event, Image, Normalized, Op, Post, doc_key, merge_fragments, normalize,
 };
 pub use explain::Explain;
 pub use metrics::Metrics;
 pub use observer::{Kind, ObserverLimits};
-pub use output::{ConnId, ContextRead, Frame, MutationRequest, Output, ReadRequest, ReadResult};
+pub use output::{ConnId, ContextRead, Frame, MutationRequest, Output, ReadRequest, ReadResult, WatchFrame};
 pub use plan::{Plan, plan};
 pub use registry::{IndexKey, indexable_conjunct};
 pub use wire::{ClientMessage, MutOp, Mutation, PROTOCOL_VERSION, SubQuery, close, decode_client};

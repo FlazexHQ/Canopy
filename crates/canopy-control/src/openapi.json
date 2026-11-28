@@ -1,0 +1,1395 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Canopy Data API",
+    "version": "1"
+  },
+  "jsonSchemaDialect": "https://spec.openapis.org/oas/3.1/dialect/base",
+  "security": [
+    {
+      "apikey": []
+    },
+    {
+      "apikey": [],
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/rest/v1/": {
+      "get": {
+        "operationId": "listCollections",
+        "summary": "Collections the caller can reach",
+        "responses": {
+          "200": {
+            "description": "The collections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/CANOPY_COLLECTION": {
+      "get": {
+        "operationId": "find_CANOPY_COLLECTION",
+        "summary": "Find CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/filter"
+          },
+          {
+            "$ref": "#/components/parameters/sort"
+          },
+          {
+            "$ref": "#/components/parameters/fields"
+          },
+          {
+            "$ref": "#/components/parameters/limit"
+          },
+          {
+            "$ref": "#/components/parameters/after"
+          },
+          {
+            "$ref": "#/components/parameters/skip"
+          },
+          {
+            "$ref": "#/components/parameters/count"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                      }
+                    },
+                    "page": {
+                      "type": "object",
+                      "properties": {
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "next": {
+                          "type": ["string", "null"]
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": ["limit", "next"]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    }
+                  },
+                  "required": ["data", "page", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "insert_CANOPY_COLLECTION",
+        "summary": "Insert into CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/prefer"
+          },
+          {
+            "$ref": "#/components/parameters/idempotency"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CANOPY_COLLECTION.Insert"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/CANOPY_COLLECTION.Insert"
+                    },
+                    "maxItems": 1000
+                  }
+                ]
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The inserted document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "204": {
+            "description": "Inserted (return=minimal)"
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateMany_CANOPY_COLLECTION",
+        "summary": "Update many of CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/filter"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          },
+          {
+            "$ref": "#/components/parameters/idempotency"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Update operators such as $set, $inc and $push",
+                "propertyNames": {
+                  "pattern": "^\\$"
+                },
+                "minProperties": 1
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            },
+            "application/merge-patch+json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Matched and modified counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteMany_CANOPY_COLLECTION",
+        "summary": "Delete many of CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/filter"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          },
+          {
+            "$ref": "#/components/parameters/idempotency"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The deleted count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/CANOPY_COLLECTION/_aggregate": {
+      "post": {
+        "operationId": "aggregate_CANOPY_COLLECTION",
+        "summary": "Aggregate CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pipeline": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                },
+                "required": ["pipeline"],
+                "additionalProperties": false
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/CANOPY_COLLECTION/_count": {
+      "post": {
+        "operationId": "count_CANOPY_COLLECTION",
+        "summary": "Count CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "filter": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "exact": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["count", "exact"]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/CANOPY_COLLECTION/_distinct": {
+      "post": {
+        "operationId": "distinct_CANOPY_COLLECTION",
+        "summary": "Distinct values of a field of CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string"
+                  },
+                  "filter": {
+                    "type": "object"
+                  }
+                },
+                "required": ["field"],
+                "additionalProperties": false
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array"
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/CANOPY_COLLECTION/_query": {
+      "post": {
+        "operationId": "query_CANOPY_COLLECTION",
+        "summary": "Find CANOPY_COLLECTION with the query in the body",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "filter": {
+                    "type": "object"
+                  },
+                  "sort": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "fields": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "skip": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "after": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "string",
+                    "enum": ["exact", "estimated"]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One page of documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                      }
+                    },
+                    "page": {
+                      "type": "object",
+                      "properties": {
+                        "limit": {
+                          "type": "integer"
+                        },
+                        "next": {
+                          "type": ["string", "null"]
+                        },
+                        "total": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": ["limit", "next"]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    }
+                  },
+                  "required": ["data", "page", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/CANOPY_COLLECTION/{id}": {
+      "get": {
+        "operationId": "get_CANOPY_COLLECTION",
+        "summary": "Get one of CANOPY_COLLECTION by _id",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/fields"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "update_CANOPY_COLLECTION",
+        "summary": "Update one of CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/where"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          },
+          {
+            "$ref": "#/components/parameters/idempotency"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Update operators such as $set, $inc and $push",
+                "propertyNames": {
+                  "pattern": "^\\$"
+                },
+                "minProperties": 1
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            },
+            "application/merge-patch+json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "204": {
+            "description": "Updated (return=minimal)"
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "replace_CANOPY_COLLECTION",
+        "summary": "Replace one of CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/where"
+          },
+          {
+            "$ref": "#/components/parameters/upsert"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          },
+          {
+            "$ref": "#/components/parameters/idempotency"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The replaced document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "201": {
+            "description": "The upserted document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_CANOPY_COLLECTION",
+        "summary": "Delete one of CANOPY_COLLECTION",
+        "tags": ["CANOPY_COLLECTION"],
+        "x-canopy-policies": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/id"
+          },
+          {
+            "$ref": "#/components/parameters/where"
+          },
+          {
+            "$ref": "#/components/parameters/prefer"
+          },
+          {
+            "$ref": "#/components/parameters/idempotency"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The deleted document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/CANOPY_COLLECTION.Document"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ct": {
+                      "type": "string",
+                      "pattern": "^\\d+$",
+                      "description": "Cluster time of the read or commit"
+                    },
+                    "replayed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["data", "ct"]
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/_batch": {
+      "post": {
+        "operationId": "batch",
+        "summary": "Several writes, optionally in one transaction",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/prefer"
+          },
+          {
+            "$ref": "#/components/parameters/idempotency"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "atomic": {
+                    "type": "boolean"
+                  },
+                  "ops": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "maxItems": 100
+                  }
+                },
+                "required": ["ops"]
+              }
+            },
+            "application/ejson": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One result per operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "application/ejson": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rest/v1/openapi.json": {
+      "get": {
+        "operationId": "openapi",
+        "summary": "This document",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "default": {
+            "description": "Problem Details",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ObjectId": {
+        "type": "object",
+        "properties": {
+          "$oid": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{24}$"
+          }
+        },
+        "required": ["$oid"],
+        "additionalProperties": false
+      },
+      "Date": {
+        "type": "object",
+        "properties": {
+          "$date": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "$numberLong": {
+                    "type": "string",
+                    "pattern": "^-?\\d+$"
+                  }
+                },
+                "required": ["$numberLong"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["$date"],
+        "additionalProperties": false
+      },
+      "Long": {
+        "oneOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "$numberLong": {
+                "type": "string",
+                "pattern": "^-?\\d+$"
+              }
+            },
+            "required": ["$numberLong"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Decimal128": {
+        "type": "object",
+        "properties": {
+          "$numberDecimal": {
+            "type": "string"
+          }
+        },
+        "required": ["$numberDecimal"],
+        "additionalProperties": false
+      },
+      "Double": {
+        "oneOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "$numberDouble": {
+                "type": "string",
+                "enum": ["NaN", "Infinity", "-Infinity", "-0.0"]
+              }
+            },
+            "required": ["$numberDouble"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Binary": {
+        "type": "object",
+        "properties": {
+          "$binary": {
+            "type": "object",
+            "properties": {
+              "base64": {
+                "type": "string"
+              },
+              "subType": {
+                "type": "string"
+              }
+            },
+            "required": ["base64", "subType"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["$binary"],
+        "additionalProperties": false
+      },
+      "Timestamp": {
+        "type": "object",
+        "properties": {
+          "$timestamp": {
+            "type": "object",
+            "properties": {
+              "t": {
+                "type": "integer"
+              },
+              "i": {
+                "type": "integer"
+              }
+            },
+            "required": ["t", "i"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["$timestamp"],
+        "additionalProperties": false
+      },
+      "RegularExpression": {
+        "type": "object",
+        "properties": {
+          "$regularExpression": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "options": {
+                "type": "string"
+              }
+            },
+            "required": ["pattern", "options"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["$regularExpression"],
+        "additionalProperties": false
+      },
+      "MinKey": {
+        "type": "object",
+        "properties": {
+          "$minKey": {
+            "const": 1
+          }
+        },
+        "required": ["$minKey"],
+        "additionalProperties": false
+      },
+      "MaxKey": {
+        "type": "object",
+        "properties": {
+          "$maxKey": {
+            "const": 1
+          }
+        },
+        "required": ["$maxKey"],
+        "additionalProperties": false
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^CANOPY_[A-Z_]+$"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          }
+        },
+        "required": ["type", "title", "status", "code", "detail", "instance", "requestId"]
+      }
+    },
+    "parameters": {
+      "filter": {
+        "name": "filter",
+        "in": "query",
+        "description": "A MongoDB filter as Extended JSON. Other parameters such as status=eq.active add conditions.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "sort": {
+        "name": "sort",
+        "in": "query",
+        "description": "Keys such as -createdAt,title",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "fields": {
+        "name": "fields",
+        "in": "query",
+        "description": "title,done or -notes",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100
+        }
+      },
+      "after": {
+        "name": "after",
+        "in": "query",
+        "description": "The cursor of the previous page",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "skip": {
+        "name": "skip",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      },
+      "count": {
+        "name": "count",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "enum": ["exact", "estimated"]
+        }
+      },
+      "where": {
+        "name": "where",
+        "in": "query",
+        "description": "A compare and set precondition as Extended JSON",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "upsert": {
+        "name": "upsert",
+        "in": "query",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "The _id, or an Extended JSON value such as {\"$oid\":\"…\"}",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "prefer": {
+        "name": "Prefer",
+        "in": "header",
+        "description": "return=minimal|representation, count=exact|estimated, bulk=true",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "idempotency": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        }
+      }
+    },
+    "securitySchemes": {
+      "apikey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "apikey"
+      },
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

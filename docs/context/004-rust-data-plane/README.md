@@ -7,7 +7,7 @@ This folder contains the complete technical context gathered for implementing [0
 An engineer continuing the implementation of Plan 004 should read the context documents in the following sequence:
 
 1. [08-progress.md](08-progress.md)
-   **Start here.** The Checkpoint at the top records the completion of stages D1 and D2, Stage D3 in progress, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for stages D3 through D7.
+   **Start here.** The Checkpoint at the top records the completion of stages D1 through D6 with their gate evidence, Stage D7 done in code, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for remaining work.
 
 2. [02-current-rust-workspace.md](02-current-rust-workspace.md)
    **Understand the current Rust codebase.** Details every crate under `crates/`, its architectural role, public interface, module organization, and dependencies. Covers the data plane crates: `canopy-data` (reads and transactional writes execution), `canopy-http` (Data API read, document, and write routes), `canopy-auth` (JWT cache and rate limits), `canopy-config` (configuration contract), `canopy-mongo`, and `canopy-realtime`.
@@ -30,6 +30,12 @@ An engineer continuing the implementation of Plan 004 should read the context do
 8. [07-security-invariants-and-compliance.md](07-security-invariants-and-compliance.md)
    **Security and engineering standards.** Outlines mandatory invariants I1 through I6, fail closed requirements, MongoDB terminology standards, and codebase rules including the punctuation dash prohibition.
 
+## Agent Roster and Responsibilities
+
+- Coding agents: `codex_prajo_s_codex` and `codex_sudhan_s_codex` (gpt-6.2-sol, medium effort, medium sized tasks), `claudeAgent` with claude-opus-5-5 at high effort for big tasks, and `antigravity_sudhan_s_antigravity` (gemini-3.8-flash) for context updates and tests.
+- One agent at a time per account. The `codex` account is out of use until 2026-11-26.
+- Every brief tells the agent to read this context instead of searching.
+
 ## Key Source References
 
 - Plan: [004-rust-data-plane.md](../../plans/004-rust-data-plane.md)
@@ -48,6 +54,7 @@ An engineer continuing the implementation of Plan 004 should read the context do
   - [crates/canopy-realtime/src/lib.rs](../../../crates/canopy-realtime/src/lib.rs)
   - [crates/canopy-gateway/src/main.rs](../../../crates/canopy-gateway/src/main.rs)
   - [crates/canopy-graphql/src/lib.rs](../../../crates/canopy-graphql/src/lib.rs)
+  - [crates/canopy-wire/src/lib.rs](../../../crates/canopy-wire/src/lib.rs)
 - TypeScript Reference Implementations:
   - [packages/rest/src/read-path.ts](../../../packages/rest/src/read-path.ts)
   - [packages/rest/src/write-path.ts](../../../packages/rest/src/write-path.ts)
@@ -67,3 +74,5 @@ An engineer continuing the implementation of Plan 004 should read the context do
   - [bench/baselines/d0/README.md](../../../bench/baselines/d0/README.md)
   - [bench/baselines/d1/README.md](../../../bench/baselines/d1/README.md)
   - [bench/baselines/d2/README.md](../../../bench/baselines/d2/README.md)
+  - [bench/baselines/d3/README.md](../../../bench/baselines/d3/README.md)
+  - [bench/baselines/d4/README.md](../../../bench/baselines/d4/README.md)

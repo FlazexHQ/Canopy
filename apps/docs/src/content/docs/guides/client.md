@@ -72,6 +72,26 @@ try {
 The live query prints its initial snapshot and the update. The REST page prints `Buy milk`. In JavaScript
 the `@ts-check` directive enables editor diagnostics, including checks on the projected field names.
 
+## Verify your email
+
+The notes demo runs without email verification. If your app requires verification, ask the user to
+enter an email code in the same app after signing up. Call `sendVerificationOtp` to send the code, then
+call `verifyEmailWithOtp` when the user submits it.
+
+<!-- snippet: declare const otp: string -->
+
+```ts
+await auth.sendVerificationOtp({ email })
+await auth.verifyEmailWithOtp({ email, otp })
+```
+
+With the Rust auth server, Canopy.js sends the proof it received at sign up when it submits the code,
+including in bearer mode. Configure `storage` on `createAuth` to keep the proof across app reloads.
+A verification link opened in the browser that signed up can use the sign up cookie to keep the original
+password. A link opened in another browser or device, or a link opened from a bearer mode app, normally
+has no proof. On first verification without the proof, the address is verified and the password is removed.
+Have the user reset their password to sign in with a password again.
+
 ## Configure a client
 
 <!-- snippet: declare const identityProvider: { getAccessToken(): Promise<string> } -->

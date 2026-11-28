@@ -41,10 +41,15 @@ jobs:
       - name: Build, attest and sign the images for this architecture
         run: |
           mkdir image-digests
-          for image in canopy-gateway canopy-realtime canopy canopy-studio; do
+          for image in canopy canopyd canopy-legacy canopy-realtime canopy-control; do
             repo="ghcr.io/${REGISTRY_OWNER,,}/$image"
             metadata="$RUNNER_TEMP/$image.json"
-            docker buildx build --platform "linux/$ARCH" -f "deploy/docker/$image.Dockerfile" \
+            dockerfile="$image"
+            case "$image" in
+              canopy) dockerfile=canopyd ;;
+              canopy-legacy) dockerfile=canopy ;;
+            esac
+            docker buildx build --platform "linux/$ARCH" -f "deploy/docker/$dockerfile.Dockerfile" \
               --build-context canopyjs=../Canopy.js \
               --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
               --label "org.opencontainers.image.revision=$GITHUB_SHA" \
@@ -58,6 +63,13 @@ jobs:
             cosign sign --yes "$repo@$manifest" "$ref"
             printf '%s\n' "$ref" > "image-digests/$image"
           done
+      - name: Smoke test the release stack with the Studio role
+        env:
+          CANOPY_MONGO_IMAGE: mongo:9
+        run: |
+          export CANOPY_GATEWAY_IMAGE="ghcr.io/${REGISTRY_OWNER,,}/canopy:$RELEASE_TAG-$ARCH"
+          export CANOPY_CONTROL_IMAGE="ghcr.io/${REGISTRY_OWNER,,}/canopy-control:$RELEASE_TAG-$ARCH"
+          bun deploy/compose/split-smoke.ts --no-build --without-builtin-auth
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image-digests-${{ matrix.arch }}
@@ -88,7 +100,7 @@ jobs:
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Publish and sign the combined image manifests
         run: |
-          for image in canopy-gateway canopy-realtime canopy canopy-studio; do
+          for image in canopy canopyd canopy-legacy canopy-realtime canopy-control; do
             repo="ghcr.io/${REGISTRY_OWNER,,}/$image"
             metadata="$RUNNER_TEMP/$image.json"
             docker buildx imagetools create --metadata-file "$metadata" -t "$repo:$RELEASE_TAG" \

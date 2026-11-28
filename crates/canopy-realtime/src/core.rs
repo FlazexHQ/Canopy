@@ -1,26 +1,29 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use canopy_auth::{Authenticator, REVOKED_KEY, REVOKED_SESSION, REVOKED_TOKEN};
 use canopy_engine::{
-    ConnId, Control, Ct, Engine, Event, Frame, Mutation, MutationOutcome, MutationRequest, Output, Principal,
-    ReadResult, close,
+    BatchTrace, ConnId, Control, Ct, Engine, Event, Frame, Mutation, MutationOutcome, MutationRequest,
+    Output, Principal, ReadResult, close,
 };
 use canopy_mongo::Reader;
 use canopy_policy::PolicySet;
 use canopy_protocol::{CanopyError, Document, ErrorCode};
 use tokio::runtime::Handle;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, broadcast, oneshot};
 
 use crate::LogLevel;
 
+type InspectionCommand = Box<dyn FnOnce(&mut Engine, u64) + Send>;
+
 /// Something that happened, for the engine thread.
 pub(crate) enum Command {
-    Open { conn: ConnId, address: String, shard: usize },
+    Open { conn: ConnId, address: String, shard: usize, queued_bytes: Box<dyn Fn() -> usize + Send> },
+    OpenLocal { conn: ConnId, address: Option<String>, deliver: Deliver, principal: Option<Box<Principal>> },
     Message { conn: ConnId, text: String },
     Closed { conn: ConnId },
     Slow { conn: ConnId },
@@ -32,21 +35,119 @@ pub(crate) enum Command {
     LookupDone { id: u64, coll: String, result: Result<Vec<Document>, CanopyError> },
     ContextsDone { id: u64, results: Vec<(String, Result<Vec<Document>, CanopyError>)> },
     MutationDone { id: u64, mutation: Box<Mutation>, result: Result<MutationOutcome, CanopyError> },
-    Events(Vec<Event>),
+    Events(Vec<Event>, Option<BatchTrace>),
     Control(Control),
     Restart(String),
     Progress(Ct),
     Policies(Box<PolicySet>),
     Drain(u64),
+    Inspect(InspectionCommand),
+}
+
+/// Receives the frames of an in-process connection, on the engine thread: it must not block.
+pub type Deliver = Box<dyn Fn(LocalFrame) + Send>;
+
+/// What the engine writes to an in-process connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalFrame {
+    /// A policy filtered change event on a local change stream.
+    Watch(canopy_engine::WatchFrame),
+    /// A `canopy.v1` text frame.
+    Text(String),
+    /// The engine closed the connection with this close code and reason. Nothing follows.
+    Close {
+        /// The WebSocket close code the engine chose.
+        code: u16,
+        /// The close reason.
+        reason: String,
+    },
 }
 
 /// Sends policy, authentication and lifecycle updates to the session engine.
 #[derive(Clone)]
-pub struct EngineSender(pub(crate) Sender<Command>);
+pub struct EngineSender {
+    commands: Sender<Command>,
+    tail: broadcast::Sender<Document>,
+    tail_count: Arc<AtomicU64>,
+    pub(crate) next_conn: Arc<AtomicU64>,
+}
 
 impl EngineSender {
+    pub(crate) fn new(commands: Sender<Command>) -> EngineSender {
+        EngineSender {
+            commands,
+            tail: broadcast::channel(128).0,
+            tail_count: Arc::new(AtomicU64::new(0)),
+            next_conn: Arc::new(AtomicU64::new(1)),
+        }
+    }
+
     pub(crate) fn send(&self, command: Command) -> Result<(), ()> {
-        self.0.send(command).map_err(|_| ())
+        self.commands.send(command).map_err(|_| ())
+    }
+
+    /// Runs a bounded inspection operation on the engine thread.
+    pub async fn inspect<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&Engine) -> T + Send + 'static,
+    ) -> Result<T, CanopyError> {
+        let (tx, rx) = oneshot::channel();
+        let tail = self.tail.clone();
+        let count = Arc::clone(&self.tail_count);
+        let unavailable = || CanopyError::new(ErrorCode::Unavailable, "The realtime engine is unavailable");
+        self.send(Command::Inspect(Box::new(move |engine, now| {
+            engine.enable_inspection(
+                now,
+                Some(Box::new(move |summary| {
+                    if count.load(Ordering::Relaxed) != 0 {
+                        let _ = tail.send(summary.clone());
+                    }
+                })),
+            );
+            let _ = tx.send(read(engine));
+        })))
+        .map_err(|()| unavailable())?;
+        tokio::time::timeout(Duration::from_secs(5), rx)
+            .await
+            .map_err(|_| unavailable())?
+            .map_err(|_| unavailable())
+    }
+
+    /// Subscribes to summaries from an enabled inspector.
+    pub fn inspection_tail(&self) -> InspectionReceiver {
+        let inner = self.tail.subscribe();
+        self.tail_count.fetch_add(1, Ordering::Relaxed);
+        InspectionReceiver { inner, count: Arc::clone(&self.tail_count) }
+    }
+
+    /// Opens a connection to the engine inside this process, as a WebSocket client would open one: the caller
+    /// sends `canopy.v1` client frames with [`LocalConnection::send`] and the engine's frames arrive through
+    /// `deliver`, with the sequenced frames of an engine dispatch grouped together. The connection authenticates with its own `hello`, so DLS
+    /// applies to it exactly as to a socket. `address` is the client address counted by the anonymous
+    /// connection limit. Dropping the connection closes it. Fails when the engine has stopped.
+    pub fn connect(&self, address: Option<String>, deliver: Deliver) -> Result<LocalConnection, CanopyError> {
+        let conn = self.next_conn.fetch_add(1, Ordering::Relaxed);
+        self.send(Command::OpenLocal { conn, address, deliver, principal: None })
+            .map_err(|()| CanopyError::new(ErrorCode::Unavailable, "The realtime engine has stopped"))?;
+        Ok(LocalConnection { conn, engine: self.clone() })
+    }
+
+    /// Opens a local observer connection using the principal verified by the wire session.
+    pub fn connect_watch(
+        &self,
+        address: String,
+        principal: Principal,
+        deliver: Deliver,
+    ) -> Result<LocalConnection, CanopyError> {
+        let conn = self.next_conn.fetch_add(1, Ordering::Relaxed);
+        self.send(Command::OpenLocal {
+            conn,
+            address: Some(address),
+            deliver,
+            principal: Some(Box::new(principal)),
+        })
+        .map_err(|()| CanopyError::new(ErrorCode::Unavailable, "The realtime engine has stopped"))?;
+        Ok(LocalConnection { conn, engine: self.clone() })
     }
 
     /// Closes sessions authenticated with any of the revoked key IDs.
@@ -67,6 +168,44 @@ impl EngineSender {
     /// Replaces the engine's compiled policy set.
     pub fn set_policies(&self, set: PolicySet) {
         let _ = self.send(Command::Policies(Box::new(set)));
+    }
+}
+
+/// A subscription to recent change summaries.
+pub struct InspectionReceiver {
+    inner: broadcast::Receiver<Document>,
+    count: Arc<AtomicU64>,
+}
+
+impl InspectionReceiver {
+    /// Waits for the next event, or reports a gap if the receiver fell behind.
+    pub async fn recv(&mut self) -> Result<Document, broadcast::error::RecvError> {
+        self.inner.recv().await
+    }
+}
+
+impl Drop for InspectionReceiver {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// A connection to the engine inside this process, made by [`EngineSender::connect`].
+pub struct LocalConnection {
+    conn: ConnId,
+    engine: EngineSender,
+}
+
+impl LocalConnection {
+    /// Hands a client frame to the engine. Returns false when the engine has stopped.
+    pub fn send(&self, text: String) -> bool {
+        self.engine.send(Command::Message { conn: self.conn, text }).is_ok()
+    }
+}
+
+impl Drop for LocalConnection {
+    fn drop(&mut self) {
+        let _ = self.engine.send(Command::Closed { conn: self.conn });
     }
 }
 
@@ -114,13 +253,37 @@ pub(crate) fn now_ms() -> u64 {
         .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
+struct LocalDelivery {
+    deliver: Deliver,
+    batch: Option<Vec<String>>,
+}
+
+impl LocalDelivery {
+    fn flush(&mut self) {
+        let Some(batch) = self.batch.as_mut() else { return };
+        let text = match batch.len() {
+            0 => return,
+            1 => batch.pop().unwrap_or_default(),
+            _ => {
+                let text = format!("{{\"t\":\"batch\",\"m\":[{}]}}", batch.join(","));
+                batch.clear();
+                text
+            }
+        };
+        (self.deliver)(LocalFrame::Text(text));
+    }
+}
+
 struct State {
     conn_shard: HashMap<ConnId, usize>,
     conn_address: HashMap<ConnId, String>,
+    local: HashMap<ConnId, LocalDelivery>,
+    local_pending: Vec<ConnId>,
     anonymous: HashMap<ConnId, String>,
     per_address: HashMap<String, usize>,
     outgoing: Vec<Vec<ShardMessage>>,
     stopping: bool,
+    inspected_at: Option<u64>,
 }
 
 /// Runs the engine on the calling thread until every sender is gone or the drain is over.
@@ -133,12 +296,16 @@ where
     let mut state = State {
         conn_shard: HashMap::new(),
         conn_address: HashMap::new(),
+        local: HashMap::new(),
+        local_pending: Vec::new(),
         anonymous: HashMap::new(),
         per_address: HashMap::new(),
         outgoing: (0..router.shards.len()).map(|_| Vec::new()).collect(),
         stopping: false,
+        inspected_at: None,
     };
     let mut last_metrics = 0u64;
+    let mut last_sample = now_ms();
     loop {
         let now = now_ms();
         let wait = engine.next_due().map_or(1000, |due| due.saturating_sub(now)).clamp(1, 1000);
@@ -159,12 +326,22 @@ where
         }
         let now = now_ms();
         engine.tick(now);
+        if state.inspected_at.is_some_and(|at| now.saturating_sub(at) >= 300_000)
+            && router.engine_tx.tail_count.load(Ordering::Relaxed) == 0
+        {
+            state.inspected_at = None;
+            engine.disable_inspection();
+        }
+        if now.saturating_sub(last_sample) >= 5000 {
+            last_sample = now;
+            engine.sample_inspection(now);
+        }
         route(&mut engine, &mut state, &router);
         if now.saturating_sub(last_metrics) >= 1000 {
             last_metrics = now;
             let mut text = engine.metrics().render();
             text.push_str(&format!(
-                "# HELP canopy_gateway_sessions Sessions, connected or waiting for a resume\n# TYPE canopy_gateway_sessions gauge\ncanopy_gateway_sessions {}\n# HELP canopy_gateway_change_stream_open Whether the change stream is open\n# TYPE canopy_gateway_change_stream_open gauge\ncanopy_gateway_change_stream_open {}\n",
+                "# HELP canopyd_sessions Sessions, connected or waiting for a resume\n# TYPE canopyd_sessions gauge\ncanopyd_sessions {}\n# HELP canopyd_change_stream_open Whether the change stream is open\n# TYPE canopyd_change_stream_open gauge\ncanopyd_change_stream_open {}\n",
                 engine.session_count(),
                 u8::from(router.options.stream_open.load(Ordering::Acquire)),
             ));
@@ -184,14 +361,56 @@ where
 {
     let now = now_ms();
     match command {
-        Command::Open { conn, address, shard } => {
+        Command::Inspect(read) => {
+            state.inspected_at = Some(now);
+            read(engine, now);
+        }
+        Command::Open { conn, address, shard, queued_bytes } => {
             state.conn_shard.insert(conn, shard);
             state.conn_address.insert(conn, address.clone());
             engine.open(conn, Some(address), now);
+            engine.set_inspection_queue(conn, queued_bytes);
+        }
+        Command::OpenLocal { conn, address, deliver, principal } => {
+            state.local.insert(conn, LocalDelivery { deliver, batch: principal.is_none().then(Vec::new) });
+            if let Some(address) = &address {
+                state.conn_address.insert(conn, address.clone());
+            }
+            if let Some(principal) = principal {
+                if principal.subject == "anon"
+                    || principal.expires_at_ms.is_some_and(|expiry| expiry <= now)
+                    || router.options.auth.revocations.as_ref().is_some_and(|store| store.has(&principal))
+                {
+                    to_shard(
+                        state,
+                        conn,
+                        ShardMessage::Close {
+                            conn,
+                            code: close::UNAUTHORIZED,
+                            reason: "Unauthorized".to_owned(),
+                        },
+                    );
+                } else if router.options.stream_open.load(Ordering::Acquire) {
+                    engine.open_watch(conn, address, *principal, now);
+                } else {
+                    to_shard(
+                        state,
+                        conn,
+                        ShardMessage::Close {
+                            conn,
+                            code: close::SERVICE_RESTART,
+                            reason: "Change stream unavailable".to_owned(),
+                        },
+                    );
+                }
+            } else {
+                engine.open(conn, address, now);
+            }
         }
         Command::Message { conn, text } => engine.message(conn, &text, now),
         Command::Closed { conn } => {
             release_anonymous(state, conn);
+            state.local.remove(&conn);
             state.conn_shard.remove(&conn);
             state.conn_address.remove(&conn);
             engine.closed(conn, now);
@@ -254,7 +473,7 @@ where
         Command::LookupDone { id, coll, result } => engine.lookup_done(id, &coll, result, now),
         Command::ContextsDone { id, results } => engine.contexts_done(id, results, now),
         Command::MutationDone { id, mutation, result } => engine.mutation_done(id, *mutation, result, now),
-        Command::Events(events) => engine.events(events, now),
+        Command::Events(events, trace) => engine.events_with_trace(events, now, trace),
         Command::Control(control) => engine.control(&control, now),
         Command::Restart(reason) => engine.restart(&reason, now),
         Command::Progress(ct) => engine.progress(ct),
@@ -294,6 +513,30 @@ fn release_anonymous(state: &mut State, conn: ConnId) {
 }
 
 fn to_shard(state: &mut State, conn: ConnId, message: ShardMessage) {
+    if let Some(local) = state.local.get_mut(&conn) {
+        match message {
+            ShardMessage::Frame { frame, .. } => match local.batch.as_mut() {
+                Some(batch) => {
+                    if batch.is_empty() {
+                        state.local_pending.push(conn);
+                    }
+                    batch.push(frame.text());
+                }
+                None => (local.deliver)(LocalFrame::Text(frame.text())),
+            },
+            ShardMessage::Text { text, .. } => {
+                local.flush();
+                (local.deliver)(LocalFrame::Text(text));
+            }
+            ShardMessage::Session { .. } => {}
+            ShardMessage::Close { code, reason, .. } => {
+                local.flush();
+                (local.deliver)(LocalFrame::Close { code, reason });
+                state.local.remove(&conn);
+            }
+        }
+        return;
+    }
     if let Some(shard) = state.conn_shard.get(&conn)
         && let Some(queue) = state.outgoing.get_mut(*shard)
     {
@@ -308,6 +551,11 @@ where
 {
     for output in engine.take_outputs() {
         match output {
+            Output::Watch { conn, frame } => {
+                if let Some(local) = state.local.get(&conn) {
+                    (local.deliver)(LocalFrame::Watch(frame));
+                }
+            }
             Output::Frame { conn, frame } => to_shard(state, conn, ShardMessage::Frame { conn, frame }),
             Output::Text { conn, text } => to_shard(state, conn, ShardMessage::Text { conn, text }),
             Output::Session { conn, batch } => to_shard(state, conn, ShardMessage::Session { conn, batch }),
@@ -379,6 +627,11 @@ where
                 }
                 router.options.reopen.notify_one();
             }
+        }
+    }
+    for conn in state.local_pending.drain(..) {
+        if let Some(local) = state.local.get_mut(&conn) {
+            local.flush();
         }
     }
     for (shard, queue) in state.outgoing.iter_mut().enumerate() {

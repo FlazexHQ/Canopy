@@ -23,9 +23,10 @@ const USAGE = `Usage: canopy-server [--config <file>]
 Starts the Canopy server: the Data API, realtime, health and metrics on one process.
 
 CANOPY_ROLE splits the platform into services: all (the default) runs everything, api runs the
-Data API, GraphQL, auth, storage, the admin API and webhooks, and realtime runs realtime
-connections. With api, CANOPY_REALTIME_URL is the internal URL of the realtime service, for
-GraphQL subscriptions.
+Data API, GraphQL, auth, storage, the admin API and webhooks, realtime runs realtime
+connections, and control runs only auth, the admin API and webhooks next to a data plane that
+serves every data route. With api, CANOPY_REALTIME_URL is the internal URL of the realtime
+service, for GraphQL subscriptions.
 
 Options:
   --config <file>  The config file. Without it, canopy.config.ts or canopy/canopy.config.ts is
@@ -129,7 +130,7 @@ async function main(): Promise<void> {
   let stopping = false
   void gateway?.exited.then((code) => {
     if (stopping) return
-    logger.error({ code }, "canopy-gateway stopped, so the server stops too")
+    logger.error({ code }, "canopyd stopped, so the server stops too")
     process.exit(1)
   })
   const shutdown = (signal: string): void => {

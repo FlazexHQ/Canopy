@@ -1,7 +1,13 @@
+import { EventEmitter } from "node:events"
 import { readFileSync } from "node:fs"
+import { PassThrough } from "node:stream"
 import { resolveConfig } from "@canopy/config"
-import { expect, it } from "vitest"
-import { type GatewayOverrides, gatewayConfig } from "../src/gateway.ts"
+import { expect, it, vi } from "vitest"
+import { type GatewayOverrides, gatewayConfig, startGateway } from "../src/gateway.ts"
+import { silentLogger } from "../src/logger.ts"
+
+const { spawn } = vi.hoisted(() => ({ spawn: vi.fn() }))
+vi.mock("node:child_process", () => ({ spawn }))
 
 function resolved(input: Record<string, unknown>) {
   return resolveConfig(
@@ -17,6 +23,17 @@ interface Fixture {
   readonly env?: NodeJS.ProcessEnv
   readonly overrides?: GatewayOverrides
 }
+
+it("leaves routes to the gateway default or environment unless explicitly overridden", () => {
+  const config = resolved({})
+  expect(gatewayConfig(config, undefined, {})).not.toHaveProperty("dataPlane")
+  expect(gatewayConfig(config, undefined, { CANOPY_DATA_PLANE_ROUTES: "" })).not.toHaveProperty(
+    "dataPlane",
+  )
+  expect(
+    gatewayConfig(config, undefined, { CANOPY_DATA_PLANE_ROUTES: "all" }, { dataPlaneRoutes: [] }),
+  ).toHaveProperty("dataPlane.routes", [])
+})
 
 const publicKey = { kty: "OKP", crv: "Ed25519", x: "A".repeat(43) }
 const cases: readonly Fixture[] = [
@@ -63,16 +80,71 @@ const cases: readonly Fixture[] = [
   {
     name: "data-plane",
     input: {
+      masterKey: "fixture-storage-master-key".repeat(2),
+      storage: {
+        backend: {
+          kind: "s3",
+          endpoint: "https://s3.example.test",
+          region: "us-east-1",
+          bucket: "canopy-fixture",
+          accessKeyId: "fixture-access",
+          secretAccessKey: "fixture-secret",
+          sessionToken: "fixture-session",
+          forcePathStyle: true,
+          prefix: "fixtures/",
+        },
+        buckets: { files: { public: true, maxFileSize: 8192, allowedTypes: ["text/plain"] } },
+        maxUploadSize: 16 * 1024 * 1024,
+      },
       rest: { defaultLimit: 25, maxLimit: 250, maxBodyBytes: 4096 },
-      collections: { articles: { search: true }, notes: {}, counters: { idType: "number" } },
+      graphql: {
+        maxDepth: 4,
+        maxComplexity: 500,
+        maxAliases: 12,
+        maxBatch: 3,
+        introspection: "authenticated",
+      },
+      collections: {
+        articles: {
+          search: true,
+          typeName: "Story",
+          relations: { notes: { to: "notes", local: "_id", foreign: "articleId", many: true } },
+        },
+        notes: {},
+        counters: { idType: "number" },
+      },
       telemetry: { tracing: true },
       audit: { dataWrites: true },
     },
     overrides: {
-      dataPlaneRoutes: ["find", "count", "distinct", "aggregate", "query", "explain", "writes"],
+      dataPlaneRoutes: [
+        "find",
+        "count",
+        "distinct",
+        "aggregate",
+        "query",
+        "explain",
+        "writes",
+        "graphql",
+        "storage",
+      ],
+      wire: {
+        port: 27018,
+        host: "127.0.0.1",
+        maxMessageBytes: 16000000,
+        maxConnections: 32,
+        idleTimeoutMs: 10000,
+        tls: { certFile: "wire-cert.pem", keyFile: "wire-key.pem" },
+      },
+      graphqlPersisted: {
+        only: true,
+        operations: {
+          "9b15636826a31db36e8b145188fb218e83cbd26047bd6cb851c018cbfb91c87b": "{ todosCount }",
+        },
+      },
     },
   },
-  { name: "rest-disabled", input: { rest: false } },
+  { name: "rest-disabled", input: { rest: false }, overrides: { wire: false } },
   {
     name: "fallback-transports",
     input: {
@@ -116,3 +188,30 @@ it.each(cases)(
     expect(JSON.parse(JSON.stringify(emitted))).toEqual(JSON.parse(readFileSync(fixture, "utf8")))
   },
 )
+
+it.each([
+  { frame: '{"t":"listening","wirePort":37018,"port":8000}\r\n', ports: [8000, 37018] },
+  { frame: '{"t":"listening","port":8000}\n', ports: [8000, undefined] },
+  { frame: undefined, ports: [undefined, undefined] },
+])("reports listening ports $ports", async ({ frame, ports }) => {
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+  })
+  spawn.mockReturnValueOnce(child)
+  vi.stubEnv("CANOPYD_BIN", "fixture-gateway")
+  try {
+    const gateway = await startGateway(resolved({}), silentLogger, { host: "127.0.0.1" })
+    expect(JSON.parse(String(child.stdin.read()))).toMatchObject({ server: { host: "127.0.0.1" } })
+    if (frame !== undefined) {
+      child.stdout.write(frame.slice(0, 23))
+      child.stdout.write(frame.slice(23))
+    }
+    child.emit("exit", frame === undefined ? 1 : 0)
+    await expect(Promise.all([gateway.listening, gateway.wireListening])).resolves.toEqual(ports)
+  } finally {
+    child.stdin.destroy()
+    child.stdout.destroy()
+    vi.unstubAllEnvs()
+  }
+})

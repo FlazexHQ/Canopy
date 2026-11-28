@@ -16,7 +16,7 @@ The file imports its builders from `@canopy/schema`, so the app depends on it ne
 ```bash
 bun add canopy.js @canopy/schema
 bun add -d @canopy/cli
-bunx canopy pull
+bunx --package @canopy/cli canopy pull
 ```
 
 `canopy pull` reads each collection's `$jsonSchema` validator, then the config, then a sample of documents,
@@ -123,20 +123,6 @@ const rename: Patch<"todos"> = { title: "Ship it", tags: null } // a merge patch
 Code that cannot rely on the registered schema, such as a library or an app with two Canopy backends, passes
 the schema as a second argument: `Doc<"todos", typeof schema>`.
 
-## Validate with Standard Schema
-
-Each collection definition implements [Standard Schema](https://standardschema.dev), so a library that
-accepts one can validate a decoded document with it:
-
-<!-- snippet: declare const value: unknown -->
-
-```ts
-import { todos } from "./canopy.schema.ts"
-
-const result = await todos["~standard"].validate(value)
-if (result.issues !== undefined) console.error(result.issues)
-```
-
 ## JavaScript
 
 Since the schema is a runtime value, checked JavaScript gets the same types from the factory argument, with
@@ -154,8 +140,8 @@ const titles = canopy.from("todos").find({ done: false }).fields({ title: 1 })
 ## Keep the database and the file in step
 
 ```bash
-bunx canopy schema diff        # exits 1 and lists each difference when MongoDB drifted
-bunx canopy schema push        # writes the declared collections' validators, after asking
+bunx --package @canopy/cli canopy schema diff        # exits 1 and lists each difference when MongoDB drifted
+bunx --package @canopy/cli canopy schema push        # writes the declared collections' validators, after asking
 ```
 
 `canopy schema diff` compares the file with each collection's validator, or with sampled documents when a

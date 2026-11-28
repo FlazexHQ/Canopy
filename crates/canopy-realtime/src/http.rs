@@ -16,8 +16,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_engine::{ConnId, close};
 use canopy_protocol::ErrorCode;
 use canopy_protocol::json::{Json, parse_json, write_json, write_json_string};
@@ -33,7 +32,7 @@ use tokio::sync::Notify;
 use crate::core::{Command, EngineSender};
 
 /// The response body shared by the realtime routes and the host's fallback handler.
-pub type Body = UnsyncBoxBody<Bytes, hyper::Error>;
+pub type Body = UnsyncBoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Which browser origins may call the endpoints from another origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -624,7 +623,13 @@ impl HttpTransport {
             first: Notify::new(),
         });
         (origin.register)(conn, Arc::clone(&session));
-        if origin.engine.send(Command::Open { conn, address: origin.address, shard: origin.shard }).is_err() {
+        let weak = Arc::downgrade(&session);
+        let queued_bytes = Box::new(move || weak.upgrade().map_or(0, |session| session.lock().pending));
+        if origin
+            .engine
+            .send(Command::Open { conn, address: origin.address, shard: origin.shard, queued_bytes })
+            .is_err()
+        {
             return problem(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::Unavailable,
@@ -694,7 +699,7 @@ impl HttpTransport {
         let start = SseState { session, start: after, generation, opened: false, done: false, keep_alive };
         let body = stream::unfold(start, |mut state| async move {
             let chunk = state.next().await?;
-            Some((Ok::<_, hyper::Error>(Frame::data(Bytes::from(chunk))), state))
+            Some((Ok(Frame::data(Bytes::from(chunk))), state))
         });
         let mut response = Response::new(StreamBody::new(body).boxed_unsync());
         let headers = response.headers_mut();
@@ -844,7 +849,7 @@ impl HttpTransport {
                 None,
             );
         }
-        let value = URL_SAFE_NO_PAD.encode(bytes);
+        let value = Base64UrlUnpadded::encode_string(&bytes);
         guard(&self.tickets)
             .insert(value.clone(), Ticket { sid: sid.to_owned(), expires: Instant::now() + TICKET_TTL });
         let mut text = String::from("{\"ticket\":");

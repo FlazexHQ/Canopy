@@ -781,6 +781,39 @@
       }
     },
     {
+      "id": "update-unique-index-service",
+      "title": "service sees the duplicated key of the result",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/people/u2",
+            "query": [],
+            "caller": "service",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-unique-index-service.0"
+            },
+            "body": "{\"$set\":{\"email\":\"ann@example.test\"}}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-unique-index-service.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:duplicate-key\",\"title\":\"Duplicate key\",\"status\":409,\"code\":\"CANOPY_DUPLICATE_KEY\",\"detail\":\"A document with the same unique key exists\",\"instance\":\"/rest/v1/people/u2\",\"requestId\":\"update.update-unique-index-service.0\",\"details\":{\"keyValue\":{\"email\":\"ann@example.test\"}}}"
+          }
+        }
+      ],
+      "state": {
+        "people": [
+          "{\"_id\":\"u1\",\"email\":\"ann@example.test\"}",
+          "{\"_id\":\"u2\",\"email\":\"ben@example.test\"}"
+        ]
+      }
+    },
+    {
       "id": "update-collation",
       "title": "A default collation finds the document",
       "steps": [

@@ -20,7 +20,7 @@ const CT_PLACEHOLDER = "<ct>"
 const CT_IN_BODY = /"ct":"(\d+)"/g
 
 /** One recorded step: the request and what answered it, with every cluster time replaced by `<ct>`. */
-export interface RecordedStep {
+interface RecordedStep {
   readonly request: RecordedRequest
   readonly response: {
     readonly status: number
@@ -30,7 +30,7 @@ export interface RecordedStep {
 }
 
 /** One recorded case: its steps and the state after the last one. */
-export interface RecordedWriteCase {
+interface RecordedWriteCase {
   readonly id: string
   readonly title: string
   readonly steps: readonly RecordedStep[]
@@ -38,13 +38,6 @@ export interface RecordedWriteCase {
   readonly state: Readonly<Record<string, readonly string[]>>
   /** The idempotency records after the last step, in `_id` order, without their time, as canonical EJSON. */
   readonly records?: readonly string[]
-}
-
-/** One file of write cases. */
-export interface WriteCaseFile {
-  readonly group: string
-  readonly description: string
-  readonly cases: readonly RecordedWriteCase[]
 }
 
 /** Replaces the cluster times of a response, checking that each is one. */
@@ -61,7 +54,7 @@ export function withoutCt(headers: Record<string, string>, body: string): string
 }
 
 /** Drops the databases of a case and creates its collections, options, indexes and documents again. */
-export async function reset(
+async function reset(
   client: MongoClient,
   database: string,
   meta: string,
@@ -99,7 +92,7 @@ export async function documentsOf(
 }
 
 /** The idempotency records, in `_id` order, without their time. */
-export async function recordsOf(client: MongoClient, meta: string): Promise<string[]> {
+async function recordsOf(client: MongoClient, meta: string): Promise<string[]> {
   const found = await client
     .db(meta)
     .collection("mutations")

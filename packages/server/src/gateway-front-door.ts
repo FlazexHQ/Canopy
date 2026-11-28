@@ -29,12 +29,14 @@ function frontDoor(
   proxyPort: number,
   internalPort: number,
   metricsPort: number,
+  serves: CreateCanopyOptions["serves"],
 ): GatewayOverrides {
   const internal = `http://127.0.0.1:${internalPort}`
   const verification = canopy.auth?.verification
   const audience = verification?.audience
   return {
     metricsPort,
+    ...(serves === undefined ? {} : { dataPlaneRoutes: [] }),
     metricsHost: "127.0.0.1",
     proxyUrl: `http://127.0.0.1:${proxyPort}`,
     viewTokenKey: canopy.viewTokenKey,
@@ -119,7 +121,7 @@ export interface GatewayFrontDoor {
 
 /**
  * Starts Canopy on loopback and puts the native gateway on the configured public port.
- * The gateway proxies HTTP to Canopy and serves realtime for clients and GraphQL subscriptions.
+ * The gateway serves realtime and the selected HTTP routes, and proxies other requests to Canopy.
  * When `serves` filters proxied paths, gateway mutation and signing key requests use a separate loopback listener.
  */
 export async function startGatewayFrontDoor(
@@ -148,14 +150,20 @@ export async function startGatewayFrontDoor(
     const running = await startGateway(
       config,
       logger,
-      frontDoor(canopy, upstream.port, internal?.port ?? upstream.port, metricsPort),
+      frontDoor(
+        canopy,
+        upstream.port,
+        internal?.port ?? upstream.port,
+        metricsPort,
+        options.serves,
+      ),
     )
     gateway = running
     using _abort = signal === undefined ? undefined : addAbortListener(signal, () => running.stop())
     const port = await running.listening
     signal?.throwIfAborted()
     if (port === undefined)
-      throw new Error(`canopy-gateway exited with code ${await running.exited} before it listened`)
+      throw new Error(`canopyd exited with code ${await running.exited} before it listened`)
     gatewayUrl = `http://127.0.0.1:${port}`
     const scrape = scrapeMetrics(metricsPort, config.server.metricsToken)
     void running.exited.then(scrape.stop)

@@ -7,8 +7,8 @@ inputs:
     description: The Canopy.js repository.
     default: FlazexHQ/Canopy.js
   ref:
-    description: The branch, tag or commit of Canopy.js.
-    default: master
+    description: The branch, tag or commit of Canopy.js (the branch that pairs with this one; master once both are merged).
+    default: refactor/rust-core
 runs:
   using: composite
   steps:

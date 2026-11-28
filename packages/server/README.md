@@ -159,7 +159,7 @@ From CI, pass the project URL and the token as secrets; `--env` then works witho
 role:
 
 ```yaml
-- run: bunx canopy policies push --env production --comment "${{ github.sha }}"
+- run: bunx --package @canopy/cli canopy policies push --env production --comment "${{ github.sha }}"
   env:
     CANOPY_ADMIN_URL: https://canopy.example.com
     CANOPY_ADMIN_TOKEN: ${{ secrets.CANOPY_ADMIN_TOKEN }}

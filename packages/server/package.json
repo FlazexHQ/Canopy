@@ -41,6 +41,7 @@
     "@canopy/storage": "workspace:*",
     "@canopy/studio": "workspace:*",
     "canopy.js": "0.0.0",
+    "jose": "catalog:",
     "mongodb": "catalog:"
   },
   "peerDependencies": {
@@ -61,7 +62,6 @@
     "@types/node": "catalog:",
     "@types/ws": "catalog:",
     "fast-check": "catalog:",
-    "jose": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "ws": "catalog:",

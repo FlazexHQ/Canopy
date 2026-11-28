@@ -1,8 +1,7 @@
 //! Studio view tokens: short lived, read only EdDSA tokens with which Studio follows data as an impersonated
 //! caller. The server signs them with a key derived from its master key and gives the gateway the public key.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_engine::Principal;
 use canopy_policy::Role;
 use canopy_protocol::json::{Json, parse_json};
@@ -21,7 +20,7 @@ fn invalid() -> CanopyError {
 }
 
 fn decode(part: &str) -> Option<Json> {
-    let bytes = URL_SAFE_NO_PAD.decode(part).ok()?;
+    let bytes = Base64UrlUnpadded::decode_vec(part).ok()?;
     parse_json(&String::from_utf8(bytes).ok()?).ok()
 }
 
@@ -49,10 +48,11 @@ pub(crate) fn verify_view_token(key: &[u8], token: &str, now_s: f64) -> Result<P
     if !matches!(header_json.get("alg"), Some(Json::String(alg)) if alg == "EdDSA") {
         return Err(invalid());
     }
-    let signature_bytes = URL_SAFE_NO_PAD.decode(signed).map_err(|_| invalid())?;
+    let mut signature_buffer = [0; 64];
+    let signature_bytes = Base64UrlUnpadded::decode(signed, &mut signature_buffer).map_err(|_| invalid())?;
     let message = format!("{header}.{payload}");
     signature::UnparsedPublicKey::new(&signature::ED25519, key)
-        .verify(message.as_bytes(), &signature_bytes)
+        .verify(message.as_bytes(), signature_bytes)
         .map_err(|_| invalid())?;
     if !matches!(payload_json.get("iss"), Some(Json::String(iss)) if iss == VIEW_TOKEN_ISSUER) {
         return Err(invalid());
@@ -136,8 +136,12 @@ mod tests {
     }
 
     fn sign(pair: &Ed25519KeyPair, header: &str, payload: &str) -> String {
-        let input = format!("{}.{}", URL_SAFE_NO_PAD.encode(header), URL_SAFE_NO_PAD.encode(payload));
-        format!("{input}.{}", URL_SAFE_NO_PAD.encode(pair.sign(input.as_bytes()).as_ref()))
+        let input = format!(
+            "{}.{}",
+            Base64UrlUnpadded::encode_string(header.as_bytes()),
+            Base64UrlUnpadded::encode_string(payload.as_bytes())
+        );
+        format!("{input}.{}", Base64UrlUnpadded::encode_string(pair.sign(input.as_bytes()).as_ref()))
     }
 
     fn view(pair: &Ed25519KeyPair, view: &str, exp: f64) -> String {

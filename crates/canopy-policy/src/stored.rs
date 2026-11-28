@@ -157,7 +157,8 @@ pub fn hash_collection(def: &CollectionPolicies) -> Result<String, CanopyError> 
     Ok(format!("sha256:{}", sha256_hex(canonical_string(&body(def)?)?.as_bytes())))
 }
 
-pub(crate) fn contexts_value(contexts: &ContextDefinitions) -> Value {
+/// Converts context lookups to the document stored under `lookups`.
+pub fn contexts_value(contexts: &ContextDefinitions) -> Value {
     Value::Document(
         js_order(contexts.clone())
             .into_iter()
@@ -172,6 +173,11 @@ pub(crate) fn contexts_value(contexts: &ContextDefinitions) -> Value {
             })
             .collect(),
     )
+}
+
+/// The SHA-256 of the canonical context lookup declarations.
+pub fn hash_contexts(contexts: &ContextDefinitions) -> Result<String, CanopyError> {
+    Ok(format!("sha256:{}", sha256_hex(canonical_string(&contexts_value(contexts))?.as_bytes())))
 }
 
 /// The bundle version over all collection hashes, given as `(collection, hash)` pairs, and the context lookups.

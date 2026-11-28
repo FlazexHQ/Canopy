@@ -264,7 +264,7 @@ export interface RealtimeInput {
     readonly server?: Value<RealtimeServer>;
 }
 
-export type RealtimeServer = "ts" | "gateway";
+export type RealtimeServer = "ts" | "gateway" | "auto";
 
 export interface RelationInput {
     readonly to: string;

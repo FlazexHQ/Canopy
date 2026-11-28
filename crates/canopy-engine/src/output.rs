@@ -59,15 +59,39 @@ pub struct MutationRequest {
     pub key: String,
     /// The connection's user token, if any.
     pub token: Option<String>,
+    /// The resolved client address when the mutation was received.
+    pub address: Option<String>,
     /// Who writes.
     pub principal: Principal,
     /// The `mut` frame.
     pub mutation: Mutation,
 }
 
+/// A policy filtered event for a local MongoDB change stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchFrame {
+    /// Sequence in the local connection.
+    pub seq: u64,
+    /// Original operation, or delete when a document leaves the read policy.
+    pub op: crate::Op,
+    /// MongoDB cluster time.
+    pub ct: crate::Ct,
+    /// MongoDB wall time in milliseconds, when present.
+    pub wall_ms: Option<i64>,
+    /// BSON containing the document ID and, when readable, the projected document.
+    pub image: Vec<u8>,
+}
+
 /// Something the transport must do.
 #[derive(Debug, Clone)]
 pub enum Output {
+    /// Deliver an event to a local change stream.
+    Watch {
+        /// The connection.
+        conn: ConnId,
+        /// The change event.
+        frame: WatchFrame,
+    },
     /// Write a sequenced frame.
     Frame {
         /// The connection.

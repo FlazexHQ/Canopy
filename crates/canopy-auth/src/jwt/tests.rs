@@ -12,7 +12,7 @@ fn pair() -> Ed25519KeyPair {
 }
 
 fn jwks(pair: &Ed25519KeyPair) -> Json {
-    let x = URL_SAFE_NO_PAD.encode(pair.public_key().as_ref());
+    let x = Base64UrlUnpadded::encode_string(pair.public_key().as_ref());
     match parse_json(&format!(
         r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{x}","kid":"k1","alg":"EdDSA","use":"sig"}}]}}"#
     )) {
@@ -22,8 +22,12 @@ fn jwks(pair: &Ed25519KeyPair) -> Json {
 }
 
 fn sign(pair: &Ed25519KeyPair, header: &str, payload: &str) -> String {
-    let input = format!("{}.{}", URL_SAFE_NO_PAD.encode(header), URL_SAFE_NO_PAD.encode(payload));
-    let signature = URL_SAFE_NO_PAD.encode(pair.sign(input.as_bytes()).as_ref());
+    let input = format!(
+        "{}.{}",
+        Base64UrlUnpadded::encode_string(header.as_bytes()),
+        Base64UrlUnpadded::encode_string(payload.as_bytes())
+    );
+    let signature = Base64UrlUnpadded::encode_string(pair.sign(input.as_bytes()).as_ref());
     format!("{input}.{signature}")
 }
 
@@ -122,7 +126,7 @@ fn refuses_tokens_that_fail_any_check() {
         ("tampered", {
             let valid = token(&pair(), &good(""));
             let mut parts: Vec<String> = valid.split('.').map(str::to_owned).collect();
-            parts[1] = URL_SAFE_NO_PAD.encode(good(r#","admin":true"#));
+            parts[1] = Base64UrlUnpadded::encode_string(good(r#","admin":true"#).as_bytes());
             parts.join(".")
         }),
         ("garbage", "a.b".to_owned()),
@@ -274,7 +278,7 @@ fn a_remembered_token_is_refused_once_its_session_is_revoked() {
 }
 
 fn jwks_text(pair: &Ed25519KeyPair, kid: &str) -> String {
-    let x = URL_SAFE_NO_PAD.encode(pair.public_key().as_ref());
+    let x = Base64UrlUnpadded::encode_string(pair.public_key().as_ref());
     format!(
         r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{x}","kid":"{kid}","alg":"EdDSA","use":"sig"}}]}}"#
     )
@@ -326,6 +330,152 @@ fn a_refetched_jwks_forgets_every_remembered_token() {
         sign(&second_pair(), r#"{"alg":"EdDSA","kid":"k2","typ":"JWT"}"#, &claims_until("u2", now + 3600.0));
     assert!(run(jwt.verify_at(&rotated, None, now + 1.0)).is_ok());
     assert_eq!(run(jwt.verify_at(&old, None, now + 2.0)).map_err(|e| e.code()), Err(ErrorCode::Unauthorized));
+}
+
+#[test]
+fn builtin_keys_follow_rotation_and_revocation() -> Result<(), Box<dyn std::error::Error>> {
+    use mongodb::event::{EventHandler, command::CommandEvent};
+
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else { return Ok(()) };
+    run(async {
+        let finds = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut options = mongodb::options::ClientOptions::parse(uri).await?;
+        let observed = Arc::clone(&finds);
+        options.command_event_handler = Some(EventHandler::callback(move |event| {
+            if let CommandEvent::Started(event) = event
+                && event.command.get_str("find").ok() == Some("signing_keys")
+            {
+                observed.lock().unwrap().push(event.command);
+            }
+        }));
+        let mongo = mongodb::Client::with_options(options)?;
+        let db = mongo.database(&format!("canopy_auth_test_{}", mongodb::bson::oid::ObjectId::new()));
+        let keys = db.collection::<BsonDocument>("signing_keys");
+        let now = DateTime::now();
+        let expires = DateTime::from_millis(now.timestamp_millis() + 60_000);
+        let stored = |kid: &str, pair: &Ed25519KeyPair| {
+            let x = Base64UrlUnpadded::encode_string(pair.public_key().as_ref());
+            doc! {
+                "_id": kid,
+                "publicKey": format!(r#"{{"kty":"OKP","crv":"Ed25519","x":"{x}"}}"#),
+                "privateKey": "must not leave MongoDB",
+                "alg": "EdDSA",
+                "expiresAt": expires
+            }
+        };
+        let auth = Authenticator::new_with_builtin_jwks(
+            JwtConfig {
+                issuers: vec![ISSUER.to_owned()],
+                audiences: vec!["api".to_owned()],
+                jwks: None,
+                jwks_url: None,
+                algorithms: vec!["EdDSA".to_owned()],
+                roles_claim: None,
+                allow_service_role: false,
+                clock_tolerance_s: 0,
+            },
+            None,
+            vec![],
+            client(),
+            &db,
+            60_000,
+        )?;
+        let jwt = jwt_of(&auth);
+        let token_for = |key: &Ed25519KeyPair, kid: &str, issuer: &str, audience: &str| {
+            sign(
+                key,
+                &format!(r#"{{"alg":"EdDSA","kid":"{kid}"}}"#),
+                &format!(r#"{{"sub":"u1","iss":"{issuer}","aud":"{audience}","exp":{}}}"#, exp(600.0)),
+            )
+        };
+        let first = pair();
+        let second = second_pair();
+        let old = token_for(&first, "k1", ISSUER, "api");
+        let new = token_for(&second, "k2", ISSUER, "api");
+        let age_cache = async |age| {
+            let at = Instant::now().checked_sub(age);
+            jwt.keys.lock().await.1 = at;
+            *jwt.builtin_refresh.lock().await = at;
+        };
+        keys.insert_one(stored("k1", &first)).await?;
+        assert_eq!(auth.authenticate_access_token(&old).await?.subject, "u1");
+        for invalid in [
+            token_for(&first, "k1", "https://other.example/", "api"),
+            token_for(&first, "k1", ISSUER, "other"),
+            token_for(&second, "k1", ISSUER, "api"),
+        ] {
+            assert_eq!(
+                auth.authenticate_access_token(&invalid).await.unwrap_err().code(),
+                ErrorCode::Unauthorized
+            );
+        }
+        keys.insert_one(stored("k2", &second)).await?;
+        age_cache(BUILTIN_REFETCH_COOLDOWN).await;
+        let source = jwt.builtin.as_ref().ok_or("built in signing key source")?;
+        let (started, loading) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let refreshing = jwt.builtin_key("k2", async {
+            assert!(started.send(()).is_ok());
+            assert!(released.await.is_ok());
+            source.load().await
+        });
+        let concurrent = async {
+            loading.await?;
+            let known =
+                tokio::time::timeout(Duration::from_millis(250), auth.authenticate_access_token(&old)).await;
+            assert_eq!(known.map_err(|_| "a token with a cached key waited for the reload")??.subject, "u1");
+            let another_load = std::cell::Cell::new(false);
+            let mut unknown = std::pin::pin!(jwt.builtin_key("other", async {
+                another_load.set(true);
+                None
+            }));
+            let mut expired = std::pin::pin!(async {
+                jwt.keys.lock().await.1 = Instant::now().checked_sub(BUILTIN_KEY_AGE);
+                auth.authenticate_access_token(&old).await.map_err(|error| error.code())
+            });
+            assert!(futures_util::poll!(&mut unknown).is_pending());
+            assert!(futures_util::poll!(&mut expired).is_pending());
+            assert!(release.send(()).is_ok());
+            let (unknown, expired) =
+                tokio::time::timeout(Duration::from_secs(2), async { tokio::join!(unknown, expired) })
+                    .await
+                    .map_err(|_| "a token waited past the reload")?;
+            assert!(unknown.is_none());
+            assert!(!another_load.get(), "a second read started while one was in progress");
+            assert_eq!(expired.map(|principal| principal.subject), Ok("u1".to_owned()));
+            Ok::<_, Box<dyn std::error::Error>>(())
+        };
+        let (refreshed, concurrent) = tokio::join!(refreshing, concurrent);
+        concurrent?;
+        assert!(refreshed.is_some());
+        assert_eq!(auth.authenticate_access_token(&new).await?.subject, "u1");
+        assert!(auth.authenticate_access_token(&old).await.is_ok());
+        keys.update_one(doc! { "_id": "k1" }, doc! { "$set": { "revokedAt": now } }).await?;
+        age_cache(BUILTIN_KEY_AGE).await;
+        assert_eq!(auth.authenticate_access_token(&old).await.unwrap_err().code(), ErrorCode::Unauthorized);
+        assert!(auth.authenticate_access_token(&new).await.is_ok());
+        keys.delete_one(doc! { "_id": "k2" }).await?;
+        age_cache(BUILTIN_KEY_AGE).await;
+        assert_eq!(auth.authenticate_access_token(&new).await.unwrap_err().code(), ErrorCode::Unauthorized);
+        let forged = token_for(&first, "unknown", ISSUER, "api");
+        age_cache(BUILTIN_REFETCH_COOLDOWN).await;
+        let before = finds.lock().unwrap().len();
+        for _ in 0..2 {
+            assert_eq!(
+                auth.authenticate_access_token(&forged).await.unwrap_err().code(),
+                ErrorCode::Unauthorized
+            );
+        }
+        {
+            let finds = finds.lock().unwrap();
+            assert_eq!(finds.len(), before + 1);
+            for find in &*finds {
+                assert_eq!(find.get_document("projection")?, &doc! { "_id": 1, "publicKey": 1, "alg": 1 });
+            }
+        }
+        db.drop().await?;
+        Ok(())
+    })
 }
 
 #[test]

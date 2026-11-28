@@ -1,0 +1,4 @@
+ email ,email_verified,given_name,family_name,cognito:enabled,cognito:username
+fixture@example.test, Yes ,"Last, First",Fixture,false,cognito-fixture
+,True,Missing,Email,true,missing-email
+minimal@example.test

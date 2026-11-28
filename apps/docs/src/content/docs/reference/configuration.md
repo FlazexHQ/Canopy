@@ -88,9 +88,14 @@ your identity provider (`CANOPY_JWT_JWKS_URL`, `CANOPY_JWT_ISSUER`, `CANOPY_JWT_
 | `checkpoints`  | `CANOPY_CHECKPOINTS`            | `meta`                              |
 | `drainWindow`  | `CANOPY_DRAIN_WINDOW`           | `30s`                               |
 | `echoTimeout`  | `CANOPY_ECHO_TIMEOUT`           | `2s`                                |
-| `server`       | `CANOPY_REALTIME_SERVER`        | `ts`                                |
+| `server`       | `CANOPY_REALTIME_SERVER`        | `auto` in dev, `ts` elsewhere       |
 
-`server: "gateway"` serves realtime from the native `canopy-gateway` executable instead of the engine inside the
+`canopy dev` defaults to `server: "auto"`. It starts canopyd when an executable is available.
+Otherwise it starts the TypeScript server and prints one line with installation guidance.
+Set `server: "ts"` to always use the TypeScript engine. Outside `canopy dev`, `auto` has the same
+effect as `ts`.
+
+`server: "gateway"` serves realtime from the native `canopyd` executable instead of the engine inside the
 TypeScript process. `canopy-realtime` then runs the gateway with the same configuration. `canopy-server` and
 `canopy dev` run it on the public port, where it answers `/realtime/v1` (WebSocket, SSE and long polling)
 and passes every other request to the TypeScript server, which listens on loopback only and trusts the
@@ -98,8 +103,15 @@ gateway's `X-Forwarded-For`.
 Socket writes go to the server's REST write path, and their acknowledgements still wait for their change
 events. Built in auth works: the gateway verifies tokens with the server's own JWKS. GraphQL subscriptions
 follow their live queries through the gateway over loopback. The `canopy-server` metrics port also carries
-the gateway's metrics, scraped every second. The executable comes from `CANOPY_GATEWAY_BIN`, the container
-images, or a Cargo build of the repository.
+the gateway's metrics, scraped every second. The launcher checks `CANOPYD_BIN`, the legacy
+`CANOPY_GATEWAY_BIN`, the prebuilt platform package, Cargo release and debug builds, the directory beside the
+running executable, and `PATH`. The platform packages are `@canopy/canopyd-<platform>` (for example
+`@canopy/canopyd-linux-x64-gnu`, `@canopy/canopyd-linux-x64-musl`, `@canopy/canopyd-darwin-arm64` or
+`@canopy/canopyd-win32-x64-msvc`): optional dependencies of `@canopy/realtime`, so installing the CLI or the
+server with Bun, pnpm, Yarn or npm installs the one for your machine, with no Rust toolchain. With explicit
+`gateway`, startup fails if no binary is found. The error names the package for your platform. Reinstall
+without skipping optional dependencies, or set
+`CANOPYD_BIN`.
 
 `CANOPY_DATA_PLANE_ROUTES` (experimental, off by default) lists the Data API routes the gateway answers itself, in
 Rust, with the same policies, keys and tokens: `find` (`GET /rest/v1/{collection}`), `count`, `distinct`,

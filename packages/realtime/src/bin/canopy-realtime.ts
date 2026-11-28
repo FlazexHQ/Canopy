@@ -19,7 +19,7 @@ import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../trans
  * (`--config <file>`, or `canopy.config.ts` / `canopy/canopy.config.ts` found from the working directory)
  * and the well known variables: `MONGODB_URI`, `CANOPY_DB`, `CANOPY_POLICIES`, `CANOPY_JWT_*`,
  * `CANOPY_PUBLISHABLE_KEYS`, `PORT`, `METRICS_PORT` and the others of the configuration reference. With
- * `CANOPY_REALTIME_SERVER=gateway` it resolves the same configuration and runs the native `canopy-gateway`
+ * `CANOPY_REALTIME_SERVER=gateway` it resolves the same configuration and runs the native `canopyd`
  * instead of the TypeScript engine.
  */
 
@@ -160,13 +160,16 @@ async function main(): Promise<void> {
   })
 
   const bun = (
-    globalThis as { Bun?: { serve(options: Record<string, unknown>): { stop(): void } } }
+    globalThis as {
+      Bun?: { serve(options: Record<string, unknown>): { port: number; stop(): void } }
+    }
   ).Bun
   const notFound = async (path: string): Promise<Response> => {
     const result = await health(path)
     return new Response(result?.body ?? "Not found", { status: result?.status ?? 404 })
   }
   let stopServer: () => Promise<void>
+  let boundPort: number
   if (bun !== undefined) {
     const handlers = bunHandlers(realtime, {
       ...(http === undefined ? {} : { http }),
@@ -180,6 +183,7 @@ async function main(): Promise<void> {
           : handlers.fetch(request, srv as never),
       websocket: handlers.websocket,
     })
+    boundPort = server.port
     stopServer = async () => {
       http?.close()
       server.stop()
@@ -198,7 +202,16 @@ async function main(): Promise<void> {
       else fallbackTransports(request, response, fallback)
     })
     const attachment = transports.has("websocket") ? await attach(realtime, server) : undefined
-    await new Promise<void>((resolve) => server.listen(port, resolve))
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(port, () => {
+        server.off("error", reject)
+        resolve()
+      })
+    })
+    const address = server.address()
+    if (address === null || typeof address === "string") throw new Error("Missing listener port")
+    boundPort = address.port
     stopServer = async () => {
       http?.close()
       await attachment?.close()
@@ -207,7 +220,7 @@ async function main(): Promise<void> {
   }
   logger.info(
     {
-      port,
+      port: boundPort,
       metricsPort,
       database: options.database,
       config: config.file ?? "environment",

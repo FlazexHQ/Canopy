@@ -46,7 +46,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: canopy
-          image: canopy:latest
+          image: canopy-legacy:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

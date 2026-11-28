@@ -226,7 +226,7 @@ checks both against `mongodb://localhost:27017/?replicaSet=rs0`.
 | `apps/`           | `studio` (the admin dashboard) and `docs` (the documentation site)                                                          |
 | `examples/`       | Runnable example apps that embed the server, with end to end tests                                                          |
 | `deploy/`         | The container stack (`compose/`), Dockerfiles, the edge (`compose/edge/Caddyfile`) and binaries                             |
-| `crates/`         | The Rust core crates and the data plane (`canopy-gateway`), one Cargo workspace                                             |
+| `crates/`         | The Rust core crates and the data plane (`canopyd`), one Cargo workspace                                                    |
 | `conformance/`    | Language neutral test vectors read by Rust, TypeScript and Canopy.js, from [`conformance/README.md`](conformance/README.md) |
 | `docs/`           | Design, ADRs, spikes, reviews and work plans, from [`docs/README.md`](docs/README.md)                                       |
 | `tools/`          | Standalone repository tools (`repo-check`), not workspace members                                                           |

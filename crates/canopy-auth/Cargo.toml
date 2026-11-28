@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
-base64 = "0.22"
+base64ct = { version = "1.8", features = ["alloc"] }
 canopy-engine = { path = "../canopy-engine" }
 canopy-mongo = { path = "../canopy-mongo" }
 canopy-policy = { path = "../canopy-policy" }

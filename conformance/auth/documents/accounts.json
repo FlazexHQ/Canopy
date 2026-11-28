@@ -1,0 +1,290 @@
+[
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf084"
+    },
+    "accountId": "72bd0c0018742ad08ebbf083",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf083"
+    },
+    "password": "$argon2id$v=19$m=19456,t=2,p=1$iDxipnnbuBcf68xQ0jlv/o5BG6GoFCb6n+010BnZsH0$k0+iKSXzHww8Pi/cYXTRf+n/XkErep6lrpU+2rj6Kuc",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf08d"
+    },
+    "accountId": "72bd0c0018742ad08ebbf08c",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf08c"
+    },
+    "password": "9a17380992b682d9697e17b4c6e34d92:1b511879407d466fd1ac5b635baf0e00ce8428a5aa1778d5c568ace3a067f8604cde12163b38f18c5552a611ad2da7132c10cb208a0f4af103078da6c82e3d57",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf090"
+    },
+    "accountId": "72bd0c0018742ad08ebbf08f",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf08f"
+    },
+    "password": "canopy-legacy$bcrypt$$2a$04$yODyhWA0fPMZQcfT.zO7guS2dldAUljNlvaoUCncnUD/lszdhAy1i",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf093"
+    },
+    "accountId": "72bd0c0018742ad08ebbf092",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf092"
+    },
+    "password": "canopy-legacy$pbkdf2-sha1$1000$/0pWGE8l5pqTGhzAqL4pMA==$Zgi4Ugj/ltBLxxzPWT4ZNMTWQEE=",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf096"
+    },
+    "accountId": "72bd0c0018742ad08ebbf095",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf095"
+    },
+    "password": "canopy-legacy$pbkdf2-sha256$1000$EbZw0MiRGGDaSUhI+m5rbw==$+cKZfAXhmR9KdRC8UJDc9Po8eV20XUN4Cwe2/h9V8xk=",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf099"
+    },
+    "accountId": "72bd0c0018742ad08ebbf098",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf098"
+    },
+    "password": "canopy-legacy$pbkdf2-sha512$1000$kYErv/ZdcnWjc5Dqyspt/A==$84QuHWhcxHfJMkod53rCA6zBJvUcUeYLroITqBQ6NS2RjNkA851iJSw4KCtn9s+WSesaiiUToWZRk5TJviUgcA==",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf09c"
+    },
+    "accountId": "72bd0c0018742ad08ebbf09b",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf09b"
+    },
+    "password": "canopy-legacy$firebase-scrypt$jxspr8Ki0RYycVU8zykbdLGjFQ3McFUH0uiiTvC8pVMXAn210wjLNmdZJzxUECKbm0QsEmYUSDzZvpjeJ9WmXA==$Bw==$8$14$42xEC+ixf3L2lw==$lSrfV15cpx95/sZS2W9c9Kp6i/LVgQNDNC/qzrCnh1SAyZvqmZqAjTdn3aoItz+VHjoZilo78198JAdRuid5lQ==",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf09f"
+    },
+    "accountId": "72bd0c0018742ad08ebbf09e",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf09e"
+    },
+    "password": "canopy-legacy$argon2id$$argon2id$v=19$m=64,t=2,p=1$3nMMsEnALadQtVeo/DCJqg$sffJg6XEK5rmRzPu8Ql4vWj3rcnXIcGyouN4xs9KJWA",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0a3"
+    },
+    "accountId": "72bd0c0018742ad08ebbf0a2",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0a2"
+    },
+    "password": "$argon2id$v=19$m=19456,t=2,p=1$OpRDZrmMKqBCl3zrSRxf+k4G/VfSiBmrc+4BMWHoLGs$M1QxJXj556G1byL2hA9ZahlFvWxmoIFrEjI0TIWWCIk",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0b2"
+    },
+    "accountId": "72bd0c0018742ad08ebbf0b1",
+    "providerId": "credential",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0b1"
+    },
+    "password": "$argon2id$v=19$m=19456,t=2,p=1$H6RoQSWcl6zdTXkMiCwg+9uI31k8Nt45bkuA2JinSgk$ZRX4dCQ5HA/rpadCafMszzDxX8ZipbGSEqW8lwFnFDQ",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0c3"
+    },
+    "accountId": "4242",
+    "providerId": "github",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0c2"
+    },
+    "accessToken": "github-access-1",
+    "scope": "read:user,user:email",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0cb"
+    },
+    "accountId": "1093",
+    "providerId": "google",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0ca"
+    },
+    "accessToken": "google-access-2",
+    "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Imdvb2dsZUBleGFtcGxlLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJuYW1lIjoiZ29vZ2xlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6IjEwOTMiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.vLbqp1VdwLKmteCX8ernKf2NWZAehjVnzj4a3YJFkr3_f7dBGtvRw3WVqpvIqpvjrDrme65Te3x_Qa73LSfk3bQWUjpeUVqhC-b9ALfSpWhaho1pI5ZrUPWNFe0GhVxyltEmm5ZzuO1QHV8TLggA2ijCRVfJ0wdQ3NZ_CjYRkf9EBGRIx5js1etAECnviJa-W4DPbFqjeR8AlseGv323_3wDXzasZTF7j8jXITHPCzTHrDXu7CgADk9KOR-AX0UOn13-s2LnVqh52oVlNqxyTCjZsN0YTZ2_gYm8fDpyCOQaVtBeag2ooSWw-ziyl_WOhm0yZ-xmjPw2AreX09KcoA",
+    "accessTokenExpiresAt": {
+      "$date": {
+        "$numberLong": "1924995599000"
+      }
+    },
+    "scope": "openid,email,profile",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0d3"
+    },
+    "accountId": "idp-user-7",
+    "providerId": "acme",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0d2"
+    },
+    "accessToken": "oidc-access-3",
+    "idToken": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImlkcC1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6ImFjbWUiLCJub25jZSI6IkcxUkV6MXpFQmdLem9keEtJS0NITHJqeTJSb2JJQnROIiwiaXNzIjoiaHR0cHM6Ly9pZHAuY2Fub3B5LnRlc3QiLCJhdWQiOiJhY21lLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTciLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.VSVjnV1RmG0kee3pYy5kqZ0JBcLqQ4cRXRuIl09LQicp7m4PamVosETytgPI_UjDzdpFbXXL34ictj80LJ2Aww",
+    "accessTokenExpiresAt": {
+      "$date": {
+        "$numberLong": "1924995600000"
+      }
+    },
+    "scope": "openid,email,profile",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    }
+  }
+]

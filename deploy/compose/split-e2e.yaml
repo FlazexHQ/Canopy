@@ -1,0 +1,22 @@
+services:
+  control:
+    environment:
+      CANOPY_POLICY_BUNDLE: null
+  auth:
+    environment:
+      CANOPY_SPLIT_E2E_CLAIMS_KEY: ${CANOPY_SPLIT_E2E_CLAIMS_KEY:-}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+  # The SDK auth suite serves its claims hook on the host. Rust auth calls a plain HTTP hook only on a
+  # loopback address, so this relay shares the auth container's network namespace and forwards its
+  # 127.0.0.1:28181 to the suite.
+  claims-relay:
+    image: ${CANOPY_EDGE_IMAGE:-caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b}
+    network_mode: service:auth
+    restart: unless-stopped
+    command: ["caddy", "reverse-proxy", "--from", ":28181", "--to", "host.docker.internal:28181"]
+  edge:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./split-e2e.caddy:/etc/caddy/extra/e2e.caddy:ro

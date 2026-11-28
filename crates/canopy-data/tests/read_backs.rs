@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use canopy_data::writes::{BatchItem, WriteOp, WriteOptions, WritePath, WriteRequest};
+use canopy_data::writes::{BatchItem, WriteOp, WriteOptions, WritePath, WriteRequest, WriteSelection};
 use canopy_data::{Caller, Policies};
 use canopy_mongo::mongodb::bson::doc;
 use canopy_mongo::mongodb::event::EventHandler;
@@ -24,7 +24,7 @@ const POLICIES: &str = r#"[
 {"_id":"owned","version":1,"exposed":true,"realtime":false,"policies":[
 {"name":"read","kind":"permissive","ops":["read"],"roles":["authenticated"],"using":"{\"ownerId\":{\"$auth\":\"sub\"}}"},
 {"name":"insert","kind":"permissive","ops":["insert"],"roles":["authenticated"],"check":"{\"ownerId\":{\"$auth\":\"sub\"}}"},
-{"name":"update","kind":"permissive","ops":["update"],"roles":["authenticated"],"using":"{\"ownerId\":{\"$auth\":\"sub\"}}"},
+{"name":"update","kind":"permissive","ops":["update"],"roles":["authenticated"],"using":"{\"ownerId\":{\"$auth\":\"sub\"}}","check":"{\"ownerId\":{\"$auth\":\"sub\"}}"},
 {"name":"delete","kind":"permissive","ops":["delete"],"roles":["authenticated"],"using":"{\"ownerId\":{\"$auth\":\"sub\"}}"}]},
 {"_id":"things","version":1,"exposed":true,"realtime":false,"policies":[
 {"name":"read","kind":"permissive","ops":["read"],"roles":["authenticated"]},
@@ -64,10 +64,13 @@ async fn fixture(test: &str) -> Option<Fixture> {
     let suffix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let database = format!("canopy_read_backs_rs_{test}_{}_{suffix}", std::process::id());
     let watched = database.clone();
+    let watched_meta = (test == "point").then(|| format!("{database}_meta"));
     let mut options = ClientOptions::parse(&uri).await.expect("a connection string");
     options.command_event_handler = Some(EventHandler::callback(move |event| {
         if let CommandEvent::Started(started) = event
-            && ((started.db == watched || started.command_name == "commitTransaction")
+            && ((started.db == watched
+                || watched_meta.as_ref() == Some(&started.db)
+                || started.command_name == "commitTransaction")
                 && ["find", "aggregate", "insert", "update", "delete", "commitTransaction"]
                     .contains(&started.command_name.as_str())
                 || started.command_name == "bulkWrite")
@@ -98,6 +101,11 @@ impl Fixture {
             seen = now;
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
+    }
+
+    async fn commands(&self) -> Vec<String> {
+        self.quiet().await;
+        std::mem::take(&mut *self.names.lock().unwrap())
     }
 
     async fn batch(&self, requests: &[WriteRequest]) -> (Vec<Option<String>>, Vec<String>) {
@@ -271,5 +279,51 @@ async fn a_batch_that_is_not_atomic_sends_its_writes_together() {
     assert!(
         results[1..].iter().all(|result| result.as_ref().is_ok_and(|result| result.outcome.modified == 1))
     );
+    fixture.drop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn point_write_commands() {
+    let Some(fixture) = fixture("point").await else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set");
+        return;
+    };
+    let coll = fixture.db.collection::<canopy_mongo::mongodb::bson::Document>("owned");
+    coll.insert_one(doc! { "_id": "a", "ownerId": "alice", "n": 0 }).await.unwrap();
+    let selection = WriteSelection::default();
+    let wire = WriteRequest::new(WriteOp::Update, "owned")
+        .with("filter", value(r#"{"_id":"a"}"#))
+        .with("update", value(r#"{"$inc":{"n":1}}"#));
+    let rest = update("owned", value(r#""a""#), r#"{"$inc":{"n":1}}"#);
+    let options = WriteOptions { skip_documents: true, ..WriteOptions::default() };
+    fixture.writes.execute(&alice(), &rest, &options).await.unwrap();
+    fixture.commands().await;
+    fixture.writes.execute(&alice(), &rest, &options).await.unwrap();
+    assert_eq!(fixture.commands().await, ["update"]);
+    for (mutation, expected) in [
+        (None, vec!["update", "aggregate", "commitTransaction"]),
+        (Some("wire_point"), vec!["bulkWrite", "aggregate", "commitTransaction"]),
+    ] {
+        let outcome =
+            fixture.writes.execute_transactional(&alice(), &wire, Some(&selection), mutation).await.unwrap();
+        assert_eq!((outcome.matched, outcome.modified), (1, 1));
+        assert_eq!(fixture.commands().await, expected);
+    }
+    let delete = WriteRequest::new(WriteOp::Delete, "owned").with("filter", value(r#"{"_id":{"$eq":"a"}}"#));
+    let outcome = fixture
+        .writes
+        .execute_transactional(&alice(), &delete, Some(&selection), Some("wire_delete"))
+        .await
+        .unwrap();
+    assert_eq!(outcome.deleted, 1);
+    assert_eq!(fixture.commands().await, ["bulkWrite", "commitTransaction"]);
+
+    let replay = fixture
+        .writes
+        .execute_transactional(&alice(), &delete, Some(&selection), Some("wire_delete"))
+        .await
+        .unwrap();
+    assert_eq!(replay.deleted, 1);
+    assert_eq!(coll.count_documents(doc! {}).await.unwrap(), 0);
     fixture.drop().await;
 }

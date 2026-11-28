@@ -1,0 +1,43 @@
+{
+	admin off
+}
+
+{$CANOPY_SITE::8080} {
+	@internal path /internal /internal/*
+	handle @internal {
+		respond "Not found" 404
+	}
+
+	handle /edge/healthz {
+		respond "ok" 200
+	}
+
+	import /etc/caddy/extra/*.caddy
+
+	@auth path /auth/v1 /auth/v1/* /.well-known/jwks.json /admin/v1/users /admin/v1/users/*
+	handle @auth {
+		reverse_proxy {$CANOPY_AUTH_UPSTREAM:auth:8080}
+	}
+
+	@control path /admin/v1 /admin/v1/*
+	handle @control {
+		reverse_proxy {$CANOPY_CONTROL_UPSTREAM:control:8080}
+	}
+
+	@studio path /studio /studio/*
+	handle @studio {
+		reverse_proxy {$CANOPY_STUDIO_UPSTREAM:studio:8080}
+	}
+
+	handle {
+		reverse_proxy {$CANOPY_DATA_UPSTREAM:data:8080} {
+			flush_interval -1
+		}
+	}
+
+	handle_errors 502 503 504 {
+		header Content-Type "application/problem+json"
+		header Retry-After "5"
+		respond `{"type":"urn:canopy:error:unavailable","title":"Unavailable","status":503,"code":"CANOPY_UNAVAILABLE"}` 503
+	}
+}

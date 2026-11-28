@@ -1,0 +1,50 @@
+# Add after split.yaml to enable built in auth for local development. The external URL supplies the issuer
+# and audience. The auth service serves /auth/v1 from canopyd (CANOPY_AUTH_ENGINE=rust) with the settings in
+# split-auth.json, or in the file CANOPY_AUTH_CONFIG names. The gateway reads public signing keys and watches
+# revocations in MongoDB.
+# For production, configure public HTTPS, a mail transport (Rust auth refuses the log transport in
+# production) and require email verification in your own copy of split-auth.json.
+
+services:
+  auth:
+    environment:
+      CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}
+      CANOPY_JWT_JWKS_URL: ""
+      CANOPY_JWT_ISSUER: ""
+      CANOPY_JWT_AUDIENCE: ""
+      CANOPY_JWT_ROLES_CLAIM: ""
+      CANOPY_JWT_ALGORITHMS: ""
+    volumes:
+      - ${CANOPY_AUTH_CONFIG:-./split-auth.json}:/app/auth.json:ro
+
+  data: &builtin-config
+    configs:
+      - source: builtin-gateway
+        target: /app/builtin-gateway.json
+    command: ["--config", "/app/builtin-gateway.json"]
+
+  control:
+    <<: *builtin-config
+    environment:
+      CANOPY_SPLIT_BUILTIN_AUTH: "on"
+      CANOPY_JWT_JWKS_URL: ""
+      CANOPY_JWT_ISSUER: ""
+      CANOPY_JWT_AUDIENCE: ""
+      CANOPY_JWT_ROLES_CLAIM: ""
+      CANOPY_JWT_ALGORITHMS: ""
+
+configs:
+  builtin-gateway:
+    content: |
+      {
+        "server": { "metricsHost": "0.0.0.0" },
+        "wire": { "port": 27018 },
+        "auth": {
+          "issuer": "${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}/auth/v1",
+          "audience": "${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}",
+          "builtinJwks": true,
+          "algorithms": ["EdDSA"],
+          "rolesClaim": "roles",
+          "checkRevocations": true
+        }
+      }

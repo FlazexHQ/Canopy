@@ -343,6 +343,10 @@ impl SchemaModel {
     /// The type names in the order GraphQL lists them in introspection: the custom scalars, then every type
     /// reachable from `Query`, `Mutation` and `Subscription`, depth first, field by field.
     pub fn ordered(&self, scalars: &[&str]) -> Vec<&TypeDef> {
+        self.ordered_names(scalars).into_iter().filter_map(|name| self.get(name)).collect()
+    }
+
+    pub(crate) fn ordered_names<'a>(&'a self, scalars: &'a [&str]) -> Vec<&'a str> {
         let mut seen: Vec<&str> = Vec::new();
         for scalar in scalars {
             self.collect(scalar, &mut seen);
@@ -350,14 +354,19 @@ impl SchemaModel {
         for root in ["Query", "Mutation", "Subscription"] {
             self.collect(root, &mut seen);
         }
-        seen.iter().filter_map(|name| self.get(name)).collect()
+        seen
     }
 
     fn collect<'a>(&'a self, name: &'a str, seen: &mut Vec<&'a str>) {
         if seen.contains(&name) {
             return;
         }
-        let Some(def) = self.get(name) else { return };
+        let Some(def) = self.get(name) else {
+            if matches!(name, "Boolean" | "Float" | "ID" | "Int" | "String") {
+                seen.push(name);
+            }
+            return;
+        };
         seen.push(def.name());
         match def {
             TypeDef::Object { fields, .. } => {

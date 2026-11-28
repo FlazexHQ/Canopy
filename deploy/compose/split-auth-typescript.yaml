@@ -1,0 +1,30 @@
+# Add after split.yaml and split-auth.yaml to run the TypeScript built in auth service of the
+# canopy-control image in place of Rust auth. Keep it only while you need what Rust auth does not offer yet:
+# a release of Rust auth that passed its external security review, a TypeScript config whose claims hook is
+# a function (Rust auth calls an HTTPS hook), password authentication turned off, or Prometheus metrics of
+# the auth service. CANOPY_AUTH_CONFIG then names a TypeScript config (default split-control.ts).
+
+services:
+  auth:
+    image: ${CANOPY_CONTROL_IMAGE:-canopy-control:dev}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/canopy-control.Dockerfile
+      additional_contexts:
+        canopyjs: ../../../Canopy.js
+    command: ["--config", "/app/canopy.config.ts"]
+    environment:
+      CANOPY_SPLIT_AUTH_ONLY: "on"
+      CANOPY_SPLIT_BUILTIN_AUTH: "on"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:8080/readyz'); process.exit(r.ok ? 0 : 1)",
+        ]
+    ports:
+      - "127.0.0.1:${CANOPY_CONTROL_METRICS_PORT:-9465}:9464"
+    volumes:
+      - ${CANOPY_AUTH_CONFIG:-./split-control.ts}:/app/canopy.config.ts:ro

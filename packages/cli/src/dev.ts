@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto"
-import { watch } from "node:fs"
+import { statSync, watch } from "node:fs"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { basename, dirname, relative } from "node:path"
 import { amendConfig, ConfigError, type ResolvedConfig, redactUri } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import { lintPolicies } from "@canopy/policy"
-import type { Logger } from "@canopy/realtime"
+import { findGatewayBinary, gatewayFallbackMessage, type Logger } from "@canopy/realtime"
 import { type Canopy, createCanopy, startGatewayFrontDoor } from "@canopy/server"
 import { messageOf, type Output } from "./output.ts"
 import { findSchemaFile, watchSchemaDrift } from "./schema-diff.ts"
@@ -167,7 +167,15 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
       const requestedPort = options.port ?? config.server.port
       let canopy: Canopy
       let port: number
-      if (config.realtime !== false && config.realtime.server === "gateway") {
+      const mode = config.realtime === false ? "ts" : config.realtime.server
+      let useGateway = mode === "gateway"
+      if (mode === "auto") {
+        const binary = findGatewayBinary()
+        useGateway =
+          binary !== undefined && statSync(binary, { throwIfNoEntry: false })?.isFile() === true
+        if (!useGateway) out.log(gatewayFallbackMessage())
+      }
+      if (useGateway) {
         const gatewayConfig = amendConfig(config, {
           server: { ...config.server, port: requestedPort },
         })

@@ -12,7 +12,7 @@ import { buildFixture as buildFindFixture } from "../find/fixture.ts"
 import type { Fixture } from "../find/harness.ts"
 
 /** How a collection of the writes fixture is created before its documents are inserted. */
-export interface CollectionSetup {
+interface CollectionSetup {
   /** `createCollection` options: a validator or a default collation. */
   readonly options?: Readonly<Record<string, unknown>>
   /** Indexes besides `_id`, as `createIndex` takes them. */

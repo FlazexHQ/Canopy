@@ -131,7 +131,7 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
         const match = /\{"t":"listening","port":(\d+)\}/.exec(pending)
         if (match?.[1] !== undefined) resolve(Number(match[1]))
       })
-      child.once("exit", (code) => reject(new Error(`canopy-gateway exited with ${code}`)))
+      child.once("exit", (code) => reject(new Error(`canopyd exited with ${code}`)))
     })
     return { base: `http://127.0.0.1:${port}`, child }
   }
@@ -149,7 +149,7 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
       launcher(upstreamBase, { dataPlane: { routes: ["find"] } }),
       "",
     )
-    unselected = await start(launcher(upstreamBase, {}), undefined)
+    unselected = await start(launcher(upstreamBase, {}), "")
     readsSelected = await start(launcher(upstreamBase, {}), READ_ROUTES)
     withCors = await start(launcher(corsBase, { cors: { origins: [ORIGIN] } }), "find")
   }, 120_000)

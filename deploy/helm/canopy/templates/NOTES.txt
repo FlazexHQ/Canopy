@@ -1,4 +1,14 @@
+{{- if .Values.split.enabled }}
+Canopy is starting the data, control, auth, Studio and edge deployments.
+{{- if .Values.split.control.policyBundleConfigMap }}
+Control publishes policy-bundle.json from ConfigMap {{ .Values.split.control.policyBundleConfigMap }} at startup.
+Restart control after updating it.
+{{- else if .Values.split.control.policyBundle }}
+Control publishes split.control.policyBundle at startup. Helm rolls control when it changes.
+{{- end }}
+{{- else }}
 Canopy is starting as {{ include "canopy.fullname" . }} with {{ .Values.replicaCount }} pods.
+{{- end }}
 
 The pods read MONGODB_URI, CANOPY_MASTER_KEY, CANOPY_PUBLISHABLE_KEYS and CANOPY_SECRET_KEYS from the secret
 "{{ .Values.existingSecret }}". Until it exists the pods do not start. Create it with:

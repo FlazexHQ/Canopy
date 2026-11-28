@@ -253,6 +253,16 @@ may require a Rust toolchain, and every supported platform gets a prebuilt binar
   version. Cross builds for musl and Windows arm64 are settled in S10.
 - **Install:** the install test (plan B4) covers `@canopy/native` with Bun, pnpm, Yarn and npm on Linux,
   Windows and macOS, and checks that a missing native package falls back to WebAssembly instead of failing.
+- **Gateway packages:** `canopyd` ships for the eight native targets above as `@canopy/canopyd-<suffix>`, with
+  the suffixes of `@canopy/native` (`@canopy/canopyd-linux-x64-musl`, `@canopy/canopyd-win32-arm64-msvc`), each
+  limited to its platform by its `os`, `cpu` and `libc` fields. `@canopy/realtime`, which launches the binary,
+  names them as optional dependencies, so the CLI and the server bring the right one with every package
+  manager. The optional dependencies are added only when the release is packed, as for `@canopy/native`, so
+  the repository installs before they are published. The launcher takes `CANOPYD_BIN` first, then the platform
+  package (musl or glibc detected as `@canopy/native` detects it, and the execute bit restored when a package
+  manager dropped it), then a Cargo build, a binary beside the running executable and `PATH`. The native
+  release workflow packs and checks every platform package (executable format, processor, execute bit and the
+  glibc baseline) and runs each one from an npm layout on its own hardware, Alpine included.
 - **Single binary:** S10 checks that `bun build --compile` embeds the addon in the `canopy` executable
   ([S9](../spikes/S9-single-binary.md)).
 - **Images:** the container image gains the static musl gateway. A `canopy-gateway` image is published next

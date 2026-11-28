@@ -1,0 +1,218 @@
+[
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf087"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "ZFqyyb8RoFzQjMKY6ykRHAWIAIka6rqz",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.1",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf083"
+    },
+    "aal": "aal1"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf08a"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "stuzMchbuv9vxcUwUqxBkIncOTjnjx5h",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.2",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf083"
+    },
+    "aal": "aal1"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0ac"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "pAmdUH7qXcIJqpcH3tmUuxh8wAceiRMd",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.3",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0a2"
+    },
+    "aal": "aal2"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0b5"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "zsOgKbK5hNCHn9fgV6ZNFMshGgYIIDEA",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.4",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0b1"
+    },
+    "aal": "aal1"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0c5"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "zicMzX9ZAS9HTno3sKrotKchSm9FGXtP",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.5",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0c2"
+    },
+    "aal": "aal1"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0cd"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "SiIx19uFSmUsmkSdQPv5DCKqAONEeQBj",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.6",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0ca"
+    },
+    "aal": "aal1"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0d5"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "qf3kQnp0ywTps3pqiT5wqemfbfq5ZMoM",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.7",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0d2"
+    },
+    "aal": "aal1"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0da"
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1925596800000"
+      }
+    },
+    "token": "6Y4PG7gSinbk7wh9OR0oIRzjqbAmW4ly",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "ipAddress": "198.51.100.8",
+    "userAgent": "",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0d8"
+    },
+    "aal": "aal1"
+  }
+]

@@ -106,17 +106,15 @@ fn single_case(mut mapped: impl Iterator<Item = char>) -> Option<u32> {
     if mapped.next().is_some() { None } else { Some(u32::from(first)) }
 }
 
-fn fold_variants(cp: u32) -> Vec<u32> {
-    let Some(ch) = char::from_u32(cp) else { return Vec::new() };
+fn fold_variants(cp: u32) -> [Option<u32>; 2] {
+    let Some(ch) = char::from_u32(cp) else { return [None, None] };
     [single_case(ch.to_lowercase()), single_case(ch.to_uppercase())]
-        .into_iter()
-        .flatten()
-        .filter(|variant| *variant != cp)
-        .collect()
 }
 
 fn caseless(test: CharTest) -> CharTest {
-    Arc::new(move |cp| test(cp) || fold_variants(cp).into_iter().any(|variant| test(variant)))
+    Arc::new(move |cp| {
+        test(cp) || fold_variants(cp).into_iter().flatten().any(|variant| variant != cp && test(variant))
+    })
 }
 
 fn equals(cp: u32) -> CharTest {

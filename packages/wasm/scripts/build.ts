@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { measureClientSize } from "./client-size.ts"
 
 /**
  * Builds the WebAssembly port into `generated/`: compiles the `canopy-wasm` crate for
@@ -19,6 +21,7 @@ const packageDir = fileURLToPath(new URL("..", import.meta.url))
 const root = join(packageDir, "..", "..")
 const generated = join(packageDir, "generated")
 const TARGET = "wasm32-unknown-unknown"
+const CLIENT_SIZE_LIMIT = 81_920
 
 const ARCHIVE_VERSION = "0.2.130"
 
@@ -39,9 +42,16 @@ const HOSTS: Readonly<Record<string, string>> = {
   "win32-x64": "x86_64-pc-windows-msvc",
 }
 
-function run(command: string, args: readonly string[], cwd = root, input?: Uint8Array): string {
+function run(
+  command: string,
+  args: readonly string[],
+  cwd = root,
+  input?: Uint8Array,
+  env = process.env,
+): string {
   const result = spawnSync(command, args, {
     cwd,
+    env,
     encoding: "utf8",
     input,
     stdio: [input === undefined ? "ignore" : "pipe", "pipe", "inherit"],
@@ -69,6 +79,47 @@ function versionOf(command: string): string | undefined {
   }
 }
 
+function splitCargoEnv(): NodeJS.ProcessEnv {
+  const encoded = process.env["CARGO_ENCODED_RUSTFLAGS"]
+  const flags =
+    encoded === undefined
+      ? (process.env["RUSTFLAGS"] ?? "").split(" ").filter(Boolean)
+      : encoded === ""
+        ? []
+        : encoded.split("\x1f")
+  const cargoHome = resolve(root, process.env["CARGO_HOME"] ?? join(homedir(), ".cargo"))
+  const rustc = process.env["RUSTC"] ?? run("rustup", ["which", "rustc"]).trim()
+  const sysroot = run(rustc, ["--print", "sysroot"]).trim()
+  return {
+    ...process.env,
+    CANOPY_WASM_CARGO_HOME: cargoHome,
+    CANOPY_WASM_RUSTC: rustc,
+    CANOPY_WASM_RUSTC_WRAPPER: process.env["RUSTC_WRAPPER"],
+    CANOPY_WASM_RUSTC_WORKSPACE_WRAPPER: process.env["RUSTC_WORKSPACE_WRAPPER"],
+    RUSTC: join(packageDir, "scripts", "rustc.ts"),
+    RUSTC_WRAPPER: process.execPath,
+    RUSTC_WORKSPACE_WRAPPER: "",
+    RUSTC_BOOTSTRAP: "1",
+    CARGO_ENCODED_RUSTFLAGS: [
+      ...flags,
+      // Rust keeps host path separators in caller locations even after prefix remapping.
+      "-Z",
+      "location-detail=none",
+      "-Z",
+      "translate-remapped-path-to-local-path=no",
+      "-C",
+      "target-feature=-reference-types,-multivalue",
+      "-C",
+      "panic=abort",
+      "-C",
+      "metadata=canopy-wasm",
+      `--remap-path-prefix=${root}=/canopy`,
+      `--remap-path-prefix=${cargoHome}=/cargo`,
+      `--remap-path-prefix=${sysroot}=/rust`,
+    ].join("\x1f"),
+  }
+}
+
 async function download(version: string): Promise<string> {
   const install = `cargo install wasm-bindgen-cli --version ${version} --locked`
   const host = HOSTS[`${process.platform}-${process.arch}`]
@@ -91,6 +142,14 @@ async function download(version: string): Promise<string> {
   return binary
 }
 
+/** The function each module exports to read its linear memory, through which callers share scratch space. */
+const MEMORY_EXPORTS: Readonly<
+  Record<string, { readonly name: string; readonly purpose: string }>
+> = {
+  client: { name: "matchBatchMemory", purpose: "for the document cache batch" },
+  transforms: { name: "updateMemory", purpose: "for the input and changes of an update" },
+}
+
 async function main(): Promise<void> {
   const version = lockedVersion("wasm-bindgen")
   const bindgen =
@@ -98,19 +157,176 @@ async function main(): Promise<void> {
       ? "wasm-bindgen"
       : await download(version)
   run("rustup", ["target", "add", TARGET])
-  run("cargo", ["build", "--release", "--locked", "--target", TARGET, "-p", "canopy-wasm"])
-  rmSync(generated, { recursive: true, force: true })
-  const input = join(root, "target", TARGET, "release", "canopy_wasm.wasm")
-  run(bindgen, [
-    input,
-    "--target",
-    "web",
-    "--out-dir",
-    generated,
-    "--out-name",
-    "canopy_wasm",
-    "--no-typescript",
-  ])
+  const target = resolve(root, process.env["CARGO_TARGET_DIR"] ?? "target")
+  const input = join(target, TARGET, "release", "canopy_wasm.wasm")
+  const cargo = ["build", "-j", "2", "--locked", "--target", TARGET, "-p", "canopy-wasm"]
+  mkdirSync(generated, { recursive: true })
+  if (!process.argv.includes("--split")) {
+    run("cargo", [...cargo, "--release"])
+    run(bindgen, [
+      input,
+      "--target",
+      "web",
+      "--out-dir",
+      generated,
+      "--out-name",
+      "canopy_wasm",
+      "--no-typescript",
+    ])
+    return
+  }
+
+  const optimizer = process.env["CANOPY_WASM_OPT"] ?? "wasm-opt"
+  const translator = process.env["CANOPY_WASM2JS"] ?? "wasm2js"
+  for (const tool of [optimizer, translator]) {
+    if (!versionOf(tool)?.includes("version 133")) {
+      throw new Error(`${tool} must be from Binaryen version 133`)
+    }
+  }
+  const features = [
+    "--enable-bulk-memory",
+    "--enable-sign-ext",
+    "--enable-nontrapping-float-to-int",
+    "--enable-mutable-globals",
+  ]
+  const splitInput = join(target, TARGET, "wasm", "canopy_wasm.wasm")
+  const cargoEnv = splitCargoEnv()
+  for (const feature of ["client", "transforms", "authoring"]) {
+    const name = `canopy_${feature}`
+    const dir = join(generated, feature)
+    const speed = feature === "transforms"
+    const env = {
+      ...cargoEnv,
+      ...(speed ? { CARGO_PROFILE_WASM_OPT_LEVEL: "3" } : {}),
+    }
+    run(
+      "cargo",
+      [...cargo, "--profile", "wasm", "--no-default-features", "--features", feature],
+      root,
+      undefined,
+      env,
+    )
+    mkdirSync(dir, { recursive: true })
+    const portable = join(target, `${name}_portable.wasm`)
+    run(optimizer, [...features, "--strip-target-features", splitInput, "-o", portable])
+    const bindgenEnv: Record<string, string | undefined> = { ...process.env }
+    delete bindgenEnv["WASM_BINDGEN_ANYREF"]
+    delete bindgenEnv["WASM_BINDGEN_EXTERNREF"]
+    delete bindgenEnv["WASM_BINDGEN_MULTI_VALUE"]
+    run(
+      bindgen,
+      [
+        portable,
+        "--target",
+        "web",
+        "--out-dir",
+        dir,
+        "--out-name",
+        name,
+        "--remove-name-section",
+        "--remove-producers-section",
+      ],
+      root,
+      undefined,
+      bindgenEnv,
+    )
+    const wasm = join(dir, `${name}_bg.wasm`)
+    run(optimizer, [
+      speed ? "-O3" : "-Oz",
+      "--converge",
+      "--strip-debug",
+      ...features,
+      wasm,
+      "-o",
+      wasm,
+    ])
+    if (feature === "client") {
+      run(optimizer, [
+        "--flatten",
+        "--dfo",
+        "--rereloop",
+        "-Oz",
+        "--converge",
+        ...features,
+        wasm,
+        "-o",
+        wasm,
+      ])
+      const size = measureClientSize(readFileSync(wasm))
+      const headroom = CLIENT_SIZE_LIMIT - size
+      const summary = `Client WebAssembly module is ${size} Brotli bytes (quality 11, limit ${CLIENT_SIZE_LIMIT} bytes)`
+      if (headroom < 0) throw new Error(`${summary}, exceeding the limit by ${-headroom} bytes`)
+      process.stdout.write(`${summary}, with ${headroom} bytes of headroom\n`)
+    }
+    const translated = join(dir, `${name}_translated.js`)
+    run(translator, ["-O", "--pedantic", "--emscripten", ...features, wasm, "-o", translated])
+    const translation = readFileSync(translated, "utf8").replace(/\r\n/g, "\n")
+    writeFileSync(translated, `${translation}\nexport { instantiate };\n`)
+    const glue = readFileSync(join(dir, `${name}.js`), "utf8")
+    const loader = glue.indexOf("let wasmModule, wasmInstance, wasm;")
+    if (loader < 0) throw new Error("The wasm-bindgen initializer has changed")
+    const memoryExport = MEMORY_EXPORTS[feature]
+    const batchMemory =
+      memoryExport === undefined
+        ? ""
+        : `\n/** Returns the current linear memory buffer ${memoryExport.purpose}. */\nexport function ${memoryExport.name}() { return wasm.memory.buffer; }\n`
+    if (batchMemory !== "") writeFileSync(join(dir, `${name}.js`), glue + batchMemory)
+    // Binaryen replaces the buffer on growth without detaching existing views.
+    const bindings = glue.slice(0, loader)
+    const views = bindings
+      .replace(/\b(cached\w+Memory\d+)\.byteLength === 0/g, "$1.buffer !== wasm.memory.buffer")
+      .replace(
+        /\b(cached\w+Memory\d+)\.buffer\.detached === true \|\| \(\1\.buffer\.detached === undefined && \1\.buffer !== wasm\.memory\.buffer\)/g,
+        "$1.buffer !== wasm.memory.buffer",
+      )
+    if (views === bindings) throw new Error("The wasm-bindgen memory cache has changed")
+    const bridge = `import { instantiate } from "./${name}_translated.js";
+let wasm = instantiate(__wbg_get_imports());
+wasm.__wbindgen_start?.();
+`
+    writeFileSync(
+      join(dir, `${name}_js.js`),
+      views.replace(`./${name}.d.ts`, `./${name}_js.d.ts`) + bridge + batchMemory,
+    )
+    const types = readFileSync(join(dir, `${name}.d.ts`), "utf8")
+    const initTypes = types.indexOf("export type InitInput")
+    if (initTypes < 0) throw new Error("The wasm-bindgen initializer types have changed")
+    const batchMemoryType =
+      memoryExport === undefined
+        ? ""
+        : `\n/** Returns the current linear memory buffer ${memoryExport.purpose}. */\nexport function ${memoryExport.name}(): ArrayBuffer;\n`
+    if (batchMemoryType !== "") writeFileSync(join(dir, `${name}.d.ts`), types + batchMemoryType)
+    writeFileSync(join(dir, `${name}_js.d.ts`), types.slice(0, initTypes) + batchMemoryType)
+  }
+  const transforms = join(generated, "transforms")
+  writeFileSync(
+    join(transforms, "load.js"),
+    `let loading;
+export function loadTransforms(source) {
+    loading ??= (async () => {
+        if (typeof WebAssembly === "undefined") return import("./canopy_transforms_js.js");
+        const binding = await import("./canopy_transforms.js");
+        await binding.default(source === undefined ? undefined : { module_or_path: source });
+        return binding;
+    })().catch(error => {
+        loading = undefined;
+        throw error;
+    });
+    return loading;
+}
+`,
+  )
+  writeFileSync(
+    join(transforms, "load.d.ts"),
+    `import type { InitInput, DocumentPage, engine } from "./canopy_transforms.js";
+
+/** Loads the document transform bindings on first use. Pass bytes or a response when needed by the host. */
+export function loadTransforms(source?: InitInput): Promise<{
+    DocumentPage: typeof DocumentPage;
+    engine: typeof engine;
+}>;
+`,
+  )
 }
 
 await main()

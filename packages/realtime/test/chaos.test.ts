@@ -1,12 +1,11 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { allow, auth, collection, createPolicySet, toStored } from "@canopy/policy"
 import { canonicalString, toCanonical } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, waitForListeningPort } from "@canopy/testing"
 import { type Collection, type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { findGatewayBinary, storedPolicies } from "../src/gateway.ts"
@@ -39,26 +38,12 @@ interface Running {
   kill(): Promise<void>
 }
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.once("error", reject)
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address()
-      server.close(() =>
-        resolve(typeof address === "object" && address !== null ? address.port : 0),
-      )
-    })
-  })
-}
-
 /**
  * Starts the realtime server of `kind` with checkpoints on. The gateway is started directly rather than through
  * the sidecar, so killing it kills the process that holds the sockets.
  */
 async function launch(kind: Kind, keys: Keys, dbName: string, dir: string): Promise<Running> {
   const uri = MONGODB_URI ?? ""
-  const port = await freePort()
   const auth = {
     issuer: ISSUER,
     audience: AUDIENCE,
@@ -67,11 +52,11 @@ async function launch(kind: Kind, keys: Keys, dbName: string, dir: string): Prom
   }
   let child: ChildProcess
   if (kind === "gateway") {
-    child = spawn(GATEWAY ?? "", ["--config", "-"], { stdio: ["pipe", "ignore", "pipe"] })
+    child = spawn(GATEWAY ?? "", ["--config", "-"], { stdio: ["pipe", "pipe", "pipe"] })
     child.stdin?.write(
       `${JSON.stringify({
         mongodb: { uri, database: dbName, metaDatabase: `${dbName}_meta` },
-        server: { host: "127.0.0.1", port, metricsPort: 0 },
+        server: { host: "127.0.0.1", port: 0, metricsPort: 0 },
         auth,
         keys: { publishable: ["pk_test"], secret: [] },
         policies: storedPolicies(createPolicySet([counters])),
@@ -95,8 +80,8 @@ async function launch(kind: Kind, keys: Keys, dbName: string, dir: string): Prom
       policies: { dir: policies, watch: false },
       realtime: { checkpoints: "meta", drainWindow: 100 },
       rateLimits: false,
-      server: { port, metricsPort: await freePort() },
-      log: { level: "error" },
+      server: { port: 0, metricsPort: 0 },
+      log: { level: "info" },
     }
     await writeFile(file, `export default ${JSON.stringify(config)}\n`)
     const env: Record<string, string> = Object.fromEntries(
@@ -111,10 +96,15 @@ async function launch(kind: Kind, keys: Keys, dbName: string, dir: string): Prom
       stdio: ["ignore", "ignore", "pipe"],
     })
   }
+  const listening =
+    kind === "gateway"
+      ? waitForListeningPort(child, "listening", "stdout")
+      : waitForListeningPort(child, "canopy-realtime listening")
   let log = ""
   child.stderr?.on("data", (chunk: Buffer) => {
     log += chunk.toString()
   })
+  const port = await listening
   const started = Date.now()
   for (;;) {
     if (child.exitCode !== null) throw new Error(`${kind} exited early:\n${log}`)

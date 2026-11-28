@@ -1,5 +1,6 @@
 //! The policy engine of Document Level Security.
 
+use canopy_policy::{DEFAULT_PIPELINE_LIMITS, SecurePipelineOptions};
 use canopy_port::{Access, Evaluation, PortPolicyEngine};
 use canopy_protocol::CanopyError;
 use wasm_bindgen::JsValue;
@@ -56,6 +57,13 @@ pub struct WasmPolicyEngine {
 
 #[wasm_bindgen(js_class = "PolicyEngine")]
 impl WasmPolicyEngine {
+    /// Parses and compiles a canonical authoring bundle.
+    #[wasm_bindgen(js_name = "fromCanonical")]
+    pub fn from_canonical(text: &str) -> Result<WasmPolicyEngine, JsValue> {
+        let set = canopy_policy::parse_policy_set(text).map_err(|error| thrown(&error))?;
+        Ok(Self { engine: PortPolicyEngine::from_set(set) })
+    }
+
     /// Validates the policies of each collection, given in their stored form as EJSON text, and the context
     /// lookups, given as the EJSON text of their stored form or `null`, and builds the engine. Throws the same
     /// refusals as the TypeScript `createPolicySet`.
@@ -96,6 +104,31 @@ impl WasmPolicyEngine {
     #[wasm_bindgen(js_name = "effectiveRead")]
     pub fn effective_read(&self, collection: &str, filter: &str, request: &str) -> Result<JsValue, JsValue> {
         evaluation(self.engine.effective_read(collection, filter, request))
+    }
+
+    /// Applies document and field policies to an aggregation pipeline. The pipeline and request are EJSON
+    /// text, and the secured stages are returned as canonical EJSON text. Omitted limits use the defaults.
+    #[wasm_bindgen(js_name = "securePipeline")]
+    pub fn secure_pipeline(
+        &self,
+        collection: &str,
+        pipeline: &str,
+        request: &str,
+        search: bool,
+        max_stages: Option<usize>,
+        max_sample: Option<u32>,
+    ) -> Result<String, JsValue> {
+        let mut limits = DEFAULT_PIPELINE_LIMITS;
+        if let Some(max_stages) = max_stages {
+            limits.max_stages = max_stages;
+        }
+        if let Some(max_sample) = max_sample {
+            limits.max_sample = u64::from(max_sample);
+        }
+        let options = SecurePipelineOptions { search, ..Default::default() };
+        self.engine
+            .secure_pipeline(collection, pipeline, request, &limits, options)
+            .map_err(|error| thrown(&error))
     }
 
     /// The fields the request may read.

@@ -36,9 +36,42 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             "telemetry",
             "rest",
             "audit",
+            "graphql",
+            "storage",
+            "wire",
             "dataPlane",
             "viewTokens"
         ]
+    );
+    let Some(Json::Array(graphql)) = at(root, &["graphql", "oneOf"]) else {
+        return Err("Missing GraphQL schema options".to_owned());
+    };
+    let settings = graphql.get(1).ok_or("Missing GraphQL settings schema")?;
+    assert_eq!(
+        fields(settings.get("properties").ok_or("Missing GraphQL settings fields")?),
+        [
+            "path",
+            "maxDepth",
+            "maxComplexity",
+            "maxAliases",
+            "maxBatch",
+            "introspection",
+            "persisted",
+            "collections"
+        ],
+    );
+    let Some(Json::Array(wire)) = at(root, &["wire", "oneOf"]) else {
+        return Err("Missing wire schema options".to_owned());
+    };
+    let settings = wire.get(1).ok_or("Missing wire settings schema")?;
+    let properties = settings.get("properties").ok_or("Missing wire settings fields")?;
+    assert_eq!(
+        fields(properties),
+        ["port", "host", "maxMessageBytes", "maxConnections", "idleTimeoutMs", "tls"]
+    );
+    assert_eq!(
+        fields(at(properties, &["tls", "properties"]).ok_or("Missing wire TLS fields")?),
+        ["certFile", "keyFile"]
     );
     for (path, expected) in [
         (&["mongodb", "properties"][..], &["uri", "database", "metaDatabase"][..]),
@@ -63,6 +96,8 @@ fn schema_lists_every_input_field() -> Result<(), String> {
                 "audience",
                 "jwks",
                 "jwksUrl",
+                "builtinJwks",
+                "builtinJwksGraceSeconds",
                 "algorithms",
                 "rolesClaim",
                 "allowServiceRoleFromJwt",
@@ -151,7 +186,7 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
     assert!(base.cors.is_none());
     assert!(base.mutations_url.is_none());
     assert!(base.proxy_url.is_none());
-    assert!(base.data_plane_routes.is_empty());
+    assert_eq!(base.data_plane_routes, DataPlaneRoute::ALL[..9]);
     let list = |values: Vec<String>| Json::Array(values.into_iter().map(Json::String).collect());
     for (path, expected) in [
         (&["mongodb", "properties", "metaDatabase"][..], Json::String(base.meta_database)),
@@ -175,7 +210,7 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
             &["auth", "then", "properties", "clockToleranceSeconds"],
             Json::Number(auth.clock_tolerance_s as f64),
         ),
-        (&["auth", "then", "properties", "checkRevocations"], Json::Bool(base.check_revocations)),
+        (&["auth", "then", "properties", "builtinJwksGraceSeconds"], Json::Number(2_592_000.0)),
         (&["keys", "properties", "secret"], list(base.secret)),
         (&["policies", "properties", "watch"], Json::Bool(watch)),
         (&["realtime", "properties", "fullDocument"], Json::String("auto".to_owned())),
@@ -217,7 +252,7 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
         (&["rest", "properties", "maxSkip"], Json::Number(base.rest_limits.max_skip as f64)),
         (&["rest", "properties", "maxBodyBytes"], Json::Number(base.rest_limits.max_body_bytes as f64)),
         (&["rest", "properties", "search"], list(base.search_collections.clone())),
-        (&["dataPlane", "properties", "routes"], Json::Array(vec![])),
+        (&["dataPlane", "properties", "routes"], list(vec!["all".to_owned()])),
     ] {
         assert_eq!(at(root, path).and_then(|setting| setting.get("default")), Some(&expected), "{path:?}");
     }
@@ -281,15 +316,35 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
         (r#""realtime":{"coalesceMs":1001}"#, "realtime.coalesceMs must be between 0 and 1000, not 1001"),
         (
             r#""dataPlane":{"routes":"batch"}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not batch",
+            "dataPlane.routes may list all, find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not batch",
         ),
         (
             r#""dataPlane":{"routes":["find","Find"]}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not Find",
+            "dataPlane.routes may list all, find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not Find",
+        ),
+        (
+            r#""dataPlane":{"routes":["graphql"]},"graphql":false"#,
+            "dataPlane.routes selects graphql, which graphql: false disables",
+        ),
+        (
+            r#""graphql":{"persisted":{"operations":{"invalid":"{ todosCount }"}}}"#,
+            "graphql.persisted.operations must map SHA-256 hex hashes to documents",
         ),
         (
             r#""dataPlane":{"routes":["find"]},"rest":false"#,
             "dataPlane.routes serves the Data API, which rest: false disables",
+        ),
+        (
+            r#""dataPlane":{"routes":["storage"]}"#,
+            "dataPlane.routes selects storage, which requires storage settings",
+        ),
+        (
+            r#""dataPlane":{"routes":["storage"]},"storage":false"#,
+            "dataPlane.routes selects storage, which requires storage settings",
+        ),
+        (
+            r#""storage":{"buckets":{},"backend":{"kind":"sensitive-invalid-kind"}}"#,
+            "storage must contain valid settings",
         ),
         (r#""rest":{"defaultLimit":0}"#, "rest.defaultLimit and rest.maxLimit must be at least 1"),
         (r#""rest":{"maxLimit":0.5}"#, "rest.defaultLimit and rest.maxLimit must be at least 1"),
@@ -317,7 +372,7 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     let routes = |document: &str, fallback: Fallbacks| {
         resolve(Some(document), fallback).map(|config| config.data_plane_routes)
     };
-    assert_eq!(routes(&format!("{{{uri}}}"), Fallbacks::default())?, []);
+    assert_eq!(routes(&format!("{{{uri}}}"), Fallbacks::default())?, DataPlaneRoute::ALL[..9]);
     assert_eq!(routes(&format!("{{{uri}}}"), from_host(&[]))?, []);
     assert_eq!(routes(&format!("{{{uri}}}"), from_host(&["find"]))?, [DataPlaneRoute::Find]);
     assert_eq!(routes(&format!("{{{uri}}}"), from_host(&["find", "find"]))?, [DataPlaneRoute::Find]);
@@ -338,13 +393,13 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     assert_eq!(
         unknown.err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not batch"
+            "dataPlane.routes may list all, find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not batch"
         )
     );
     assert_eq!(
         routes(&document(r#"["Query"]"#), Fallbacks::default()).err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not Query"
+            "dataPlane.routes may list all, find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not Query"
         )
     );
     for route in [
@@ -356,12 +411,24 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
         DataPlaneRoute::Explain,
         DataPlaneRoute::Document,
         DataPlaneRoute::Writes,
+        DataPlaneRoute::Graphql,
     ] {
         assert_eq!(routes(&document(&format!("{:?}", route.name())), Fallbacks::default())?, [route]);
     }
     assert_eq!(
         DataPlaneRoute::NAMES,
-        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes"]
+        [
+            "find",
+            "count",
+            "distinct",
+            "aggregate",
+            "query",
+            "explain",
+            "document",
+            "writes",
+            "graphql",
+            "storage"
+        ]
     );
     Ok(())
 }
@@ -405,9 +472,10 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         (&["properties", "mongodb", "properties", "uri", "type"], r#""string""#),
         (&["properties", "auth", "then", "required"], r#"["issuer"]"#),
         (
-            &["properties", "auth", "then", "anyOf"],
+            &["properties", "auth", "then", "else", "anyOf"],
             r#"[{"required":["jwks"],"properties":{"jwks":{"not":{"type":"null"}}}},{"required":["jwksUrl"],"properties":{"jwksUrl":{"type":"string"}}}]"#,
         ),
+        (&["properties", "auth", "then", "then", "required"], r#"["audience"]"#),
         (&["properties", "policies", "properties", "stored", "type"], r#""array""#),
         (&["properties", "server", "properties", "port", "then", "exclusiveMaximum"], "65536"),
         (
@@ -418,7 +486,7 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         (&["$defs", "transport", "enum"], r#"["websocket","sse","long-poll"]"#),
         (
             &["$defs", "dataPlaneRoute", "enum"],
-            r#"["find","count","distinct","aggregate","query","explain","document","writes"]"#,
+            r#"["all","find","count","distinct","aggregate","query","explain","document","writes","graphql","storage"]"#,
         ),
         (&["properties", "rest", "properties", "defaultLimit", "then"], r#"{"minimum":1}"#),
         (&["properties", "rest", "properties", "maxLimit", "then"], r#"{"minimum":1}"#),

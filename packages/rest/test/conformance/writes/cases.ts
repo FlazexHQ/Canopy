@@ -11,7 +11,7 @@ export interface Step {
 }
 
 /** One case: requests sent one after the other on a freshly seeded database, and what to observe after. */
-export interface WriteSpec {
+interface WriteSpec {
   readonly id: string
   readonly title: string
   readonly steps: readonly Step[]
@@ -29,6 +29,7 @@ export interface WriteGroup {
 }
 
 const JSON_TYPE = { "content-type": "application/json" }
+const KEY = "conformance-key-1"
 
 function step(
   method: string,
@@ -106,6 +107,19 @@ const insert: WriteGroup = {
       "A unique index refuses the document",
       step("POST", "/people", "alice", { _id: "u3", email: "ann@example.test" }),
       ["people"],
+    ),
+    one(
+      "insert-existing-id-service-keyed",
+      "A keyed insert reports no duplicated key, even to service",
+      step(
+        "POST",
+        "/notes",
+        "service",
+        { _id: "n1", ownerId: "alice" },
+        { "idempotency-key": KEY },
+      ),
+      ["notes"],
+      true,
     ),
     one(
       "insert-validator",
@@ -362,6 +376,12 @@ const update: WriteGroup = {
       "update-unique-index",
       "A unique index refuses the result",
       step("PATCH", "/people/u2", "alice", { $set: { email: "ann@example.test" } }),
+      ["people"],
+    ),
+    one(
+      "update-unique-index-service",
+      "service sees the duplicated key of the result",
+      step("PATCH", "/people/u2", "service", { $set: { email: "ann@example.test" } }),
       ["people"],
     ),
     one(
@@ -774,7 +794,6 @@ const batch: WriteGroup = {
   ],
 }
 
-const KEY = "conformance-key-1"
 const OTHER = "conformance-key-2"
 
 const idempotency: WriteGroup = {

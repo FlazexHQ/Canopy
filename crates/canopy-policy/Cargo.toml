@@ -12,5 +12,9 @@ canopy-matcher = { path = "../canopy-matcher" }
 canopy-protocol = { path = "../canopy-protocol" }
 canopy-query = { path = "../canopy-query" }
 
+[dev-dependencies]
+mongodb = { version = "=3.10.1", default-features = false, features = ["bson-3", "compat-3-3-0", "dns-resolver", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt"] }
+
 [lints]
 workspace = true

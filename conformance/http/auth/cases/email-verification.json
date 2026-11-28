@@ -1,0 +1,680 @@
+{
+  "group": "email-verification",
+  "cases": [
+    {
+      "id": "resend-and-verify",
+      "description": "Asks for the verification email again, then follows the link with a tampered token, the real token, and the real token once more",
+      "steps": [
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/sign-up/email",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "email": "eve@example.com",
+              "password": "correct horse battery 1",
+              "name": "Eve"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "token": null,
+              "user": null,
+              "verification": "sent"
+            }
+          },
+          "heldForTheFloor": true,
+          "mails": [
+            {
+              "to": "eve@example.com",
+              "from": "Canopy Oracle <auth@canopy.test>",
+              "subject": "Confirm your email for Canopy Oracle",
+              "text": "Follow this link to confirm your email address for Canopy Oracle:\n\nhttps://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2F\n\nIf you did not ask for this, you can ignore this email.\n",
+              "html": "<p>Follow this link to confirm your email address for Canopy Oracle:</p><p><a href=\"https://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&amp;callbackURL=%2F\">Confirm email</a></p><p>If you did not ask for this, you can ignore this email.</p>",
+              "jwts": [
+                {
+                  "header": {
+                    "alg": "HS256"
+                  },
+                  "claims": {
+                    "email": "eve@example.com",
+                    "userId": "<user-id-1>",
+                    "iat": 1924992000,
+                    "exp": 1924995600
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/send-verification-email",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "email": "eve@example.com",
+              "callbackURL": "/welcome"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "status": true
+            }
+          },
+          "heldForTheFloor": true,
+          "mails": [
+            {
+              "to": "eve@example.com",
+              "from": "Canopy Oracle <auth@canopy.test>",
+              "subject": "Confirm your email for Canopy Oracle",
+              "text": "Follow this link to confirm your email address for Canopy Oracle:\n\nhttps://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2Fwelcome\n\nIf you did not ask for this, you can ignore this email.\n",
+              "html": "<p>Follow this link to confirm your email address for Canopy Oracle:</p><p><a href=\"https://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&amp;callbackURL=%2Fwelcome\">Confirm email</a></p><p>If you did not ask for this, you can ignore this email.</p>",
+              "jwts": [
+                {
+                  "header": {
+                    "alg": "HS256"
+                  },
+                  "claims": {
+                    "email": "eve@example.com",
+                    "userId": "<user-id-1>",
+                    "iat": 1924992000,
+                    "exp": 1924995600
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "GET",
+            "path": "/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<tampered-signature-1>&callbackURL=%2Fwelcome",
+            "headers": {}
+          },
+          "response": {
+            "status": 302,
+            "headers": {
+              "content-type": "application/json",
+              "location": "/welcome?error=INVALID_TOKEN"
+            },
+            "cookies": [],
+            "body": null
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "GET",
+            "path": "/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2Fwelcome",
+            "headers": {},
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>="
+              }
+            ]
+          },
+          "response": {
+            "status": 302,
+            "headers": {
+              "access-control-expose-headers": "set-auth-token",
+              "content-type": "application/json",
+              "location": "/welcome",
+              "set-auth-token": "<session-token-1>.<cookie-signature-1>="
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": null
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "again",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "GET",
+            "path": "/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2Fwelcome",
+            "headers": {}
+          },
+          "response": {
+            "status": 302,
+            "headers": {
+              "content-type": "application/json",
+              "location": "/welcome"
+            },
+            "cookies": [],
+            "body": null
+          }
+        }
+      ],
+      "documents": {
+        "canopy_auth.accounts": [
+          {
+            "_id": {
+              "$oid": "<account-id-1>"
+            },
+            "accountId": "<user-id-1>",
+            "providerId": "credential",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "password": "$argon2id$v=19$m=19456,t=2,p=1$<argon2id-salt-1>$<argon2id-tag-1>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.identifier_limits": [
+          {
+            "_id": "hit|/send-verification-email|eve@example.com",
+            "count": {
+              "$numberInt": "1"
+            },
+            "windowStart": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1924992060000"
+              }
+            }
+          },
+          {
+            "_id": "hit|/sign-up/email|eve@example.com",
+            "count": {
+              "$numberInt": "1"
+            },
+            "windowStart": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1924992060000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.rate_limits": [
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-1>"
+            },
+            "key": "203.0.113.1|/sign-up/email",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-2>"
+            },
+            "key": "203.0.113.1|/send-verification-email",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-3>"
+            },
+            "key": "203.0.113.1|/verify-email",
+            "count": {
+              "$numberInt": "2"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-4>"
+            },
+            "key": "203.0.113.2|/verify-email",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          }
+        ],
+        "canopy_auth.sessions": [
+          {
+            "_id": {
+              "$oid": "<session-id-1>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-1>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.1",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "aal": "aal1"
+          }
+        ],
+        "canopy_auth.signing_keys": [
+          {
+            "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw\"}",
+            "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee68c34240d3530209ad084fd0412c1c0faf04998c4560c8e5ab06016fbd03b7e6e5dd420bca7584023a9a53987c242f69fb7ec7a6e47cf5e4c0aa95b777057fdf7c9f5abcc172b17361a2bc7c473ffd028fde27bdf87de04e73cfd6bcc79b16602fa172042488096a5db1d3131df805c0965d2001314a5c6c51f24736bcb6eeaee81159b2d5c98a523f0\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            }
+          },
+          {
+            "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0\"}",
+            "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2596af7319ce9dc22eedd983c59d586b908f734a1f73ad93aebc47d5205e53dcca594f0901bb2ffd168819aae6de694df58064d9c7a07389bb83074c8a03a1582969cbbfea65e0b74de598164fa1d4930c47870453550aaea2dbeebc70e5ac3a2870cf567e7fb5b26045cdfeedd321acaddc3de85317917000dfb8ac65e3b73c67032c7d5f9b6072f192\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1930176000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.users": [
+          {
+            "_id": {
+              "$oid": "<user-id-1>"
+            },
+            "name": "Eve",
+            "email": "eve@example.com",
+            "emailVerified": true,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          }
+        ],
+        "canopy.audit_log": [
+          {
+            "_id": {
+              "$oid": "<audit-id-1>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-1>"
+            },
+            "details": {
+              "method": "email_verification"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-2>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "details": {
+              "method": "password"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "expired-link",
+      "description": "A verification link followed after an hour is refused",
+      "steps": [
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/sign-up/email",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "email": "fay@example.com",
+              "password": "correct horse battery 1",
+              "name": "Fay"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "token": null,
+              "user": null,
+              "verification": "sent"
+            }
+          },
+          "heldForTheFloor": true,
+          "mails": [
+            {
+              "to": "fay@example.com",
+              "from": "Canopy Oracle <auth@canopy.test>",
+              "subject": "Confirm your email for Canopy Oracle",
+              "text": "Follow this link to confirm your email address for Canopy Oracle:\n\nhttps://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2F\n\nIf you did not ask for this, you can ignore this email.\n",
+              "html": "<p>Follow this link to confirm your email address for Canopy Oracle:</p><p><a href=\"https://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&amp;callbackURL=%2F\">Confirm email</a></p><p>If you did not ask for this, you can ignore this email.</p>",
+              "jwts": [
+                {
+                  "header": {
+                    "alg": "HS256"
+                  },
+                  "claims": {
+                    "email": "fay@example.com",
+                    "userId": "<user-id-1>",
+                    "iat": 1924992000,
+                    "exp": 1924995600
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T01:00:01.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "GET",
+            "path": "/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2F",
+            "headers": {}
+          },
+          "response": {
+            "status": 302,
+            "headers": {
+              "content-type": "application/json",
+              "location": "/?error=TOKEN_EXPIRED"
+            },
+            "cookies": [],
+            "body": null
+          }
+        }
+      ],
+      "documents": {
+        "canopy_auth.accounts": [
+          {
+            "_id": {
+              "$oid": "<account-id-1>"
+            },
+            "accountId": "<user-id-1>",
+            "providerId": "credential",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "password": "$argon2id$v=19$m=19456,t=2,p=1$<argon2id-salt-1>$<argon2id-tag-1>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.identifier_limits": [
+          {
+            "_id": "hit|/sign-up/email|fay@example.com",
+            "count": {
+              "$numberInt": "1"
+            },
+            "windowStart": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1924992060000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.rate_limits": [
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-1>"
+            },
+            "key": "203.0.113.1|/sign-up/email",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-2>"
+            },
+            "key": "203.0.113.1|/verify-email",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924995601000"
+            }
+          }
+        ],
+        "canopy_auth.signing_keys": [
+          {
+            "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw\"}",
+            "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee68c34240d3530209ad084fd0412c1c0faf04998c4560c8e5ab06016fbd03b7e6e5dd420bca7584023a9a53987c242f69fb7ec7a6e47cf5e4c0aa95b777057fdf7c9f5abcc172b17361a2bc7c473ffd028fde27bdf87de04e73cfd6bcc79b16602fa172042488096a5db1d3131df805c0965d2001314a5c6c51f24736bcb6eeaee81159b2d5c98a523f0\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            }
+          },
+          {
+            "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0\"}",
+            "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2596af7319ce9dc22eedd983c59d586b908f734a1f73ad93aebc47d5205e53dcca594f0901bb2ffd168819aae6de694df58064d9c7a07389bb83074c8a03a1582969cbbfea65e0b74de598164fa1d4930c47870453550aaea2dbeebc70e5ac3a2870cf567e7fb5b26045cdfeedd321acaddc3de85317917000dfb8ac65e3b73c67032c7d5f9b6072f192\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1930176000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.users": [
+          {
+            "_id": {
+              "$oid": "<user-id-1>"
+            },
+            "name": "Fay",
+            "email": "fay@example.com",
+            "emailVerified": false,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          }
+        ],
+        "canopy.audit_log": [
+          {
+            "_id": {
+              "$oid": "<audit-id-1>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "details": {
+              "method": "password"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

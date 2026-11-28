@@ -1,6 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -20,7 +19,7 @@ import {
   toStored,
 } from "@canopy/policy"
 import { type ClientMessage, canonicalString, toCanonical } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, waitForListeningPort } from "@canopy/testing"
 import fc from "fast-check"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -79,19 +78,6 @@ const contexts = {
   },
 }
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer()
-    server.once("error", reject)
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address()
-      server.close(() =>
-        resolve(typeof address === "object" && address !== null ? address.port : 0),
-      )
-    })
-  })
-}
-
 interface Item {
   _id: number
   ownerId: string
@@ -125,7 +111,6 @@ async function start(
     join(policies, "_context.json"),
     JSON.stringify({ _id: "_context", lookups: toCanonical(contexts) }),
   )
-  const port = await freePort()
   const metaName = `${dbName}_meta`
   const config = {
     mongodb: { uri, database: dbName, metaDatabase: metaName },
@@ -141,8 +126,8 @@ async function start(
     realtime: { checkpoints: "off", drainWindow: 100 },
     rateLimits: false,
     cors: { origins: ["https://app.test"] },
-    server: { port, metricsPort: await freePort() },
-    log: { level: "error" },
+    server: { port: 0, metricsPort: 0 },
+    log: { level: "info" },
   }
   const file = join(dir, "canopy.config.mjs")
   await writeFile(file, `export default ${JSON.stringify(config)}\n`)
@@ -158,10 +143,15 @@ async function start(
     ["--conditions=@canopy/source", kind === "server" ? SERVER_BIN : BIN, "--config", file],
     { cwd: dir, env, stdio: ["ignore", "ignore", "pipe"] },
   )
+  const listening = waitForListeningPort(
+    child,
+    kind === "server" ? "canopy listening" : "canopy-realtime listening",
+  )
   let log = ""
   child.stderr?.on("data", (chunk: Buffer) => {
     log += chunk.toString()
   })
+  const port = await listening
   const started = Date.now()
   for (;;) {
     if (child.exitCode !== null) throw new Error(`${kind} exited early:\n${log}`)
@@ -199,7 +189,7 @@ const gatewayBuilt = findGatewayBinary() !== undefined
 const servers: ("ts" | "gateway")[] = gatewayBuilt ? ["ts", "gateway"] : ["ts"]
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-describe.skipIf(gatewayBuilt || MONGODB_URI === undefined)("canopy-gateway", () => {
+describe.skipIf(gatewayBuilt || MONGODB_URI === undefined)("canopyd", () => {
   it.skip("is not built, so the conformance suite runs on the TypeScript engine only", () => {})
 })
 

@@ -233,11 +233,9 @@ pub fn compare_options(a: &str, b: &str) -> Ordering {
     if a == b {
         return Ordering::Equal;
     }
-    let mut x: Vec<char> = a.chars().collect();
-    let mut y: Vec<char> = b.chars().collect();
-    x.sort_unstable();
-    y.sort_unstable();
-    x.cmp(&y)
+    let x: std::collections::BinaryHeap<char> = a.chars().collect();
+    let y: std::collections::BinaryHeap<char> = b.chars().collect();
+    x.into_sorted_vec().cmp(&y.into_sorted_vec())
 }
 
 /// Compares two values in MongoDB's total order (simple collation): first by type bracket, then by value.

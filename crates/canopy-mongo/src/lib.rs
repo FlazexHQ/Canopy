@@ -1,5 +1,8 @@
 //! MongoDB access for snapshot reads, stored policies and change stream checkpoints.
 
+/// Policy publication, rollback and startup bundle loading.
+pub mod publish;
+
 use std::sync::Arc;
 use std::time::Duration;
 

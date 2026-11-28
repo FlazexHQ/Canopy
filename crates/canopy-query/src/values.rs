@@ -47,7 +47,7 @@ pub(crate) fn js_fields(document: &Document) -> Vec<(&str, &Value)> {
     if indexed.is_empty() {
         return named;
     }
-    indexed.sort_by_key(|(index, _, _)| *index);
+    indexed.sort_unstable_by_key(|(index, _, _)| *index);
     indexed.into_iter().map(|(_, key, value)| (key, value)).chain(named).collect()
 }
 

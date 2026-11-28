@@ -82,22 +82,56 @@ suite("stored API keys", () => {
     return { messages, closed, socket }
   }
 
-  it("stores secret keys only as a hash and publishable keys in full", async () => {
+  it("stores a valid SCRAM verifier for secret keys and stores publishable keys in full", async () => {
     const secret = await canopy.keys.create({ kind: "secret", name: "ci", createdBy: "test" })
     const publishable = await canopy.keys.create({
       kind: "publishable",
       name: "web",
       createdBy: "test",
     })
-    const raw = await meta.collection("api_keys").findOne({ _id: secret.info.id as never })
-    expect(raw?.["hash"]).toBe(hashApiKey(secret.key))
-    expect(raw?.["key"]).toBeUndefined()
+    const raw = await canopy.keys.collection.findOne({ _id: secret.info.id })
+    expect(raw?.hash).toBe(hashApiKey(secret.key))
+    expect(raw?.key).toBeUndefined()
+    const verifier = raw?.scram
+    if (verifier === undefined) throw new Error("Secret key is missing a SCRAM verifier")
+    const salt = Uint8Array.from(Buffer.from(verifier.salt, "base64"))
+    expect(salt).toHaveLength(16)
+    expect(verifier.iterations).toBe(15_000)
+    const password = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret.key),
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    )
+    const salted = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", hash: "SHA-256", salt, iterations: 15_000 },
+      password,
+      256,
+    )
+    const hmac = await crypto.subtle.importKey(
+      "raw",
+      salted,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    )
+    const clientKey = await crypto.subtle.sign("HMAC", hmac, new TextEncoder().encode("Client Key"))
+    const storedKey = await crypto.subtle.digest("SHA-256", clientKey)
+    const serverKey = await crypto.subtle.sign("HMAC", hmac, new TextEncoder().encode("Server Key"))
+    expect(verifier.storedKey).toBe(Buffer.from(storedKey).toString("base64"))
+    expect(verifier.serverKey).toBe(Buffer.from(serverKey).toString("base64"))
+    const publicDocument = await meta
+      .collection("api_keys")
+      .findOne({ _id: publishable.info.id as never })
+    expect(publicDocument?.["scram"]).toBeUndefined()
     expect(JSON.stringify(raw)).not.toContain(secret.key.slice(18))
     expect(secret.info.prefix).toBe(secret.key.slice(10, 18))
     expect(secret.info.key).toBeUndefined()
     const listed = await canopy.keys.list()
     expect(listed.find((k) => k.id === publishable.info.id)?.key).toBe(publishable.key)
     expect(JSON.stringify(listed)).not.toContain(secret.key)
+    expect(JSON.stringify(listed)).not.toContain(verifier.serverKey)
   })
 
   it("accepts stored keys next to config keys, with the right roles", async () => {
@@ -122,6 +156,12 @@ suite("stored API keys", () => {
     })
     expect(anon.status).toBe(403)
     expect((await rest(`canopy_pk_${"x".repeat(32)}`)).status).toBe(401)
+  })
+
+  it("continues to accept secret API keys issued before SCRAM was available", async () => {
+    const legacy = await canopy.keys.create({ kind: "secret", name: "legacy", createdBy: "test" })
+    await canopy.keys.collection.updateOne({ _id: legacy.info.id }, { $unset: { scram: "" } })
+    expect((await rest(legacy.key)).status).toBe(200)
   })
 
   it("closes the sockets of a revoked key with 4003 within about a second and refuses it after", async () => {

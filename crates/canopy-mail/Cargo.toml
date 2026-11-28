@@ -1,0 +1,29 @@
+[package]
+name = "canopy-mail"
+description = "Canopy's auth email templates and delivery."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-mongo = { path = "../canopy-mongo" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-sigv4 = { path = "../canopy-sigv4" }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+lettre = { version = "0.11.24", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
+regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = "0.3"
+tokio = { version = "1", features = ["sync", "time"] }
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt"] }
+
+[lints]
+workspace = true

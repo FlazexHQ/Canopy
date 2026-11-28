@@ -60,13 +60,13 @@ impl Metrics {
         self.observers.get(kind.as_str()).copied().unwrap_or(0)
     }
 
-    /// Renders every counter with the `canopy_gateway_` prefix.
+    /// Renders every counter with the `canopyd_` prefix.
     pub fn render(&self) -> String {
         let mut out = String::new();
         let mut gauge = |name: &str, help: &str, kind: &str, value: u64| {
-            let _ = writeln!(out, "# HELP canopy_gateway_{name} {help}");
-            let _ = writeln!(out, "# TYPE canopy_gateway_{name} {kind}");
-            let _ = writeln!(out, "canopy_gateway_{name} {value}");
+            let _ = writeln!(out, "# HELP canopyd_{name} {help}");
+            let _ = writeln!(out, "# TYPE canopyd_{name} {kind}");
+            let _ = writeln!(out, "canopyd_{name} {value}");
         };
         gauge("connections", "Open connections", "gauge", self.connections);
         gauge("sessions_opened_total", "Sessions opened", "counter", self.sessions_opened);
@@ -79,25 +79,20 @@ impl Metrics {
         gauge("lazy_lookups_total", "Documents looked up for updates", "counter", self.lookups);
         gauge("slow_consumers_total", "Sessions ended as slow consumers", "counter", self.slow_consumers);
         gauge("rate_limited_total", "Messages refused by the message budget", "counter", self.rate_limited);
-        let _ = writeln!(out, "# HELP canopy_gateway_observers Live observers by type");
-        let _ = writeln!(out, "# TYPE canopy_gateway_observers gauge");
+        let _ = writeln!(out, "# HELP canopyd_observers Live observers by type");
+        let _ = writeln!(out, "# TYPE canopyd_observers gauge");
         for kind in [Kind::Filter, Kind::Window, Kind::Polling] {
-            let _ = writeln!(
-                out,
-                "canopy_gateway_observers{{type=\"{}\"}} {}",
-                kind.as_str(),
-                self.observers(kind)
-            );
+            let _ = writeln!(out, "canopyd_observers{{type=\"{}\"}} {}", kind.as_str(), self.observers(kind));
         }
-        let _ = writeln!(out, "# HELP canopy_gateway_resyncs_total Resyncs by reason");
-        let _ = writeln!(out, "# TYPE canopy_gateway_resyncs_total counter");
+        let _ = writeln!(out, "# HELP canopyd_resyncs_total Resyncs by reason");
+        let _ = writeln!(out, "# TYPE canopyd_resyncs_total counter");
         for (reason, count) in &self.resyncs {
-            let _ = writeln!(out, "canopy_gateway_resyncs_total{{reason=\"{reason}\"}} {count}");
+            let _ = writeln!(out, "canopyd_resyncs_total{{reason=\"{reason}\"}} {count}");
         }
-        let _ = writeln!(out, "# HELP canopy_gateway_mutations_total Mutations by result");
-        let _ = writeln!(out, "# TYPE canopy_gateway_mutations_total counter");
+        let _ = writeln!(out, "# HELP canopyd_mutations_total Mutations by result");
+        let _ = writeln!(out, "# TYPE canopyd_mutations_total counter");
         for (result, count) in &self.mutations {
-            let _ = writeln!(out, "canopy_gateway_mutations_total{{result=\"{result}\"}} {count}");
+            let _ = writeln!(out, "canopyd_mutations_total{{result=\"{result}\"}} {count}");
         }
         out
     }

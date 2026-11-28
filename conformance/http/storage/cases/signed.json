@@ -1,0 +1,233 @@
+{
+  "group": "signed",
+  "cases": [
+    {
+      "id": "signed-download",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "signed.signed-download.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "signed.signed-download.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/sign/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "signed.signed-download.1"
+            },
+            "body": "{\"expiresIn\":60}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "signed.signed-download.1"
+            },
+            "body": "{\"url\":\"/storage/v1/signed/docs/file.txt?token=<signed-token>\",\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/signed/docs/file.txt?token=<signed-token>",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "signed.signed-download.2"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-length": "10",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "text/plain",
+              "etag": "\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "signed.signed-download.2"
+            },
+            "body": "abcdefghij"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/signed/docs/other.txt?token=<signed-token>",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "signed.signed-download.3"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "signed.signed-download.3"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"The signed URL is not valid or has expired\",\"instance\":\"/storage/v1/signed/docs/other.txt\",\"requestId\":\"signed.signed-download.3\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid-expiry",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "signed.invalid-expiry.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "signed.invalid-expiry.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/sign/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "signed.invalid-expiry.1"
+            },
+            "body": "{\"expiresIn\":0}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "signed.invalid-expiry.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"expiresIn must be a number of seconds from 1 to 604800\",\"instance\":\"/storage/v1/sign/docs/file.txt\",\"requestId\":\"signed.invalid-expiry.1\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bad-token",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "signed.bad-token.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "signed.bad-token.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/signed/docs/file.txt?token=invalid",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "signed.bad-token.1"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "signed.bad-token.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"The signed URL is not valid or has expired\",\"instance\":\"/storage/v1/signed/docs/file.txt\",\"requestId\":\"signed.bad-token.1\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "expired-token",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "signed.expired-token.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "signed.expired-token.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/signed/docs/file.txt?token=<expired-token>",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "signed.expired-token.1"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "signed.expired-token.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"The signed URL is not valid or has expired\",\"instance\":\"/storage/v1/signed/docs/file.txt\",\"requestId\":\"signed.expired-token.1\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        }
+      ]
+    }
+  ]
+}

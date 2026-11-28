@@ -6,12 +6,13 @@ repository, vendors the protocol vectors.
 
 | Folder          | Holds                                                                                                                                                                                                                                                                                                                                                         | Written by                                                                          | Read by                                                                                                                                                                              |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `protocol/`     | Scripted server frames and the client state expected after each step (`01` to `07`, JSON)                                                                                                                                                                                                                                                                     | By hand                                                                             | `packages/graphql/test/realtime-follower.test.ts`; Canopy.js (`test/vectors`, vendored by `scripts/sync-core.ts`)                                                                    |
+| `protocol/`     | Scripted server frames and the client state expected after each step (`01` to `07`, JSON)                                                                                                                                                                                                                                                                     | By hand                                                                             | `packages/graphql/test/realtime-follower.test.ts`; Canopy.js (`test/vectors`, copied from here)                                                                                      |
 | `matcher/`      | `filters.json`, `sorts.json`, `projections.json`, `updates.json`: generated cases with MongoDB's answers                                                                                                                                                                                                                                                      | `bun run vectors:matcher` (`packages/testing/scripts/matcher-vectors.ts`)           | `crates/canopy-matcher/tests/vectors.rs`; `packages/native/test/port.test.ts` (`filters.json`)                                                                                       |
 | `query/`        | `query.json`: generated inputs with the TypeScript `@canopy/query` answer (result or refusal)                                                                                                                                                                                                                                                                 | `bun run vectors:query` (`packages/testing/scripts/query-vectors.ts`)               | `crates/canopy-query/tests/vectors.rs`; `packages/native/test/port.test.ts`                                                                                                          |
 | `http/`         | `find/`: the fixture (documents, policies, callers, limits) and request and response pairs of `GET /rest/v1/{collection}`, byte for byte; `reads/`: the same for `_query`, `_count`, `_distinct`, `_aggregate`, `_explain` and `GET /rest/v1/{collection}/{id}`                                                                                               | `bun run vectors:http` (`packages/testing/scripts/http-find-vectors.ts`)            | `packages/rest/test/conformance-find.test.ts` and `conformance-reads.test.ts`; the Rust data plane (stage D1)                                                                        |
 | `http/`         | `writes/`: its own fixture (the find callers and keys, collections made for writes, their validator, unique index, collation and immutable fields) and cases of one or more requests to the write routes, each on a freshly seeded database, with the responses, the documents of the observed collections and the idempotency records after the last request | `bun run vectors:http-writes` (`packages/testing/scripts/http-writes-vectors.ts`)   | `packages/rest/test/conformance-writes.test.ts` (the files are current); the Rust write path (stage D2)                                                                              |
 | `http/graphql/` | GraphQL HTTP request and response pairs, with their fixture and the documents left by mutations                                                                                                                                                                                                                                                               | `bun run vectors:http-graphql` (`packages/testing/scripts/http-graphql-vectors.ts`) | `packages/graphql/test/conformance-graphql.test.ts` (the files are current)                                                                                                          |
+| `http/storage/` | Storage HTTP request and response sequences, with their fixture and the resulting object metadata documents                                                                                                                                                                                                                                                   | `bun run vectors:http-storage` (`packages/testing/scripts/http-storage-vectors.ts`) | `packages/storage/test/conformance-storage.test.ts` (the files are current); `crates/canopy-storage/tests/http_conformance.rs`, the Rust storage handler (stage D4)                  |
 | `policy/`       | `policy.json`: generated policy sets and callers with the TypeScript `@canopy/policy` answer                                                                                                                                                                                                                                                                  | `bun run vectors:policy` (`packages/testing/scripts/policy-vectors.ts`)             | `crates/canopy-policy/tests/vectors.rs`; `packages/native/test/port.test.ts`                                                                                                         |
 | `policy/`       | `pipeline.json`: fixed and generated aggregation pipelines for several callers, with and without search, with what the TypeScript `securePipeline` returns (canonical EJSON) or its refusal                                                                                                                                                                   | `bun run vectors:pipeline` (`packages/testing/scripts/pipeline-vectors.ts`)         | `crates/canopy-policy/tests/pipeline.rs`; `packages/policy/test/conformance-pipeline.test.ts` (the file is current)                                                                  |
 | `auth/`         | `rate-limits.json`: seeded operations on the token buckets and the request limits on a fake clock, with what `@canopy/auth` answers, and the rate limit error                                                                                                                                                                                                 | `bun run vectors:rate-limits` (`packages/testing/scripts/rate-limit-vectors.ts`)    | `crates/canopy-auth/tests/rate_limits.rs`; `packages/auth/test/conformance-rate-limits.test.ts` (the file is current)                                                                |
@@ -29,8 +30,8 @@ repository, vendors the protocol vectors.
 - `query/` and `policy/` need no database. TypeScript is the reference for query validation and canonical hashing
   and for compiling policies, and the Rust crates must give the same answers: byte identical canonical queries,
   hashes, MongoDB filters (canonical EJSON) and matcher decisions, and the same refusals.
-- `http/` is recorded from the TypeScript REST and GraphQL handlers built from their fixtures, against a
-  MongoDB replica set (see [`http/find`](#httpfind) and [`http/graphql`](#httpgraphql) below).
+- `http/` is recorded from the TypeScript REST, GraphQL and storage handlers built from their fixtures, against a
+  MongoDB replica set (see [`http/find`](#httpfind), [`http/graphql`](#httpgraphql) and [`http/storage`](#httpstorage) below).
 - `cursor/` needs no database either: the script computes the query hash, the keyset filter and the cursor of
   each fixed input with the TypeScript code, and records a refusal with its message. `--check` fails when a file
   differs from a fresh computation, and `packages/rest/test/conformance-cursor.test.ts` runs that check.
@@ -59,7 +60,7 @@ canopy-matcher -p canopy-query -p canopy-policy`), without Node or MongoDB. The 
 
 - **Rust.** The Rust data plane replays `http/find` against its own `find` route
   (`crates/canopy-http/tests/find_conformance.rs`) and through a running gateway
-  (`crates/canopy-gateway/tests/data_plane.rs`). `crates/canopy-data/tests/cursor.rs` replays `cursor/`.
+  (`crates/canopyd/tests/data_plane.rs`). `crates/canopy-data/tests/cursor.rs` replays `cursor/`.
 
 ## http/find
 
@@ -217,6 +218,50 @@ times are saved as `<ct>`. In the generated id case, use the ObjectId of the doc
 Set `CANOPY_TEST_MONGODB_URI` to a MongoDB replica set, then run `bun run vectors:http-graphql` to regenerate
 the files or `bun run vectors:http-graphql --check` to check for drift.
 
+## http/storage
+
+The TypeScript handler for `/storage/v1` serves the steps in `cases/*.json` in order. Start each case
+with an empty scratch database, a unique index on `storage_objects` by bucket and path, and a fresh
+local backend directory. Configure the buckets, stored policy definitions, authentication, signing
+master key, part size and CORS from `fixture.json`. Enable the fixture's request budget with its
+fixed clock and peer address only for the case marked `rateLimited`.
+
+Send the named caller's headers first, then the request headers. The `target` includes the query
+string. A `body` is UTF-8 text and a `bodyBase64` is the exact binary payload. A request marked
+`stream` sends its body as a stream without a declared length. Responses preserve status, file and
+CORS headers, `retry-after`, `vary`, `x-request-id`, and body bytes. Binary responses that cannot
+round trip through UTF-8 use `bodyBase64`. Empty responses have an empty `body`.
+
+Each request supplies a fixed `x-request-id` of the form `group.case.index`, with a zero based index.
+Use the earlier response's `etag` header, signed URL token or resumable session id for request
+placeholders `<etag>`, `<signed-token>` and `<upload-id>`. Replace the same token or session id in
+response text, including the Problem Details instance path. Resolve `<expired-token>` using the
+fixture's token for the same file, signed with an expiry of 1000 milliseconds since the Unix epoch.
+Response dates use `<createdAt>`, `<updatedAt>` and `<expiresAt>`.
+
+Cases with `state` capture `storage_objects` documents in bucket and path order. Each document is
+canonical EJSON text with the generated ObjectId and backend key suffix replaced by
+`<object-id-N>` and `<backend-id-N>`, numbered from one in that order. The EJSON date wrapper is
+retained with the corresponding date placeholder in place of its millisecond value.
+
+The render cases compare decoded format and dimensions exactly. A test only Bun helper decodes both
+images with the TypeScript reference decoder, including AVIF, then compares mean RGBA values in a grid
+of up to 8 by 8 bins. Each bin and channel may differ by at most 30 out of 255. The source has contrasting
+outer bands and a vertical ramp so the comparison detects a wrong crop, mirror or stretch while allowing
+lossy encoding and resampling differences. Length headers and cached variant sizes are checked against
+the actual encoded bytes. Variant IDs, source keys and types are checked exactly after substituting
+generated storage identifiers and timestamps. The original TypeScript answers for lossy WebP encoding
+and AVIF sources are retained, with the expected Rust HTTP 400 responses alongside them.
+
+The Rust image stack uses `image` for decoding JPEG, PNG, GIF, BMP and WebP, Lanczos3 resampling,
+and encoding PNG and JPEG. Its AVIF feature uses `ravif` for the AV1 encoder. The selected features
+keep these codecs portable without adding C libraries or requiring NASM. WebP sources can be converted
+to PNG, JPEG or AVIF. Output dimensions, including a side inferred from aspect ratio, are bounded by
+`storage.images.maxDimension`.
+
+Set `CANOPY_TEST_MONGODB_URI` to a MongoDB replica set. Run `bun run vectors:http-storage` to
+regenerate the files and `bun run vectors:http-storage --check` to compare a fresh recording.
+
 ### What it does not pin
 
 Static pairs cannot carry cancellation, policy changes between requests, the MongoDB filters that reach the
@@ -226,3 +271,36 @@ tests next to the pairs.
 
 Add new language neutral data as another folder here, keep its file names stable, and update this table and the
 readers in the same change.
+
+## MongoDB wire unified change streams
+
+The [change stream fixtures](wire/unified/change-streams/) come from the
+[MongoDB Node driver v7.7.0 mirror](https://github.com/mongodb/node-mongodb-native/tree/v7.7.0/test/spec/change-streams/unified)
+under the [Apache License 2.0](wire/unified/LICENSE.txt). JSON escapes preserve decoded punctuation.
+The [case decisions](wire/unified/change-stream-cases.json) identify supported fixtures and the exact
+wire error codes for unsupported operations. Cases that expect an update description are counted
+separately when Canopy delivers a readable document image without that field. The same Node driver
+runner exercises the change stream fixtures and checks the rejection of resume and historical start
+options.
+
+## MongoDB wire unified CRUD
+
+[Vendored CRUD fixtures](wire/unified/crud/) come from the
+[MongoDB Node driver v7.7.0 mirror](https://github.com/mongodb/node-mongodb-native/tree/v7.7.0/test/spec/crud/unified)
+under the [Apache License 2.0](wire/unified/LICENSE.txt). Their decoded JSON matches MongoDB's specifications at revision
+[`2a20bd509e2ad4ee354b552145094ecdf434ee9d`](https://github.com/mongodb/specifications/tree/2a20bd509e2ad4ee354b552145094ecdf434ee9d/source/crud/tests/unified).
+Two descriptions use JSON escapes for punctuation, with identical decoded names.
+[Case decisions](wire/unified/cases.json) classify every fixture. The runner checks refusals
+by wire error code and confirms that the underlying collection is unchanged.
+
+Build with `cargo build -j 2 -p canopyd` and set `CANOPYD_BIN` to the resulting
+binary. Set `CANOPY_TEST_MONGODB_URI` to a test replica set. Run the server Vitest project
+with the `wire-unified.test.ts` filter to exercise the Node driver over SCRAM-SHA-256.
+The wire endpoint accepts a nonnegative `maxTimeMS` on writes. Transaction timing uses
+Canopy's configured limits.
+
+For the seven shared OIDC cases, run `node bench/workloads/wire/run-unified-drivers.ts`.
+Install PyMongo for the selected Python, Go for the pinned driver module, and Java 21 with
+the BSON, driver core and sync driver 5.6.4 JARs. Set `CANOPY_WIRE_DRIVER_TOOLS` to the JAR
+directory, which may also hold a Python target install in its `python` subdirectory. Set
+`CANOPY_WIRE_GO` or `CANOPY_WIRE_JAVA` to executable paths when they are outside PATH.

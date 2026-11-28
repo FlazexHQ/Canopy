@@ -1,6 +1,7 @@
 //! MongoDB update operators and replacement documents applied in process, with MongoDB 5.0 and later
 //! semantics.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use canopy_protocol::{CanopyError, Document, Value};
@@ -126,16 +127,18 @@ impl Op {
 }
 
 #[derive(Debug)]
-struct Leaf {
+struct Leaf<'a> {
     op: Op,
-    operand: Value,
-    path: String,
+    operand: Cow<'a, Value>,
+    path: &'a str,
 }
 
 #[derive(Debug, Default)]
-struct Node {
-    children: Vec<(String, Node)>,
-    leaf: Option<Leaf>,
+struct Node<'a> {
+    children: Vec<(&'a str, Node<'a>)>,
+    /// The name of the first child added, which error messages name.
+    first: &'a str,
+    leaf: Option<Leaf<'a>>,
     creates: bool,
     strict: bool,
 }
@@ -199,8 +202,8 @@ fn apply_replacement(document: &Document, replacement: &Document) -> Result<Docu
     Ok(out)
 }
 
-fn join(path: &str, key: &str) -> String {
-    if path.is_empty() { key.to_owned() } else { format!("{path}.{key}") }
+fn join<'k>(path: &str, key: &'k str) -> Cow<'k, str> {
+    if path.is_empty() { Cow::Borrowed(key) } else { Cow::Owned(format!("{path}.{key}")) }
 }
 
 fn validate_storage(value: &Value, path: &str) -> Result<(), CanopyError> {
@@ -251,7 +254,7 @@ fn apply_operators(
             match op {
                 Some(op) => {
                     validate_operand(op, path, value)?;
-                    let leaf = Leaf { op, operand: value.clone(), path: path.to_owned() };
+                    let leaf = Leaf { op, operand: Cow::Borrowed(value), path };
                     add_leaf(&mut root, path, leaf, &identifiers, &mut used)?;
                 }
                 None => add_rename(&mut root, document, path, value)?,
@@ -261,6 +264,7 @@ fn apply_operators(
     if let Some((identifier, _)) = identifiers.iter().find(|(identifier, _)| !used.contains(identifier)) {
         return fail(format!("The array filter for identifier '{identifier}' was not used in the update"));
     }
+    sort_children(&mut root);
     let mut out = document.clone();
     let settings = Settings { options, identifiers: &identifiers };
     apply_children(Container::Document(&mut out), &root, "", &settings)?;
@@ -425,12 +429,12 @@ fn validate_each(op: Op, spec: &Document) -> Result<(), CanopyError> {
     Ok(())
 }
 
-fn path_parts(path: &str) -> Result<Vec<String>, CanopyError> {
+fn path_parts(path: &str) -> Result<Vec<&str>, CanopyError> {
     if path.is_empty() {
         return fail("An empty update path is not valid");
     }
-    let parts = split_path(path);
-    if parts.iter().any(String::is_empty) {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.iter().any(|part| part.is_empty()) {
         return fail(format!("The update path '{path}' contains an empty field name, which is not allowed"));
     }
     Ok(parts)
@@ -441,10 +445,10 @@ fn positional_identifier(part: &str) -> Option<&str> {
     if inner.is_empty() || is_identifier(inner) { Some(inner) } else { None }
 }
 
-fn add_leaf(
-    root: &mut Node,
-    path: &str,
-    leaf: Leaf,
+fn add_leaf<'a>(
+    root: &mut Node<'a>,
+    path: &'a str,
+    leaf: Leaf<'a>,
     identifiers: &Identifiers,
     used: &mut Vec<String>,
 ) -> Result<(), CanopyError> {
@@ -456,7 +460,7 @@ fn add_leaf(
     let last = parts.len() - 1;
     for (index, part) in parts.iter().enumerate() {
         if part.starts_with('$') {
-            if part == "$" {
+            if *part == "$" {
                 return Err(unsupported_query("The positional $ operator is not evaluated in process"));
             }
             let Some(identifier) = positional_identifier(part) else {
@@ -494,7 +498,10 @@ fn add_leaf(
         let position = match node.children.iter().position(|(name, _)| name == part) {
             Some(position) => position,
             None => {
-                node.children.push((part.clone(), Node::default()));
+                if node.children.is_empty() {
+                    node.first = part;
+                }
+                node.children.push((part, Node::default()));
                 node.children.len() - 1
             }
         };
@@ -532,7 +539,12 @@ fn js_string(value: &Value) -> String {
     }
 }
 
-fn add_rename(root: &mut Node, document: &Document, from: &str, to: &Value) -> Result<(), CanopyError> {
+fn add_rename<'a>(
+    root: &mut Node<'a>,
+    document: &'a Document,
+    from: &'a str,
+    to: &'a Value,
+) -> Result<(), CanopyError> {
     let Value::String(to) = to else {
         return fail(format!("The 'to' field for $rename must be a string: {from}: {}", js_string(to)));
     };
@@ -555,21 +567,25 @@ fn add_rename(root: &mut Node, document: &Document, from: &str, to: &Value) -> R
     }
     let empty = Vec::new();
     let mut used = Vec::new();
-    let unset = Leaf { op: Op::Unset, operand: Value::String(String::new()), path: from.to_owned() };
+    let unset = Leaf { op: Op::Unset, operand: Cow::Owned(Value::String(String::new())), path: from };
     add_leaf(root, from, unset, &empty, &mut used)?;
     let leaf = match source {
-        Some(value) => Leaf { op: Op::RenameTo, operand: value, path: to.clone() },
-        None => Leaf { op: Op::RenameMissing, operand: Value::Null, path: to.clone() },
+        Some(value) => Leaf { op: Op::RenameTo, operand: Cow::Borrowed(value), path: to },
+        None => Leaf { op: Op::RenameMissing, operand: Cow::Owned(Value::Null), path: to },
     };
     add_leaf(root, to, leaf, &empty, &mut used)
 }
 
-fn read_for_rename(document: &Document, parts: &[String], role: &str) -> Result<Option<Value>, CanopyError> {
+fn read_for_rename<'a>(
+    document: &'a Document,
+    parts: &[&str],
+    role: &str,
+) -> Result<Option<&'a Value>, CanopyError> {
     let mut current = document;
     for (index, part) in parts.iter().enumerate() {
         let Some(value) = current.get(part) else { return Ok(None) };
         if index + 1 == parts.len() {
-            return Ok(Some(value.clone()));
+            return Ok(Some(value));
         }
         match value {
             Value::Document(inner) => current = inner,
@@ -628,6 +644,24 @@ impl Container<'_> {
         }
     }
 
+    /// Moves the array at `key` out, leaving an empty one; the caller writes the result back. Only called after
+    /// `read` found an array there, and an error discards the whole updated copy.
+    fn take_array(&mut self, key: &str) -> Vec<Value> {
+        let found = match self {
+            Container::Document(document) => document.get_mut(key),
+            Container::Array(items) => {
+                if !is_array_index(key) {
+                    return Vec::new();
+                }
+                key.parse::<usize>().ok().and_then(|index| items.get_mut(index))
+            }
+        };
+        match found {
+            Some(Value::Array(items)) => std::mem::take(items),
+            _ => Vec::new(),
+        }
+    }
+
     fn slot(&mut self, key: &str) -> Option<&mut Value> {
         match self {
             Container::Document(document) => document.get_mut(key),
@@ -663,16 +697,23 @@ impl Container<'_> {
     }
 }
 
+/// Orders the children of every node as MongoDB applies them: array positions numerically, other names by
+/// byte order, keeping the order of equal names.
+fn sort_children(node: &mut Node<'_>) {
+    node.children.sort_by(|(a, _), (b, _)| compare_field_names(a, b));
+    for (_, child) in &mut node.children {
+        sort_children(child);
+    }
+}
+
 fn apply_children(
     mut container: Container<'_>,
-    node: &Node,
+    node: &Node<'_>,
     prefix: &str,
     settings: &Settings<'_>,
 ) -> Result<(), CanopyError> {
-    let mut ordered: Vec<&(String, Node)> = node.children.iter().collect();
-    ordered.sort_by(|(a, _), (b, _)| compare_field_names(a, b));
     let mut touched: Vec<usize> = Vec::new();
-    for (key, child) in ordered {
+    for (key, child) in &node.children {
         if key.starts_with("$[") {
             let Container::Array(items) = &container else {
                 return fail(format!("Cannot apply array updates to non-array element {prefix}"));
@@ -710,7 +751,7 @@ fn apply_children(
 fn apply_at(
     container: &mut Container<'_>,
     key: &str,
-    node: &Node,
+    node: &Node<'_>,
     path: &str,
     settings: &Settings<'_>,
 ) -> Result<(), CanopyError> {
@@ -751,7 +792,7 @@ fn apply_at(
         Value::Document(inner) => apply_children(Container::Document(inner), node, path, settings),
         Value::Array(inner) => apply_children(Container::Array(inner), node, path, settings),
         scalar => {
-            let first = node.children.first().map(|(name, _)| name.as_str()).unwrap_or_default();
+            let first = node.first;
             let kind = type_name(scalar);
             if has_positional {
                 return fail(format!("Cannot apply array updates to non-array element {path}: {kind}"));
@@ -789,12 +830,11 @@ fn now_ms(options: &UpdateOptions) -> Result<i64, CanopyError> {
 fn apply_leaf(
     container: &mut Container<'_>,
     key: &str,
-    leaf: &Leaf,
+    leaf: &Leaf<'_>,
     path: &str,
     options: &UpdateOptions,
 ) -> Result<(), CanopyError> {
-    let operand = &leaf.operand;
-    let current = container.read(key).cloned();
+    let operand: &Value = &leaf.operand;
     let value = match leaf.op {
         Op::Set | Op::RenameTo => operand.clone(),
         Op::SetOnInsert if options.is_insert => operand.clone(),
@@ -812,7 +852,7 @@ fn apply_leaf(
             }
             return Ok(());
         }
-        Op::Inc | Op::Mul => match current {
+        Op::Inc | Op::Mul => match container.read(key) {
             None if leaf.op == Op::Inc => operand.clone(),
             None => zero_like(operand),
             Some(current) => {
@@ -820,16 +860,16 @@ fn apply_leaf(
                     return fail(format!(
                         "Cannot apply {} to a value of non-numeric type. {{{key}: {}}}",
                         leaf.op.name(),
-                        type_name(&current)
+                        type_name(current)
                     ));
                 }
-                arithmetic(leaf.op, &current, operand)?
+                arithmetic(leaf.op, current, operand)?
             }
         },
-        Op::Min | Op::Max => match current {
+        Op::Min | Op::Max => match container.read(key) {
             None => operand.clone(),
             Some(current) => {
-                let order = compare_values(operand, &current);
+                let order = compare_values(operand, current);
                 let replace =
                     if leaf.op == Op::Min { order == Ordering::Less } else { order == Ordering::Greater };
                 if !replace {
@@ -848,24 +888,23 @@ fn apply_leaf(
             }
         }
         Op::Push | Op::AddToSet => {
-            let items = match current {
+            let items = match container.read(key) {
                 None => Vec::new(),
-                Some(Value::Array(items)) => items,
+                Some(Value::Array(_)) => container.take_array(key),
                 Some(other) => {
                     return fail(format!(
                         "The field '{key}' must be an array but is of type {} in document",
-                        type_name(&other)
+                        type_name(other)
                     ));
                 }
             };
             if leaf.op == Op::Push { push(items, operand) } else { add_to_set(items, operand) }
         }
-        Op::Pop => match current {
+        Op::Pop => match container.read(key) {
             None => return Ok(()),
-            Some(Value::Array(mut items)) => {
-                if items.is_empty() {
-                    return Ok(());
-                }
+            Some(Value::Array(items)) if items.is_empty() => return Ok(()),
+            Some(Value::Array(_)) => {
+                let mut items = container.take_array(key);
                 if read_numeric(operand.view()).map_or(1.0, to_double) == 1.0 {
                     items.pop();
                 } else {
@@ -876,15 +915,16 @@ fn apply_leaf(
             Some(other) => {
                 return fail(format!(
                     "Path '{path}' contains an element of non-array type '{}'",
-                    type_name(&other)
+                    type_name(other)
                 ));
             }
         },
-        Op::Pull | Op::PullAll => match current {
+        Op::Pull | Op::PullAll => match container.read(key) {
             None => return Ok(()),
-            Some(Value::Array(items)) => {
+            Some(Value::Array(_)) => {
                 let remove =
                     if leaf.op == Op::PullAll { pull_all_test(operand) } else { pull_test(operand)? };
+                let items = container.take_array(key);
                 let mut kept = Vec::with_capacity(items.len());
                 for element in items {
                     if !remove.removes(&element)? {
@@ -896,7 +936,7 @@ fn apply_leaf(
             Some(_) => return fail("Cannot apply $pull to a non-array value"),
         },
         Op::Bit => {
-            let current = current.unwrap_or(Value::Int32(0));
+            let current = container.read(key).cloned().unwrap_or(Value::Int32(0));
             if !is_integer_type(&current) {
                 return fail(format!(
                     "Cannot apply $bit to a value of non-integral type. {{{key}: {}}}",

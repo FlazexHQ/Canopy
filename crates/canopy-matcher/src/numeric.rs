@@ -177,19 +177,18 @@ fn exact_of_long(value: i64) -> Exact {
 }
 
 fn exact_of_decimal(text: &str) -> Exact {
-    match text.to_ascii_lowercase().as_str() {
-        "nan" | "+nan" | "-nan" => return Exact::NaN,
-        "inf" | "infinity" | "+inf" | "+infinity" => return Exact::Infinite(false),
-        "-inf" | "-infinity" => return Exact::Infinite(true),
-        _ => {}
-    }
-    let (negative, unsigned) = match text.as_bytes().first() {
-        Some(b'-') => (true, &text[1..]),
-        Some(b'+') => (false, &text[1..]),
-        _ => (false, text),
+    let (negative, unsigned) = match text.strip_prefix('-') {
+        Some(unsigned) => (true, unsigned),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
     };
-    let (mantissa, written) = match unsigned.find(['e', 'E']) {
-        Some(index) => (&unsigned[..index], Some(&unsigned[index + 1..])),
+    if unsigned.eq_ignore_ascii_case("nan") {
+        return Exact::NaN;
+    }
+    if unsigned.eq_ignore_ascii_case("inf") || unsigned.eq_ignore_ascii_case("infinity") {
+        return Exact::Infinite(negative);
+    }
+    let (mantissa, written) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
         None => (unsigned, None),
     };
     let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
@@ -350,6 +349,9 @@ mod tests {
         assert_eq!(compare_numeric(Double(f64::NAN), Double(f64::NEG_INFINITY)), Ordering::Less);
         assert_eq!(compare_numeric(Long(i64::MIN), Double(f64::NAN)), Ordering::Greater);
         assert_eq!(compare_numeric(Decimal("-Infinity"), Long(i64::MIN)), Ordering::Less);
+        assert_eq!(compare_numeric(Decimal("-iNf"), Double(f64::NEG_INFINITY)), Ordering::Equal);
+        assert_eq!(compare_numeric(Decimal("+iNfInItY"), Double(f64::INFINITY)), Ordering::Equal);
+        assert_eq!(compare_numeric(Decimal("+nAn"), Double(f64::NAN)), Ordering::Equal);
         assert!(is_nan(Decimal("nan")));
         assert!(!is_nan(Decimal("1")));
     }

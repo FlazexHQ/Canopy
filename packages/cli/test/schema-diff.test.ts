@@ -11,7 +11,7 @@ import { run } from "../src/cli.ts"
 import * as schemaLoader from "../src/collection-schemas.ts"
 import { driftReport, roleReport, schemaDrift } from "../src/schema-diff.ts"
 
-const source = `import { collection, defineSchema, t } from "@canopy/schema/define"
+const source = `import { collection, defineSchema, t } from "canopy.js/schema"
 export const schema = defineSchema(collection("notes", { body: t.string() }))`
 const validator = {
   $jsonSchema: {

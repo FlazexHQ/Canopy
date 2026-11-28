@@ -118,7 +118,14 @@ func probe(ctx context.Context) error {
 		return err
 	}
 	defer client.Disconnect(ctx)
-	items := client.Database("canopy_s13").Collection("items")
+	database, collection := "canopy_s13", "items"
+	if value := os.Getenv("CANOPY_S13_DATABASE"); value != "" {
+		database = value
+	}
+	if value := os.Getenv("CANOPY_S13_COLLECTION"); value != "" {
+		collection = value
+	}
+	items := client.Database(database).Collection(collection)
 	if path := os.Getenv("CANOPY_S13_CRUD_CASE"); path != "" {
 		return unified(ctx, items, path)
 	}

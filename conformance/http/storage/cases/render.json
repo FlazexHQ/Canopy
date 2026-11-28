@@ -1,0 +1,2484 @@
+{
+  "group": "render",
+  "cases": [
+    {
+      "id": "geometry",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.geometry.0"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYII="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.geometry.0"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"photo.png\",\"size\":245,\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20",
+            "caller": "none",
+            "headers": {
+              "range": "bytes=0-1",
+              "x-request-id": "render.geometry.1"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-b39e6932594e5805889ba249b9b49ebd\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.geometry.1"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABFklEQVR4nKXMoUoDABQF0K2IPG5wsiLCgiArgiwYnEGQBYMIFhcMMrA4weLAIsPkwOSwTZvDpkb9gBce96euvG944dTTaHlTxqYQRWwIvqJGy01GE6KIq4KvZdiWsS1EEdcF38iwI2NHiCJuCr6VYVfGrhBF3BZ8J8OejD0hirgr+F6GfRn7QlQcCNwX/DDDgYwDIYp4JPhxhqcyngpRxBPBzzIcyjgUoojngl9kOJJxJEQRLwW/ynAs41iIihuB14LfZjiRcSJEEe8Ev89wKuNUiCI+CP6Y4UzGmRBFfBL8OcO5jHMhivgi+GuGCxkXQlS8CXn4e4ZLGZdCFPFD8M8Mv2X8FqKIX4L/ZPgr468QRXn4n/4B72JptdFORIcAAAAASUVORK5CYII="
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&resize=cover&quality=80&format=origin",
+            "caller": "none",
+            "cacheProbe": true,
+            "headers": {
+              "x-request-id": "render.geometry.2"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-b39e6932594e5805889ba249b9b49ebd\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.geometry.2"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20",
+            "caller": "none",
+            "headers": {
+              "if-none-match": "<etag>",
+              "x-request-id": "render.geometry.3"
+            }
+          },
+          "response": {
+            "status": 304,
+            "headers": {
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-b39e6932594e5805889ba249b9b49ebd\"",
+              "vary": "Origin",
+              "x-request-id": "render.geometry.3"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&resize=contain",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.geometry.4"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-18e4d8d3b994929f8c892faf32a3d94e\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.geometry.4"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAKCAYAAAC0VX7mAAABdUlEQVR4nG3Mv6rWMBiA8YND7fC+8AURGjI7CHV3EOrqJnV1Ezq6Sjdn6eQFSAdvwApumVPIXRj8L+So3Z9D9EzxG37LMzwXl6eGIpuGQxuSa7C+oY0NGhpkr4SbSLyB+FuI+4jogZiMnC7/urg8dRTZdBzakVyH9R1t7NDQIXslWCTeRvwdxCVE/9TDniKbnkN7kuuxvqeNPRp6ZK+Ee0i8i/j7iPt0bjhQZDNw6EByA9YPtHFAw4DslfAQiQ8Q/whxn88NR4psRg4dSW7E+pE2jmgYkb0SniDxMeKfIu7LueFEkc3EoRPJTVg/0cYJDROyV0qLzxD/HHFfEf1dD2eKbGYOnUluxvqZNs5omJG9Ulp8gfiXiPt2Pfw3ux4uFNksHLqQ3IL1C21c0LAge6W0+ArxrxH3/dxwpchm5dCV5FasX2njioYV2SulxTeIf4u4H4j+qocbRTYbh24kt2H9Rhs3NGzIXgnvkfgO8R8Q9/O/4RUPmLZXf0lf/gAAAABJRU5ErkJggg=="
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&resize=fill&download=",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.geometry.5"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-disposition": "attachment; filename*=UTF-8''photo.png",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-d3efec61591971053f986498bf03542a\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.geometry.5"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAACn0lEQVR4nHXMvauzNRiA8VMXH+p94wlU8DFQEISKg1BdpLoIfSehm9RNu2ndXuqkdFLqItJFsA4OdnCxg4MFIXMC+S+M3x/kqNkviTi8xHb4Lddw3dzdDqiyGVB0QLIDejegiwPUD5DQ8A8h8QZxjyL2O0QLYjJye/evm7vbIVU2Q4oOSXZI74Z0cYj6IRIa/hEkPoy4xxGbLg1HVNmMKDoi2RG9G9HFEepHSGj4x5B4i7gnrw3HVNmMKTom2TG9G9PFMerHSGjUFp9A3DOI/R7Rv9vhhCqbCUUnJDuhdxO6OEH9BAkN/zQSn0Lc89eGU6psphSdkuyU3k3p4hT1UyQ0/HNIfBZxLyH2h0vDGVU2M4rOSHZG72Z0cYb6GRIa/kUkvoC4e9eGc6ps5hSdk+yc3s3p4hz1cyQ0/D0kvoy4BWJ/vDRcUGWzoOiCZBf0bkEXF6hfIKFRW3wFcUvE/nRpuKTKZknRJcku6d2SLi5Rv0RCw7+GxFcR98Z/w7/a4YoqmxVFVyS7oncrurhC/QoJjdri64h7C7E/XxquqbJZU3RNsmt6t6aLa9SvkdDwbyPxTcTdvzbcUGWzoeiGZDf0bkMXN6jfIKHh30HifcS9i9hfLg23VNlsKbol2S2929LFLeq3SGjUFt9D3PsPDO8eHO6ostlRdEeyO3q3o4s71O+Q0PAfIvEDxH2E2F8vDfdU2ewpuifZPb3b08U96vdIaNQWP0bcJ9eGB6psDhQ9kOyB3h3o4gH1ByQ0/GdI/BRxnyP2N0T/bIdHqmyOFD2S7JHeHeniEfVHJDRqi18g7kvE/n5peKLK5kTRE8me6N2JLp5Qf0JCo7b4FeK+vjY8U2VzpuiZZM/07kwXz6g/I6FRW/wGcd8i9o//Df8Bu/dswP6Dtk4AAAAASUVORK5CYII="
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=19",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.geometry.6"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-939746d680f53877654e6fa691b03d9c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.geometry.6"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABMAAAAKCAYAAABWiWWfAAABV0lEQVR4nG3ML87VQBhG8VvzBvGkuRlVgkM3SOwbLLLB48oCUGUDmLICTHfwJSVUYBAkkxrEYDAINjBwEyD8KzlkUB9Nxc8ccU6Xs1HkYGxmLG5UyaijofVAvIHSCflLZH9QyOh8+ed0OTcUOTRs1rB4Q5Ua6tigde8mirdQqpG/QrbtZy1FDi2btSzeUqWWOrZoPRDvoHQb+Wtkv1H4dH3mFDk4mzmLO1Vy6uhoPRDvoXQX+Rtkv/azjiKHjs06Fu+oUkcdO7QeiA9Quo98RfZzP+spcujZrGfxnir11LFH64H4CKWHyN8i+7GfDRQ5DGw2sPhAlQbqOKD1QHyC0mPk75B9R+Hz9dlIkcPIZiOLj1RppI4jWg/EZyg9Rf4e2bf9bKLIYWKzicUnqjRRxwmtB0pPz5F/QPZ1P5spcpjZbGbxmSrN1HFG64H4AqUr5B+Rfflv9heaxqBs0WELmwAAAABJRU5ErkJggg=="
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?height=15",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.geometry.7"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-393020ca14a4670fc1f05ec72cc72022\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.geometry.7"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAAB4AAAAPCAYAAADzun+cAAAB3UlEQVR4nI3NravTURjA8YcVQR7YPXiCYcEkLJiEgdEF6w/ME/Pw5OEtBxmoRRgiBmGIIAgTiwgTm+FBfsFmef6H48stvuHL13LTke2e8MkfOToYUCtxADIgpwHiA4IN0L6RnUJd0HSICmgs6MHRf+ToYEitxCHIkJyGiA8JNkT7RnbmOL51HH/cFY+olTgCGZHTCPERwUZo38jOoX4aTXdOisfUShyDjMlpjPiYYGO0b2QXUD+LpnsnxRNqJU5AJuQ0QXxCsAnaN7JLqJ9H04OT4im1EqcgU3KaIj4l2BTtG9kV1C+i6dFx/GlX3FErsQPpyKlDvCNYh/aN7Crql9H0BJW/++IZtRJnIDNymiE+I9gM7RvZddQ7ND1D5c++eE6txDnInJzmiM8JNkf7RnYD9WtoeoHK733xglqJC5AFOS0QXxBsgfaN7CbqN9D0CpVfaPy8K15SK3EJsiSnJeJLgi3RvpHdRv0QTW9Q+bkvXlErcQWyIqcV4iuCrdC+kd1H/S6a3qLyY1+8plbiGmRNTmvE1wRbo30je4z6QzS9Q+X7vnhDrcQNyIacNohvCLZB+0b2HPWnaHqPyjc0ftkVb6mVuAXZktMW8S3BtmjfyF6j/hJNH1D5ujP+B3W/2oTuhSTRAAAAAElFTkSuQmCC"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"avatars\",\"path\":\"photo.png\",\"key\":\"avatars/<backend-id-1>\",\"size\":{\"$numberInt\":\"245\"},\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ],
+        "storage_variants": [
+          "{\"_id\":\"avatars/<backend-id-1>.variants/18e4d8d3b994929f8c892faf32a3d94e\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/393020ca14a4670fc1f05ec72cc72022\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/939746d680f53877654e6fa691b03d9c\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/b39e6932594e5805889ba249b9b49ebd\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/d3efec61591971053f986498bf03542a\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}"
+        ]
+      }
+    },
+    {
+      "id": "formats",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.formats.0"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYII="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.formats.0"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"photo.png\",\"size\":245,\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&format=jpeg&quality=20",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.formats.1"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/jpeg",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-958837fff768b1690c31dbb6b319ecf2\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.1"
+            },
+            "bodyBase64": "/9j/4AAQSkZJRgABAgAAAQABAAD/wAARCAAUABQDAREAAhEBAxEB/9sAQwAoHB4jHhkoIyEjLSsoMDxkQTw3Nzx7WF1JZJGAmZaPgIyKoLTmw6Cq2q2KjMj/y9ru9f///5vB////+v/m/f/4/9sAQwErLS08NTx2QUF2+KWMpfj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4+Pj4/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwBMVzcpwBijlAMUcoDsVvyiDFHKAYo5QHVtYQUWASiwH//Z"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&format=jpeg&quality=95",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.formats.2"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/jpeg",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-77388f1b2b568a2142637bd21ffbe539\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.2"
+            },
+            "bodyBase64": "/9j/4AAQSkZJRgABAgAAAQABAAD/wAARCAAUABQDAREAAhEBAxEB/9sAQwACAQEBAQECAQEBAgICAgIEAwICAgIFBAQDBAYFBgYGBQYGBgcJCAYHCQcGBggLCAkKCgoKCgYICwwLCgwJCgoK/9sAQwECAgICAgIFAwMFCgcGBwoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoK/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCl/ZXTjtX8Z/6p/wB0/wAvpV/efqw/so+go/1T/ui9uMm0rkZHaumhwn7r93qXCvodN/ZZ4+Tt6V/SH+qf908SVdcz9WL/AGYf7h/Kj/VPyJ9uiKfTfmHy/wANb0eFLRfumkK+h0YgjwOO1fvf9nYRfZPIlOSm/Vh5EfpR/Z2E/lJ9pIint4tw+X+GtKeXYS3wmkJysf/Z"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&format=avif&quality=80",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.formats.3"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/avif",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-3c28e646a33321e4b40f159293db4ff1\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.3"
+            },
+            "bodyBase64": "AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUEAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAAEwAAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAABQAAAAUAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgSAAAAAAABNjb2xybmNseAACAAIAAoAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAAFRtZGF0EgAKBTgRJzYJMkETQAIIIIQAzwoBS4pyCerRJ8ZV/A5i1DJMLurfrlZQfC+PDrZyM9yVot1UgCESVgH9xmJikHTrxwKyUmgBuPu3MA=="
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&format=png",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.formats.4"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-1bf30d956443241a7ac95d0b3b056394\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.4"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABFklEQVR4nKXMoUoDABQF0K2IPG5wsiLCgiArgiwYnEGQBYMIFhcMMrA4weLAIsPkwOSwTZvDpkb9gBce96euvG944dTTaHlTxqYQRWwIvqJGy01GE6KIq4KvZdiWsS1EEdcF38iwI2NHiCJuCr6VYVfGrhBF3BZ8J8OejD0hirgr+F6GfRn7QlQcCNwX/DDDgYwDIYp4JPhxhqcyngpRxBPBzzIcyjgUoojngl9kOJJxJEQRLwW/ynAs41iIihuB14LfZjiRcSJEEe8Ev89wKuNUiCI+CP6Y4UzGmRBFfBL8OcO5jHMhivgi+GuGCxkXQlS8CXn4e4ZLGZdCFPFD8M8Mv2X8FqKIX4L/ZPgr468QRXn4n/4B72JptdFORIcAAAAASUVORK5CYII="
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20&format=webp",
+            "caller": "none",
+            "rustError": "Lossy WebP output is not supported",
+            "headers": {
+              "x-request-id": "render.formats.5"
+            }
+          },
+          "image": true,
+          "rustResponse": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.formats.5"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Lossy WebP output is not supported\",\"instance\":\"/storage/v1/render/image/public/avatars/photo.png\",\"requestId\":\"render.formats.5\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/webp",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-15180a9877a8a41e5e0db691b501ac8e\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.5"
+            },
+            "bodyBase64": "UklGRmoAAABXRUJQVlA4IF4AAABwAwCdASoUABQAPm0okUWkIiGYDAYAQAbEsQBdmbIBLNXB2AAA+Fd0A72X/zCzs/wWd3vtrPf/9jN//ozf/6tD+WtoVYvKfWOH/XWGU0uTPexjQqRxAAkuAI2bwAAA"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/input.webp",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/webp",
+              "x-request-id": "render.formats.6"
+            },
+            "bodyBase64": "UklGRqwAAABXRUJQVlA4IKAAAABwBgCdASowABgAPmUmjkWkIiEhNUgAgAyJaACnTY3+Ac7RgXtdEY/s34q13/ugH9mBGUcVfBSD2zHmIQAA/u2n/u1Lf/iY/8VNhWGd71hjVU+nU4wHvgNcP/fsi640eLQAmqTq8uwn4/U8VbtqwNzP/EheHFAhLa/+FNTbUddguyjCxUCo4WkFgsdOvOVx6I6CwF5v940oKqpdk7AngAAA"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.formats.6"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"input.webp\",\"size\":180,\"contentType\":\"image/webp\",\"etag\":\"b52a351c3546e228640c32f40bbb1ed7f2e050448c8557544f54837633569b0a\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/input.webp?width=20&format=png",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.formats.7"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"b52a351c3546e228640c32f40bbb1ed7f2e050448c8557544f54837633569b0a-63dafcca02416f13c6999676eea525fe\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.7"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAKCAIAAAA7N+mxAAAB+ElEQVR4nF3Qy2sTURTA4Vnkwdx75z7GRuO46YyZaKEkokupKeJWMCJu3NsoguumQrcmRfQ/cFp17zSpSdy4yjyjBTHBIgjitknmkUzRVZlINQgfZ/fjHA43zIBhBhyeBlOa6ueTaptPfEpDO8U7Sd5J8U46ZvPpfY6+zwG1h/GUsCmhEaERNxKlkSgdLkhTnO3nMvmWlOhJ0MwC+wyws8CSgHUWmOf4jwuscwXk9gkO52JaHNHikBUjtNxXltS9QtItYKOAzCIyC8i8FDMuQ3dZbN+A5z9jEhI2iXs25Txa8mhpxEoRWhkoK2rzespdpd1rxCj9011FzlWxdQ8qg/hs0ScsJCzkPFr2aHnEyhG63VfKavNu0rlDurewMadbRs5NsfUYKV8xjog4JswjzON8UvFJZUwrEap8UdbUvUcJ96FgrCGr8pdgPoDOfdbaRPK32eaTOKDVgFY9Vj1CGwO5mm9uJt0NaK1DuwpOQOsJdNdZ+wWSv2M8md9c80ltTGtHsD5YrF9oPE+6W8B6yts13qrzdj2e5jPQ22Lt7f/jCdEmRAuo9htqB7K21HiTdncE6yWyNWRvz+wg8zV0X7FOA8k/MA5mD4txIdFDrAdU/wX0g0X9YuNd2tnF5lvB1AVz9w9sNKHTFDsfkPxTIL5wyhfEQBCDY5b/8G6ZmV1sAAAAAElFTkSuQmCC"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/input.webp?width=20",
+            "caller": "none",
+            "rustError": "Lossy WebP output is not supported",
+            "headers": {
+              "x-request-id": "render.formats.8"
+            }
+          },
+          "image": true,
+          "rustResponse": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.formats.8"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Lossy WebP output is not supported\",\"instance\":\"/storage/v1/render/image/public/avatars/input.webp\",\"requestId\":\"render.formats.8\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/webp",
+              "etag": "\"b52a351c3546e228640c32f40bbb1ed7f2e050448c8557544f54837633569b0a-eacc7583dcb097b8c0e8fe9eb3633e14\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.8"
+            },
+            "bodyBase64": "UklGRoIAAABXRUJQVlA4IHYAAAAwBQCdASoUAAoAPm0skUWkIqGYBABABsS2AE6ZQjgbwD8YPxm5AIgBUIGSAAOrWxP1gAD+6/r40nboK4/dby2ciHsE4vo3UY4Lw/o/5Fj6beRWT/j/8kFkl5bCXX/lgeyafXDeT2IHQF/gL/+Av/4BWERQTWAA"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/input.avif",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/avif",
+              "x-request-id": "render.formats.9"
+            },
+            "bodyBase64": "AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUEAAADybWV0YQAAAAAAAAAoaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAGxpYmF2aWYAAAAADnBpdG0AAAAAAAEAAAAeaWxvYwAAAABEAAABAAEAAAABAAABGgAAAJYAAAAoaWluZgAAAAAAAQAAABppbmZlAgAAAAABAABhdjAxQ29sb3IAAAAAamlwcnAAAABLaXBjbwAAABRpc3BlAAAAAAAAADAAAAAYAAAAEHBpeGkAAAAAAwgICAAAAAxhdjFDgSAAAAAAABNjb2xybmNseAACAAIAAoAAAAAXaXBtYQAAAAAAAAABAAEEAQKDBAAAAJ5tZGF0EgAKBjgVL7sEgDKJARNAAggghQDxMnF9/rukhPn236onePMsqyW7ud4wZGbex0Og1k9J4TDKz3f0E6fHvHVB3d/bPGBuGWqPZH4T3+wQdQj1wWz3IJPRC0MM64YiBc8kjR9GBFA0kjECtAVN7FOO1TaXKFmAoQf7LO5iiewhlxPTfBw8SnS3F9Fu5cPu/zqr5cwv2jnQ"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.formats.9"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"input.avif\",\"size\":432,\"contentType\":\"image/avif\",\"etag\":\"e522756890034c3a750e44c9953bcd3e4af5eacb4fa784d2083baa13ad88a42f\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/input.avif?width=20&format=png",
+            "caller": "none",
+            "rustError": "AVIF input is not supported",
+            "headers": {
+              "x-request-id": "render.formats.10"
+            }
+          },
+          "image": true,
+          "rustResponse": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.formats.10"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"AVIF input is not supported\",\"instance\":\"/storage/v1/render/image/public/avatars/input.avif\",\"requestId\":\"render.formats.10\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"e522756890034c3a750e44c9953bcd3e4af5eacb4fa784d2083baa13ad88a42f-63dafcca02416f13c6999676eea525fe\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.formats.10"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAKCAYAAAC0VX7mAAABr0lEQVR4nG3SP28ScRzH8Q4Wyv2+PzgcDPyu7ialfQCaCJOrCTi5i90cW9wctTj4BCwOPgCvSRfh6tTfweFzAKox/gmHBee3uYhRzxte+W7vfIbvRlzOkZhfzbEqbvLB28Sc5XHGeYo2hw5TbB55fwXnXRVtJogsEXeBlH7ZWLgVEnG5wkpXmHkVzJmhMDYUbRUdpliDRNdwghtoc7EOxn8FSzUSsVtjqWtMtncwwR6F8S5id5Ewxe6hRjs4/Zvo6seMoNsgEZcbLHWdqXcbL6izNa6jwiwNZHgL9fYOuvoJkVU62CQRl5ssdYup18IL7lEYtxDbRMIU20IP7+L07yPmc9bCNr+tdJuZ18Yb7FOIHqLDDHaf0ugBKniEMl/+D34vdUgs3A4/5JALc8D1/iFq1KFoO+gwxT6mNDpABU9Q5mtWsEti4XZZSZeZ6bLdf44z6qLPnyH2CLHJXTs/Qg+fovovEPMtK3hMYuEes5QeU6+HN3hFIeohYQ+VZnuo6CVq8Boxc0Qu/w3Grk9iXva5FJ+J8TGDE7YiH2V9VJhiT1DRG9TgFDHxOvjnsX8CYwy2UKe993gAAAAASUVORK5CYII="
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"avatars\",\"path\":\"input.avif\",\"key\":\"avatars/<backend-id-1>\",\"size\":{\"$numberInt\":\"432\"},\"contentType\":\"image/avif\",\"etag\":\"e522756890034c3a750e44c9953bcd3e4af5eacb4fa784d2083baa13ad88a42f\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}",
+          "{\"_id\":{\"$oid\":\"<object-id-2>\"},\"bucket\":\"avatars\",\"path\":\"input.webp\",\"key\":\"avatars/<backend-id-2>\",\"size\":{\"$numberInt\":\"180\"},\"contentType\":\"image/webp\",\"etag\":\"b52a351c3546e228640c32f40bbb1ed7f2e050448c8557544f54837633569b0a\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}",
+          "{\"_id\":{\"$oid\":\"<object-id-3>\"},\"bucket\":\"avatars\",\"path\":\"photo.png\",\"key\":\"avatars/<backend-id-3>\",\"size\":{\"$numberInt\":\"245\"},\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ],
+        "storage_variants": [
+          "{\"_id\":\"avatars/<backend-id-2>.variants/63dafcca02416f13c6999676eea525fe\",\"key\":\"avatars/<backend-id-2>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-3>.variants/1bf30d956443241a7ac95d0b3b056394\",\"key\":\"avatars/<backend-id-3>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-3>.variants/3c28e646a33321e4b40f159293db4ff1\",\"key\":\"avatars/<backend-id-3>\",\"size\":\"<image-size>\",\"contentType\":\"image/avif\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-3>.variants/77388f1b2b568a2142637bd21ffbe539\",\"key\":\"avatars/<backend-id-3>\",\"size\":\"<image-size>\",\"contentType\":\"image/jpeg\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-3>.variants/958837fff768b1690c31dbb6b319ecf2\",\"key\":\"avatars/<backend-id-3>\",\"size\":\"<image-size>\",\"contentType\":\"image/jpeg\",\"createdAt\":\"<createdAt>\"}"
+        ]
+      }
+    },
+    {
+      "id": "authorization",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.authorization.0"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYII="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.authorization.0"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"photo.png\",\"size\":245,\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/object/avatars/photo.png?width=20",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.authorization.1"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.authorization.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Unknown API key\",\"instance\":\"/storage/v1/render/image/object/avatars/photo.png\",\"requestId\":\"render.authorization.1\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/object/avatars/photo.png?width=20",
+            "caller": "bob",
+            "headers": {
+              "x-request-id": "render.authorization.2"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.authorization.2"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/render/image/object/avatars/photo.png\",\"requestId\":\"render.authorization.2\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/object/avatars/photo.png?width=20",
+            "caller": "service",
+            "headers": {
+              "x-request-id": "render.authorization.3"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-eacc7583dcb097b8c0e8fe9eb3633e14\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.authorization.3"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAKCAYAAAC0VX7mAAABdUlEQVR4nG3Mv6rWMBiA8YND7fC+8AURGjI7CHV3EOrqJnV1Ezq6Sjdn6eQFSAdvwApumVPIXRj8L+So3Z9D9EzxG37LMzwXl6eGIpuGQxuSa7C+oY0NGhpkr4SbSLyB+FuI+4jogZiMnC7/urg8dRTZdBzakVyH9R1t7NDQIXslWCTeRvwdxCVE/9TDniKbnkN7kuuxvqeNPRp6ZK+Ee0i8i/j7iPt0bjhQZDNw6EByA9YPtHFAw4DslfAQiQ8Q/whxn88NR4psRg4dSW7E+pE2jmgYkb0SniDxMeKfIu7LueFEkc3EoRPJTVg/0cYJDROyV0qLzxD/HHFfEf1dD2eKbGYOnUluxvqZNs5omJG9Ulp8gfiXiPt2Pfw3ux4uFNksHLqQ3IL1C21c0LAge6W0+ArxrxH3/dxwpchm5dCV5FasX2njioYV2SulxTeIf4u4H4j+qocbRTYbh24kt2H9Rhs3NGzIXgnvkfgO8R8Q9/O/4RUPmLZXf0lf/gAAAABJRU5ErkJggg=="
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/sign/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "render.authorization.4"
+            },
+            "body": "{\"expiresIn\":60}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.authorization.4"
+            },
+            "body": "{\"url\":\"/storage/v1/signed/avatars/photo.png?token=<signed-token>\",\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/signed/avatars/photo.png?width=20&token=<signed-token>",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.authorization.5"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-eacc7583dcb097b8c0e8fe9eb3633e14\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.authorization.5"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAKCAYAAAC0VX7mAAABdUlEQVR4nG3Mv6rWMBiA8YND7fC+8AURGjI7CHV3EOrqJnV1Ezq6Sjdn6eQFSAdvwApumVPIXRj8L+So3Z9D9EzxG37LMzwXl6eGIpuGQxuSa7C+oY0NGhpkr4SbSLyB+FuI+4jogZiMnC7/urg8dRTZdBzakVyH9R1t7NDQIXslWCTeRvwdxCVE/9TDniKbnkN7kuuxvqeNPRp6ZK+Ee0i8i/j7iPt0bjhQZDNw6EByA9YPtHFAw4DslfAQiQ8Q/whxn88NR4psRg4dSW7E+pE2jmgYkb0SniDxMeKfIu7LueFEkc3EoRPJTVg/0cYJDROyV0qLzxD/HHFfEf1dD2eKbGYOnUluxvqZNs5omJG9Ulp8gfiXiPt2Pfw3ux4uFNksHLqQ3IL1C21c0LAge6W0+ArxrxH3/dxwpchm5dCV5FasX2njioYV2SulxTeIf4u4H4j+qocbRTYbh24kt2H9Rhs3NGzIXgnvkfgO8R8Q9/O/4RUPmLZXf0lf/gAAAABJRU5ErkJggg=="
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/signed/avatars/photo.png?width=20&token=<expired-token>",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.authorization.6"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.authorization.6"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"The signed URL is not valid or has expired\",\"instance\":\"/storage/v1/render/image/signed/avatars/photo.png\",\"requestId\":\"render.authorization.6\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/docs/file.txt?width=20",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.authorization.7"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.authorization.7"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/render/image/public/docs/file.txt\",\"requestId\":\"render.authorization.7\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"avatars\",\"path\":\"photo.png\",\"key\":\"avatars/<backend-id-1>\",\"size\":{\"$numberInt\":\"245\"},\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ],
+        "storage_variants": [
+          "{\"_id\":\"avatars/<backend-id-1>.variants/eacc7583dcb097b8c0e8fe9eb3633e14\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}"
+        ]
+      }
+    },
+    {
+      "id": "limits",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.limits.0"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYII="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.limits.0"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"photo.png\",\"size\":245,\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=2501",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.limits.1"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.limits.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"width must be a whole number from 1 to 2500\",\"instance\":\"/storage/v1/render/image/public/avatars/photo.png\",\"requestId\":\"render.limits.1\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?quality=101",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.limits.2"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.limits.2"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"quality must be a whole number from 20 to 100\",\"instance\":\"/storage/v1/render/image/public/avatars/photo.png\",\"requestId\":\"render.limits.2\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?resize=crop",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.limits.3"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.limits.3"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"resize must be cover, contain or fill\",\"instance\":\"/storage/v1/render/image/public/avatars/photo.png\",\"requestId\":\"render.limits.3\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?format=gif",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.limits.4"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.limits.4"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"format must be origin, webp, avif, jpeg or png\",\"instance\":\"/storage/v1/render/image/public/avatars/photo.png\",\"requestId\":\"render.limits.4\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/large.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.limits.5"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYIIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.limits.5"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"large.png\",\"size\":513,\"contentType\":\"image/png\",\"etag\":\"3bbb6cb90ca0313016faa530ccce05d0381d72bb8f3705174739c7b842d784a9\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/large.png",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.limits.6"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.limits.6"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Images larger than 512 bytes cannot be transformed\",\"instance\":\"/storage/v1/render/image/public/avatars/large.png\",\"requestId\":\"render.limits.6\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/bad.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.limits.7"
+            },
+            "bodyBase64": "aW52YWxpZCBpbWFnZQ=="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.limits.7"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"bad.png\",\"size\":13,\"contentType\":\"image/png\",\"etag\":\"97a633658ba5a476b05de0b3de492392cec2c2b835f6e9e14698cb39f7ae06cc\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/bad.png",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.limits.8"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.limits.8"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The file is not an image that can be decoded\",\"instance\":\"/storage/v1/render/image/public/avatars/bad.png\",\"requestId\":\"render.limits.8\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "render.limits.9"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.limits.9"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "render.limits.10"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.limits.10"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Only JPEG, PNG, WebP, AVIF, GIF and BMP images can be transformed\",\"instance\":\"/storage/v1/render/image/object/docs/file.txt\",\"requestId\":\"render.limits.10\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"avatars\",\"path\":\"bad.png\",\"key\":\"avatars/<backend-id-1>\",\"size\":{\"$numberInt\":\"13\"},\"contentType\":\"image/png\",\"etag\":\"97a633658ba5a476b05de0b3de492392cec2c2b835f6e9e14698cb39f7ae06cc\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}",
+          "{\"_id\":{\"$oid\":\"<object-id-2>\"},\"bucket\":\"avatars\",\"path\":\"large.png\",\"key\":\"avatars/<backend-id-2>\",\"size\":{\"$numberInt\":\"513\"},\"contentType\":\"image/png\",\"etag\":\"3bbb6cb90ca0313016faa530ccce05d0381d72bb8f3705174739c7b842d784a9\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}",
+          "{\"_id\":{\"$oid\":\"<object-id-3>\"},\"bucket\":\"avatars\",\"path\":\"photo.png\",\"key\":\"avatars/<backend-id-3>\",\"size\":{\"$numberInt\":\"245\"},\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}",
+          "{\"_id\":{\"$oid\":\"<object-id-4>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-4>\",\"size\":{\"$numberInt\":\"10\"},\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ],
+        "storage_variants": []
+      }
+    },
+    {
+      "id": "cache-cap-and-invalidation",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.cache-cap-and-invalidation.0"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYII="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.cache-cap-and-invalidation.0"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"photo.png\",\"size\":245,\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=1",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.1"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-7ff880f7037393663186ae031f42be9a\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.1"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=2",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.2"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-fbca657e51d87b6ed1f377d9a8ce56f3\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.2"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=3",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.3"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-c5c2ff478e7f7cf13af7a91d11f0a78f\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.3"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=4",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.4"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-54c118bf3e18a9bbb5ce5efb93d016f7\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.4"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=5",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.5"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-39c06283842c127a47e4457337d7c6e1\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.5"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=6",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.6"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-32da1eece8aa17f425f58326c696516c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.6"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=7",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.7"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-9889ba683fc294a1382ac78541e4df8c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.7"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=8",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.8"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-bec37873ab1953e887f3ea5153672147\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.8"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=9",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.9"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-b6bcace4847007a04ec2992bc79d40de\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.9"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=10",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.10"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-6115f9b68e1697fb79e53050b03ed0f6\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.10"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=11",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.11"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-ce8c41cfd8f8f54fa1f2a60ab14bd290\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.11"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=12",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.12"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-32c8683368aaf56d76a2e58bf23d8eca\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.12"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=13",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.13"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-66db3ed9df02758207db3e2ab0fb9abb\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.13"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=14",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.14"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-89127d069e02b19f72952d9b5bc2e80c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.14"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=15",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.15"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-1e855c85116b80997b3d95a63384a3ba\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.15"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=16",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.16"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-9223f043da01b4be5a8352403facdb0c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.16"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=17",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.17"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-a771c43a4b66a2a663f7ee0fef549953\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.17"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=18",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.18"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-ba1aa2b8221a0990c716e7ae7cbbf363\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.18"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=19",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.19"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-939746d680f53877654e6fa691b03d9c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.19"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.20"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-eacc7583dcb097b8c0e8fe9eb3633e14\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.20"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=21",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.21"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-880bda66a935515d5cc84e240422168b\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.21"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=22",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.22"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-c769b5697126a52d13eff5d6306358df\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.22"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=23",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.23"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-e7fe605c7121c8746e8884c88a0147ba\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.23"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=24",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.24"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-2258b7becbe731f6f068eece7245a557\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.24"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=25",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.25"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-caa52e26ddd36d87e0434177897f760c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.25"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=26",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.26"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-458fef62765029ec45ba373fb47aa112\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.26"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.27"
+            }
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "vary": "Origin",
+              "x-request-id": "render.cache-cap-and-invalidation.27"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.28"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "render.cache-cap-and-invalidation.28"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/render/image/public/avatars/photo.png\",\"requestId\":\"render.cache-cap-and-invalidation.28\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.cache-cap-and-invalidation.29"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYII="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.cache-cap-and-invalidation.29"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"photo.png\",\"size\":245,\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20&height=20",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap-and-invalidation.30"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-b39e6932594e5805889ba249b9b49ebd\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap-and-invalidation.30"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAABFklEQVR4nKXMoUoDABQF0K2IPG5wsiLCgiArgiwYnEGQBYMIFhcMMrA4weLAIsPkwOSwTZvDpkb9gBce96euvG944dTTaHlTxqYQRWwIvqJGy01GE6KIq4KvZdiWsS1EEdcF38iwI2NHiCJuCr6VYVfGrhBF3BZ8J8OejD0hirgr+F6GfRn7QlQcCNwX/DDDgYwDIYp4JPhxhqcyngpRxBPBzzIcyjgUoojngl9kOJJxJEQRLwW/ynAs41iIihuB14LfZjiRcSJEEe8Ev89wKuNUiCI+CP6Y4UzGmRBFfBL8OcO5jHMhivgi+GuGCxkXQlS8CXn4e4ZLGZdCFPFD8M8Mv2X8FqKIX4L/ZPgr468QRXn4n/4B72JptdFORIcAAAAASUVORK5CYII="
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"avatars\",\"path\":\"photo.png\",\"key\":\"avatars/<backend-id-1>\",\"size\":{\"$numberInt\":\"245\"},\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ],
+        "storage_variants": [
+          "{\"_id\":\"avatars/<backend-id-1>.variants/b39e6932594e5805889ba249b9b49ebd\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}"
+        ]
+      }
+    },
+    {
+      "id": "cache-cap",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/photo.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "render.cache-cap.0"
+            },
+            "bodyBase64": "iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAYAAAC8/X7cAAAAvElEQVR4nLXPEUJFAQBE0YfBwGAYhmEYhmEYhh/DMAzDMAxbwizn7WBaw4WBs4BznD5KKGM+keP0VQllzDjgEsqYceC6hDJmHLgpoYwZB25LKGPGgbsSyphx4L6EMmYceCihjBkHHksoY8aBpxLKmHHguYQyZhx4KaGMGQdeSyhjxoFLCWXMOPBWQhkzDryXUMaMAx8llDHjwGcJZcw48FVCGTMOfJdQxowDPyWUMePAbwllzDjwV0IZg4F/xhjdCOutPlQAAAAASUVORK5CYII="
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "render.cache-cap.0"
+            },
+            "body": "{\"bucket\":\"avatars\",\"path\":\"photo.png\",\"size\":245,\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=1",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.1"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-7ff880f7037393663186ae031f42be9a\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.1"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=2",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.2"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-fbca657e51d87b6ed1f377d9a8ce56f3\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.2"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=3",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.3"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-c5c2ff478e7f7cf13af7a91d11f0a78f\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.3"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=4",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.4"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-54c118bf3e18a9bbb5ce5efb93d016f7\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.4"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=5",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.5"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-39c06283842c127a47e4457337d7c6e1\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.5"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=6",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.6"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-32da1eece8aa17f425f58326c696516c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.6"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=7",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.7"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-9889ba683fc294a1382ac78541e4df8c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.7"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=8",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.8"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-bec37873ab1953e887f3ea5153672147\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.8"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=9",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.9"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-b6bcace4847007a04ec2992bc79d40de\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.9"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=10",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.10"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-6115f9b68e1697fb79e53050b03ed0f6\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.10"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=11",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.11"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-ce8c41cfd8f8f54fa1f2a60ab14bd290\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.11"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=12",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.12"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-32c8683368aaf56d76a2e58bf23d8eca\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.12"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=13",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.13"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-66db3ed9df02758207db3e2ab0fb9abb\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.13"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=14",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.14"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-89127d069e02b19f72952d9b5bc2e80c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.14"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=15",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.15"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-1e855c85116b80997b3d95a63384a3ba\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.15"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=16",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.16"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-9223f043da01b4be5a8352403facdb0c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.16"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=17",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.17"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-a771c43a4b66a2a663f7ee0fef549953\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.17"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=18",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.18"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-ba1aa2b8221a0990c716e7ae7cbbf363\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.18"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=19",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.19"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-939746d680f53877654e6fa691b03d9c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.19"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=20",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.20"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-eacc7583dcb097b8c0e8fe9eb3633e14\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.20"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=21",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.21"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-880bda66a935515d5cc84e240422168b\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.21"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=22",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.22"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-c769b5697126a52d13eff5d6306358df\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.22"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=23",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.23"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-e7fe605c7121c8746e8884c88a0147ba\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.23"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=24",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.24"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-2258b7becbe731f6f068eece7245a557\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.24"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=25",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.25"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-caa52e26ddd36d87e0434177897f760c\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.25"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/render/image/public/avatars/photo.png?width=26",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "render.cache-cap.26"
+            }
+          },
+          "image": true,
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "public, max-age=3600",
+              "content-length": "<image-size>",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "image/png",
+              "etag": "\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6-458fef62765029ec45ba373fb47aa112\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "render.cache-cap.26"
+            },
+            "body": ""
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"avatars\",\"path\":\"photo.png\",\"key\":\"avatars/<backend-id-1>\",\"size\":{\"$numberInt\":\"245\"},\"contentType\":\"image/png\",\"etag\":\"45bc5da223e53330872e2220a80ccb164f37213df078df24181a158e5ab54cc6\",\"owner\":null,\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ],
+        "storage_variants": [
+          "{\"_id\":\"avatars/<backend-id-1>.variants/1e855c85116b80997b3d95a63384a3ba\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/2258b7becbe731f6f068eece7245a557\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/32c8683368aaf56d76a2e58bf23d8eca\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/32da1eece8aa17f425f58326c696516c\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/39c06283842c127a47e4457337d7c6e1\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/54c118bf3e18a9bbb5ce5efb93d016f7\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/6115f9b68e1697fb79e53050b03ed0f6\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/66db3ed9df02758207db3e2ab0fb9abb\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/7ff880f7037393663186ae031f42be9a\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/880bda66a935515d5cc84e240422168b\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/89127d069e02b19f72952d9b5bc2e80c\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/9223f043da01b4be5a8352403facdb0c\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/939746d680f53877654e6fa691b03d9c\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/9889ba683fc294a1382ac78541e4df8c\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/a771c43a4b66a2a663f7ee0fef549953\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/b6bcace4847007a04ec2992bc79d40de\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/ba1aa2b8221a0990c716e7ae7cbbf363\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/bec37873ab1953e887f3ea5153672147\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/c5c2ff478e7f7cf13af7a91d11f0a78f\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/c769b5697126a52d13eff5d6306358df\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/caa52e26ddd36d87e0434177897f760c\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/ce8c41cfd8f8f54fa1f2a60ab14bd290\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/e7fe605c7121c8746e8884c88a0147ba\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/eacc7583dcb097b8c0e8fe9eb3633e14\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}",
+          "{\"_id\":\"avatars/<backend-id-1>.variants/fbca657e51d87b6ed1f377d9a8ce56f3\",\"key\":\"avatars/<backend-id-1>\",\"size\":\"<image-size>\",\"contentType\":\"image/png\",\"createdAt\":\"<createdAt>\"}"
+        ]
+      }
+    }
+  ]
+}

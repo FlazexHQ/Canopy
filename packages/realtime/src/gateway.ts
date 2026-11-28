@@ -1,28 +1,35 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import type { JsonWebKey } from "node:crypto"
 import { existsSync } from "node:fs"
+import { readFile } from "node:fs/promises"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ResolvedConfig } from "@canopy/config"
+import { hostTarget, type NativeTarget } from "@canopy/native"
 import { type PolicySet, toStored } from "@canopy/policy"
 import { toCanonical } from "@canopy/protocol"
+import { gatewayExecutable, gatewayPackage, packagedGateway } from "./gateway-package.ts"
 import type { Logger } from "./logger.ts"
 import { directoryPolicies } from "./policy-source.ts"
 
-const BINARY = process.platform === "win32" ? "canopy-gateway.exe" : "canopy-gateway"
+const BINARY = gatewayExecutable(process.platform)
 
 /**
- * Finds the `canopy-gateway` executable: `CANOPY_GATEWAY_BIN`, else a release or debug build of the Cargo
- * workspace this package lives in, else one beside the running executable (the single file `canopy` binaries
- * ship it there), else one on `PATH`. Returns `undefined` when there is none.
+ * Finds the `canopyd` executable. `CANOPYD_BIN` (or the legacy `CANOPY_GATEWAY_BIN`) wins; otherwise the
+ * prebuilt platform package for `target` (this process's platform, musl or glibc on Linux) as installed with
+ * this package, then a release or debug Cargo build in a folder above `from`, a binary beside the running
+ * executable, and a binary on `PATH`. Returns `undefined` when there is none.
  */
 export function findGatewayBinary(
   env: NodeJS.ProcessEnv = process.env,
   execPath: string = process.execPath,
   from: string = dirname(fileURLToPath(import.meta.url)),
+  target: NativeTarget | undefined = hostTarget(),
 ): string | undefined {
-  const configured = env["CANOPY_GATEWAY_BIN"]
-  if (configured !== undefined && configured !== "") return resolve(configured)
+  const configured = env["CANOPYD_BIN"] || env["CANOPY_GATEWAY_BIN"]
+  if (configured) return resolve(configured)
+  const packaged = packagedGateway(target, from)
+  if (packaged !== undefined) return packaged
   let dir = from
   for (let depth = 0; depth < 6; depth += 1) {
     for (const profile of ["release", "debug"]) {
@@ -42,6 +49,29 @@ export function findGatewayBinary(
     if (existsSync(candidate)) return candidate
   }
   return undefined
+}
+
+/**
+ * Tells the user how to get `canopyd` when `findGatewayBinary` finds none for `target`, the platform of this
+ * process or `undefined` when it has no prebuilt `canopyd`.
+ */
+export function missingGatewayMessage(target: NativeTarget | undefined): string {
+  const build =
+    "set CANOPYD_BIN to a canopyd executable or build one with cargo build --release -p canopyd"
+  if (target === undefined)
+    return `No canopyd executable found, and none is prebuilt for ${process.platform} ${process.arch}: ${build}`
+  const platform = `${target.os} ${target.cpu}${target.libc === undefined ? "" : ` (${target.libc})`}`
+  return `No canopyd executable found. Install ${gatewayPackage(target)}, the prebuilt canopyd for ${platform} that @canopy/realtime lists as an optional dependency (reinstall without skipping optional dependencies), or ${build}`
+}
+
+/** The informational notice when development falls back to the TypeScript server. */
+export function gatewayFallbackMessage(): string {
+  const target = hostTarget()
+  const install =
+    target === undefined
+      ? "Set CANOPYD_BIN to a canopyd executable"
+      : `Install ${gatewayPackage(target)} to use canopyd`
+  return `No canopyd executable found. Using the TypeScript server. ${install}.`
 }
 
 /** The policies in the stored form the gateway reads: one document per collection plus the context lookups. */
@@ -68,6 +98,8 @@ export interface GatewayAuth {
 
 /** What a server that runs the gateway in front of itself changes in the gateway's configuration. */
 export interface GatewayOverrides {
+  /** The address the HTTP listener binds. */
+  readonly host?: string
   /** The port the gateway listens on. Defaults to `server.port`. */
   readonly port?: number
   /** The gateway's metrics port, `0` for none. Defaults to `server.metricsPort`. */
@@ -83,16 +115,60 @@ export interface GatewayOverrides {
   /** The public key of Studio's view tokens as a JWK, so the gateway accepts them. */
   readonly viewTokenKey?: JsonWebKey
   /**
-   * The Data API routes the gateway serves itself (`find`, `count`, `distinct`, `aggregate`, `query`, `explain`, `writes`), by name. Without it the gateway reads
-   * `CANOPY_DATA_PLANE_ROUTES`, and without that it serves none and passes every request on to the server.
+   * The HTTP routes the gateway serves itself. An empty list selects no routes. When omitted,
+   * `CANOPY_DATA_PLANE_ROUTES` takes a comma separated list or an empty string. When both are omitted,
+   * the gateway serves all configured data routes.
    */
   readonly dataPlaneRoutes?: readonly string[]
+  /** Settings for a dedicated MongoDB wire listener. The listener is off by default. */
+  readonly wire?:
+    | false
+    | {
+        readonly port: number
+        readonly host?: string
+        readonly maxMessageBytes?: number
+        readonly maxConnections?: number
+        readonly idleTimeoutMs?: number
+        readonly tls?: { readonly certFile: string; readonly keyFile: string }
+      }
+  /** Resolved GraphQL operations, when supplied by the caller. */
+  readonly graphqlPersisted?: {
+    readonly operations: Readonly<Record<string, string>>
+    readonly only: boolean
+  }
+}
+
+/** Reads a persisted operations file: a JSON object mapping the hex SHA-256 of each document to it. */
+export async function readPersistedGraphqlOperations(input: {
+  readonly file: string
+  readonly only: boolean
+}): Promise<NonNullable<GatewayOverrides["graphqlPersisted"]>> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFile(input.file, "utf8"))
+  } catch (error: unknown) {
+    throw new TypeError(`The persisted operations file ${input.file} cannot be read as JSON`, {
+      cause: error,
+    })
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new TypeError(`The persisted operations file ${input.file} must hold an object`)
+  const operations: Record<string, string> = {}
+  for (const [hash, document] of Object.entries(parsed)) {
+    if (!/^[0-9a-f]{64}$/.test(hash) || typeof document !== "string")
+      throw new TypeError(
+        `The persisted operations file ${input.file} must map SHA-256 hex hashes to documents`,
+      )
+    operations[hash] = document
+  }
+  return { operations, only: input.only }
 }
 
 /**
  * The gateway's configuration from the resolved config of `canopy-realtime`. Policies from a directory are
  * passed in stored form, because the gateway cannot evaluate TypeScript; policies in the database are read and
- * watched by the gateway itself.
+ * watched by the gateway itself. The gateway resolves the route selection from the environment or its
+ * default when the document omits it.
  */
 export function gatewayConfig(
   config: ResolvedConfig,
@@ -107,6 +183,9 @@ export function gatewayConfig(
       "built in auth runs in the canopy server; point the gateway at its JWKS with external() instead",
     )
   const limits = config.rateLimits
+  const storage = config.storage
+  const graphql = config.graphql
+  const { graphqlPersisted } = overrides
   const mutationsUrl = overrides.mutationsUrl ?? env["CANOPY_GATEWAY_MUTATIONS_URL"]
   return {
     mongodb: {
@@ -115,6 +194,7 @@ export function gatewayConfig(
       metaDatabase: config.mongodb.metaDatabase,
     },
     server: {
+      ...(overrides.host === undefined ? {} : { host: overrides.host }),
       port: overrides.port ?? config.server.port,
       metricsPort: overrides.metricsPort ?? config.server.metricsPort,
       metricsHost: overrides.metricsHost ?? config.server.metricsHost,
@@ -203,6 +283,41 @@ export function gatewayConfig(
             mutationTtlSeconds: Math.round(config.rest.mutationTtlMs / 1000),
             explainDenials: config.environment === "development",
           },
+    graphql:
+      graphql === false
+        ? false
+        : {
+            path: "/graphql/v1",
+            maxDepth: graphql.maxDepth,
+            maxComplexity: graphql.maxComplexity,
+            maxAliases: graphql.maxAliases,
+            maxBatch: graphql.maxBatch,
+            introspection: graphql.introspection,
+            ...(graphqlPersisted === undefined ? {} : { persisted: graphqlPersisted }),
+            collections: Object.fromEntries(
+              Object.entries(config.collections)
+                .filter(
+                  ([, collection]) =>
+                    collection.typeName !== undefined || collection.relations !== undefined,
+                )
+                .map(([name, { typeName, relations }]) => [name, { typeName, relations }]),
+            ),
+          },
+    storage:
+      storage === false
+        ? false
+        : {
+            path: "/storage/v1",
+            buckets: storage.buckets,
+            images: storage.images,
+            backend: storage.backend,
+            signingMasterKey: config.masterKey,
+            partSize: 8 * 1024 * 1024,
+            maxUploadSize: storage.maxUploadSize,
+            uploadTtlMs: 86_400_000,
+            maxSignedUrlSeconds: 7 * 86_400,
+          },
+    ...(overrides.wire === undefined ? {} : { wire: overrides.wire }),
     ...(overrides.dataPlaneRoutes === undefined
       ? {}
       : { dataPlane: { routes: overrides.dataPlaneRoutes } }),
@@ -212,11 +327,15 @@ export function gatewayConfig(
   }
 }
 
-function listeningPort(line: string): number | undefined {
+function listeningPorts(line: string): { port: number; wirePort?: number } | undefined {
   if (!line.startsWith('{"t":"listening"')) return undefined
   try {
-    const parsed = JSON.parse(line) as { t?: unknown; port?: unknown }
-    return parsed.t === "listening" && typeof parsed.port === "number" ? parsed.port : undefined
+    const parsed = JSON.parse(line) as { t?: unknown; port?: unknown; wirePort?: unknown }
+    if (parsed.t !== "listening" || typeof parsed.port !== "number") return undefined
+    return {
+      port: parsed.port,
+      ...(typeof parsed.wirePort === "number" ? { wirePort: parsed.wirePort } : {}),
+    }
   } catch {
     return undefined
   }
@@ -224,10 +343,14 @@ function listeningPort(line: string): number | undefined {
 
 /** A gateway running as a child process. */
 export interface RunningGateway {
+  /** The gateway process ID, or undefined if the process could not be spawned. */
+  readonly pid: number | undefined
   /** Resolves with the gateway's exit code. */
   readonly exited: Promise<number>
   /** Resolves with the port the gateway listens on, or with `undefined` when it exits first. */
   readonly listening: Promise<number | undefined>
+  /** Resolves with the MongoDB wire port when enabled, or with `undefined` if absent or the gateway exits first. */
+  readonly wireListening: Promise<number | undefined>
   /** Drains the gateway and stops it, by closing its standard input. */
   stop(): void
 }
@@ -242,8 +365,14 @@ export async function runGateway(
   logger: Logger,
   onStop: (stop: () => void) => void,
 ): Promise<number> {
-  const gateway = await startGateway(config, logger)
+  const gateway = await startGateway(
+    config,
+    logger,
+    process.env["CANOPY_DATA_PLANE_ROUTES"] === undefined ? { dataPlaneRoutes: [] } : {},
+  )
   onStop(() => gateway.stop())
+  const port = await gateway.listening
+  if (port !== undefined) logger.info({ port }, "canopy-realtime listening")
   return gateway.exited
 }
 
@@ -257,17 +386,22 @@ export async function startGateway(
   overrides: GatewayOverrides = {},
 ): Promise<RunningGateway> {
   const binary = findGatewayBinary()
-  if (binary === undefined)
-    throw new TypeError(
-      "CANOPY_REALTIME_SERVER=gateway needs the canopy-gateway executable: set CANOPY_GATEWAY_BIN or build it with cargo build --release -p canopy-gateway",
-    )
+  if (binary === undefined) throw new TypeError(missingGatewayMessage(hostTarget()))
   const source = "dir" in config.policies ? directoryPolicies(config.policies.dir) : undefined
   const initial = source === undefined ? undefined : storedPolicies(await source.load())
+  const persisted = config.graphql === false ? undefined : config.graphql.persisted
+  const graphqlPersisted =
+    overrides.graphqlPersisted ??
+    (persisted === undefined ? undefined : await readPersistedGraphqlOperations(persisted))
+  const document = gatewayConfig(config, initial, process.env, {
+    ...overrides,
+    ...(graphqlPersisted === undefined ? {} : { graphqlPersisted }),
+  })
   const child: ChildProcess = spawn(binary, ["--config", "-"], {
     stdio: ["pipe", "pipe", "inherit"],
     windowsHide: true,
   })
-  child.stdin?.write(`${JSON.stringify(gatewayConfig(config, initial, process.env, overrides))}\n`)
+  child.stdin?.write(`${JSON.stringify(document)}\n`)
   const stopWatching =
     source?.watch !== undefined && "dir" in config.policies && config.policies.watch !== false
       ? source.watch(
@@ -278,8 +412,9 @@ export async function startGateway(
             logger.error({ err: error }, "policy reload rejected, keeping the previous policies"),
         )
       : undefined
-  let reported: (port: number | undefined) => void = () => {}
-  const listening = new Promise<number | undefined>((resolve) => {
+  type Ports = ReturnType<typeof listeningPorts>
+  let reported: (ports: Ports) => void = () => {}
+  const listening = new Promise<Ports>((resolve) => {
     reported = resolve
   })
   let pending = ""
@@ -290,9 +425,9 @@ export async function startGateway(
       const line = pending.slice(0, end).replace(/\r$/, "")
       pending = pending.slice(end + 1)
       end = pending.indexOf("\n")
-      const port = listeningPort(line)
-      if (port === undefined) process.stdout.write(`${line}\n`)
-      else reported(port)
+      const ports = listeningPorts(line)
+      if (ports === undefined) process.stdout.write(`${line}\n`)
+      else reported(ports)
     }
   })
   const exited = new Promise<number>((done) => {
@@ -302,14 +437,16 @@ export async function startGateway(
       done(code ?? 1)
     })
     child.on("error", (error) => {
-      logger.error({ err: error }, "canopy-gateway could not start")
+      logger.error({ err: error }, "canopyd could not start")
       reported(undefined)
       done(1)
     })
   })
   return {
+    pid: child.pid,
     exited,
-    listening,
+    listening: listening.then((ports) => ports?.port),
+    wireListening: listening.then((ports) => ports?.wirePort),
     stop() {
       stopWatching?.()
       child.stdin?.end()

@@ -1,13 +1,13 @@
-import fc from "fast-check"
-import ts from "typescript"
-import { describe, expect, it } from "vitest"
 import {
   collection,
   defineSchema,
   type SchemaDefinition,
   t,
   toCollectionSchemas,
-} from "../src/define/index.ts"
+} from "canopy.js/schema"
+import fc from "fast-check"
+import ts from "typescript"
+import { describe, expect, it } from "vitest"
 import {
   type CollectionSchema,
   emitSchemaFile,

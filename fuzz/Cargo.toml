@@ -5,7 +5,7 @@
 
 [package]
 name = "canopy-fuzz"
-description = "cargo fuzz targets for EJSON, BSON, filters, updates, regular expressions and client frames."
+description = "cargo fuzz targets for EJSON, BSON, filters, updates, regular expressions, client frames, auth and WebAuthn."
 version = "0.0.0"
 edition = "2024"
 publish = false
@@ -17,10 +17,21 @@ cargo-fuzz = true
 members = ["."]
 
 [dependencies]
+base64ct = { version = "1.8", features = ["alloc"] }
+bson = "3"
+canopy-auth = { path = "../crates/canopy-auth" }
+canopy-authn = { path = "../crates/canopy-authn" }
 canopy-engine = { path = "../crates/canopy-engine" }
 canopy-matcher = { path = "../crates/canopy-matcher" }
 canopy-protocol = { path = "../crates/canopy-protocol" }
+canopy-webauthn = { path = "../crates/canopy-webauthn" }
+canopy-wire = { path = "../crates/canopy-wire" }
+hex = "0.4"
 libfuzzer-sys = "0.4.10"
+reqwest = { version = "0.13", default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt"] }
 
 [[bin]]
 name = "ejson"
@@ -60,6 +71,90 @@ bench = false
 [[bin]]
 name = "frame"
 path = "fuzz_targets/frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wire_frame"
+path = "fuzz_targets/wire_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cbor"
+path = "fuzz_targets/webauthn_cbor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cose_key"
+path = "fuzz_targets/webauthn_cose_key.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_authenticator_data"
+path = "fuzz_targets/webauthn_authenticator_data.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_client_data"
+path = "fuzz_targets/webauthn_client_data.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_registration"
+path = "fuzz_targets/webauthn_registration.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_authentication"
+path = "fuzz_targets/webauthn_authentication.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "authn_cookies"
+path = "fuzz_targets/authn_cookies.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "authn_secrets"
+path = "fuzz_targets/authn_secrets.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "authn_passwords"
+path = "fuzz_targets/authn_passwords.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "authn_tokens"
+path = "fuzz_targets/authn_tokens.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "authn_totp"
+path = "fuzz_targets/authn_totp.rs"
 test = false
 doc = false
 bench = false

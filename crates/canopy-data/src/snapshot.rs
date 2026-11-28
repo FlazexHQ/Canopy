@@ -22,6 +22,7 @@ pub(crate) struct PageRead<'a> {
     pub(crate) sort: &'a Document,
     /// The most documents to return, one more than the page so that a next page is noticed.
     pub(crate) limit: u32,
+    pub(crate) max_bytes: Option<usize>,
     pub(crate) skip: u64,
     pub(crate) projection: Option<&'a Document>,
     pub(crate) max_time: Duration,
@@ -31,6 +32,7 @@ pub(crate) struct PageRead<'a> {
 /// What a page read returned: the raw documents, the count, and the cluster time of the snapshot.
 pub(crate) struct PageResult {
     pub(crate) documents: Vec<RawDocumentBuf>,
+    pub(crate) more: bool,
     pub(crate) total: Option<u64>,
     pub(crate) ct: Ct,
 }
@@ -44,12 +46,18 @@ pub(crate) enum Read<'a> {
     /// The distinct values of a field among the documents matching a filter.
     Distinct { collection: &'a str, field: &'a str, filter: &'a Document, max_time: Duration },
     /// The documents an aggregation pipeline returns.
-    Aggregate { collection: &'a str, pipeline: &'a [Document], max_time: Duration, allow_disk_use: bool },
+    Aggregate {
+        collection: &'a str,
+        pipeline: &'a [Document],
+        max_time: Duration,
+        allow_disk_use: bool,
+        max_bytes: Option<usize>,
+    },
 }
 
 /// What a read returned.
 pub(crate) enum Output {
-    Page { documents: Vec<RawDocumentBuf>, total: Option<u64> },
+    Page { documents: Vec<RawDocumentBuf>, more: bool, total: Option<u64> },
     Count(u64),
     Values(Vec<Bson>),
     Documents(Vec<RawDocumentBuf>),
@@ -61,6 +69,38 @@ fn bson(document: &Document) -> Result<bson::Document, CanopyError> {
 
 fn custom(error: CanopyError) -> DriverError {
     DriverError::custom(error.message().to_owned())
+}
+
+fn push_document(
+    documents: &mut Vec<RawDocumentBuf>,
+    document: &bson::RawDocument,
+    bytes: &mut usize,
+    max_bytes: Option<usize>,
+) -> Result<(), DriverError> {
+    *bytes = bytes.saturating_add(document.as_bytes().len());
+    if max_bytes.is_some_and(|max| *bytes > max) {
+        return Err(DriverError::custom(CanopyError::invalid_query(
+            "The read exceeds the BSON buffer limit",
+        )));
+    }
+    documents.push(document.to_owned());
+    Ok(())
+}
+
+fn push_page_document(
+    documents: &mut Vec<RawDocumentBuf>,
+    document: &bson::RawDocument,
+    bytes: &mut usize,
+    max_bytes: Option<usize>,
+) -> Result<bool, DriverError> {
+    if let Some(max) = max_bytes {
+        *bytes = bytes.saturating_add(16);
+        if !documents.is_empty() && bytes.saturating_add(document.as_bytes().len()) > max {
+            return Ok(false);
+        }
+    }
+    push_document(documents, document, bytes, max_bytes)?;
+    Ok(true)
 }
 
 fn millis(duration: Duration) -> i64 {
@@ -76,7 +116,7 @@ pub(crate) async fn read_page(
     service: bool,
 ) -> Result<PageResult, CanopyError> {
     match in_snapshot(client, db, &Read::Page(read), service).await? {
-        (Output::Page { documents, total }, ct) => Ok(PageResult { documents, total, ct }),
+        (Output::Page { documents, more, total }, ct) => Ok(PageResult { documents, more, total, ct }),
         _ => Err(internal()),
     }
 }
@@ -91,7 +131,9 @@ pub(crate) async fn in_snapshot(
     read: &Read<'_>,
     service: bool,
 ) -> Result<(Output, Ct), CanopyError> {
-    let driver = |error: DriverError| from_driver_error(&error, service);
+    let driver = |error: DriverError| {
+        error.get_custom::<CanopyError>().cloned().unwrap_or_else(|| from_driver_error(&error, service))
+    };
     let mut session = client.start_session().snapshot(true).await.map_err(driver)?;
     let output = run(db, read, &mut session).await.map_err(driver)?;
     if let Some(time) = session.snapshot_time() {
@@ -116,7 +158,9 @@ pub(crate) async fn at_latest(
     read: &Read<'_>,
     service: bool,
 ) -> Result<(Output, Ct), CanopyError> {
-    let driver = |error: DriverError| from_driver_error(&error, service);
+    let driver = |error: DriverError| {
+        error.get_custom::<CanopyError>().cloned().unwrap_or_else(|| from_driver_error(&error, service))
+    };
     let mut session = client.start_session().await.map_err(driver)?;
     let output = run(db, read, &mut session).await.map_err(driver)?;
     let ct = match session.operation_time() {
@@ -177,9 +221,15 @@ async fn run(db: &Database, read: &Read<'_>, session: &mut ClientSession) -> Res
             }
             let mut cursor = find.await?;
             let mut documents = Vec::new();
+            let mut bytes = 0;
+            let mut more = false;
             while cursor.advance(session).await? {
-                documents.push(cursor.current().to_owned());
+                if !push_page_document(&mut documents, cursor.current(), &mut bytes, page.max_bytes)? {
+                    more = true;
+                    break;
+                }
             }
+            drop(cursor);
             let total = match page.count_filter {
                 Some(filter) => Some(
                     collection
@@ -190,7 +240,7 @@ async fn run(db: &Database, read: &Read<'_>, session: &mut ClientSession) -> Res
                 ),
                 None => None,
             };
-            Ok(Output::Page { documents, total })
+            Ok(Output::Page { documents, more, total })
         }
         Read::Count { collection, filter, max_time } => {
             let collection: Collection<RawDocumentBuf> = db.collection(collection);
@@ -210,7 +260,7 @@ async fn run(db: &Database, read: &Read<'_>, session: &mut ClientSession) -> Res
                 .await?;
             Ok(Output::Values(values))
         }
-        Read::Aggregate { collection, pipeline, max_time, allow_disk_use } => {
+        Read::Aggregate { collection, pipeline, max_time, allow_disk_use, max_bytes } => {
             let stages = pipeline.iter().map(bson).collect::<Result<Vec<_>, _>>().map_err(custom)?;
             let collection: Collection<RawDocumentBuf> = db.collection(collection);
             let mut cursor = collection
@@ -221,8 +271,9 @@ async fn run(db: &Database, read: &Read<'_>, session: &mut ClientSession) -> Res
                 .session(&mut *session)
                 .await?;
             let mut documents = Vec::new();
+            let mut bytes = 0;
             while cursor.advance(session).await? {
-                documents.push(cursor.current().to_owned());
+                push_document(&mut documents, cursor.current(), &mut bytes, *max_bytes)?;
             }
             Ok(Output::Documents(documents))
         }
@@ -292,14 +343,20 @@ async fn at_cluster_time(db: &Database, read: &Read<'_>, ct: Ct) -> Result<Outpu
             }
             let mut cursor = db.run_cursor_command(command).await?.with_type::<RawDocumentBuf>();
             let mut documents = Vec::new();
+            let mut bytes = 0;
+            let mut more = false;
             while cursor.advance().await? {
-                documents.push(cursor.current().to_owned());
+                if !push_page_document(&mut documents, cursor.current(), &mut bytes, page.max_bytes)? {
+                    more = true;
+                    break;
+                }
             }
+            drop(cursor);
             let total = match page.count_filter {
                 Some(filter) => Some(count_at(db, page.collection, filter, page.max_time, ct).await?),
                 None => None,
             };
-            Ok(Output::Page { documents, total })
+            Ok(Output::Page { documents, more, total })
         }
         Read::Count { collection, filter, max_time } => {
             Ok(Output::Count(count_at(db, collection, filter, *max_time, ct).await?))
@@ -320,7 +377,7 @@ async fn at_cluster_time(db: &Database, read: &Read<'_>, ct: Ct) -> Result<Outpu
             };
             Ok(Output::Values(values))
         }
-        Read::Aggregate { collection, pipeline, max_time, allow_disk_use } => {
+        Read::Aggregate { collection, pipeline, max_time, allow_disk_use, max_bytes } => {
             let stages: Vec<Bson> = pipeline
                 .iter()
                 .map(|stage| bson(stage).map(Bson::Document))
@@ -336,8 +393,9 @@ async fn at_cluster_time(db: &Database, read: &Read<'_>, ct: Ct) -> Result<Outpu
             };
             let mut cursor = db.run_cursor_command(command).await?.with_type::<RawDocumentBuf>();
             let mut documents = Vec::new();
+            let mut bytes = 0;
             while cursor.advance().await? {
-                documents.push(cursor.current().to_owned());
+                push_document(&mut documents, cursor.current(), &mut bytes, *max_bytes)?;
             }
             Ok(Output::Documents(documents))
         }

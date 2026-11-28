@@ -95,6 +95,7 @@ impl Harness {
                 Output::Mutate(request) => self.writes.push(*request),
                 Output::Contexts { id, reads } => self.contexts.push((id, reads)),
                 Output::Authenticate { .. } | Output::Session { .. } | Output::Collections(_) => {}
+                Output::Watch { .. } => panic!("A socket session received a local change stream event"),
             }
         }
     }
@@ -226,6 +227,49 @@ fn events_of_documents_the_caller_may_not_read_are_never_delivered() {
         event(Op::Insert, 4, Some(r#"{"_id":4,"ownerId":"bob","n":0}"#), 12),
     ]);
     assert_eq!(h.frames(1), Vec::<String>::new());
+}
+
+#[test]
+fn inspects_denials_without_exposing_hidden_policy_fields_to_viewers() -> Result<(), CanopyError> {
+    use canopy_policy::{CollectionFields, FieldKind, FieldRule};
+
+    let mut items = CollectionPolicies::new("items");
+    items.exposed = true;
+    items.realtime = true;
+    items.policies.push(PolicyDefinition {
+        name: "score".into(),
+        kind: PolicyKind::Permissive,
+        ops: vec![Operation::Read],
+        roles: vec!["authenticated".into()],
+        using: Some(doc(r#"{"score":{"$gt":10}}"#)),
+        check: None,
+    });
+    let mut fields = CollectionFields::new();
+    fields.insert(FieldKind::Read, vec![("authenticated".into(), FieldRule::Omit(vec!["score".into()]))]);
+    items.fields = Some(fields);
+    let mut h = Harness::new(create_policy_set(vec![items], Vec::new())?);
+    h.connect(1, user("alice", &[]));
+    h.send(1, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    h.answer_reads(&[], Ct(10));
+    h.events(vec![event(Op::Insert, 1, Some(r#"{"_id":1,"score":4}"#), 11)]);
+    assert!(h.engine.inspection_events().is_empty());
+    h.engine.enable_inspection(h.now, None);
+    h.events(vec![event(Op::Insert, 2, Some(r#"{"_id":2,"score":4}"#), 12)]);
+    let denial = |viewer| {
+        let trace = h.engine.inspection_trace("n1.2", viewer)?;
+        let candidate = trace.get("candidates")?.as_array()?.first()?.as_document()?;
+        candidate.get("dls").cloned()
+    };
+    assert_eq!(
+        denial(false),
+        Some(Value::Document(doc(
+            r#"{"reason":"no_permissive","responsible":["score"],"policies":[{"name":"score","kind":"permissive","matched":false,"fields":["score"]}]}"#
+        )))
+    );
+    assert_eq!(denial(true), Some(Value::Document(doc(r#"{"masked":true}"#))));
+    h.engine.disable_inspection();
+    assert!(h.engine.inspection_trace("n1.2", false).is_none());
+    Ok(())
 }
 
 #[test]
@@ -578,6 +622,83 @@ fn updates_without_a_post_image_are_looked_up_before_they_are_applied() {
     h.engine.lookup_done(id, &coll, Ok(vec![doc(r#"{"_id":1,"ownerId":"alice","n":4}"#)]), h.now);
     h.pump();
     assert_eq!(h.frames(1), vec![r#"{"t":"changed","c":"items","id":1,"ct":"11","set":{"n":4},"seq":4}"#]);
+}
+
+#[test]
+fn batched_watch_updates_use_the_same_latest_image() {
+    let (mut h, conn) = ready_watch();
+    let update = |id, ct, set| {
+        let mut event = event(Op::Update, id, None, ct);
+        event.diff = Some(crate::event::Diff { set: doc(set), unset: Vec::new() });
+        event
+    };
+    let outputs = watch_lookup(
+        &mut h,
+        vec![
+            update(1, 11, r#"{"ownerId":"bob","n":1}"#),
+            update(1, 12, r#"{"ownerId":"alice","n":2}"#),
+            update(3, 13, r#"{"n":1}"#),
+            update(3, 14, r#"{"ownerId":"bob","n":2}"#),
+        ],
+        &[Value::Int32(1), Value::Int32(3)],
+        vec![doc(r#"{"_id":1,"ownerId":"alice","n":2}"#), doc(r#"{"_id":3,"ownerId":"bob","n":2}"#)],
+    );
+    let events: Vec<_> = outputs
+        .into_iter()
+        .map(|output| match output {
+            Output::Watch { conn: target, frame } => {
+                assert_eq!(target, conn);
+                (
+                    frame.ct,
+                    frame.op,
+                    canopy_protocol::bson::decode_document(&frame.image).expect("watch image"),
+                )
+            }
+            other => panic!("unexpected watch output: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        events,
+        vec![
+            (Ct(11), Op::Update, doc(r#"{"id":1,"d":{"_id":1,"ownerId":"alice","n":2}}"#)),
+            (Ct(12), Op::Update, doc(r#"{"id":1,"d":{"_id":1,"ownerId":"alice","n":2}}"#)),
+            (Ct(13), Op::Delete, doc(r#"{"id":3}"#)),
+        ],
+    );
+}
+
+#[test]
+fn a_missing_watch_update_image_requires_resync() {
+    let (mut h, conn) = ready_watch();
+    let outputs = watch_lookup(&mut h, vec![event(Op::Update, 1, None, 11)], &[Value::Int32(1)], Vec::new());
+    assert!(matches!(&outputs[..], [Output::Frame { conn: target, frame }]
+        if *target == conn && frame.text().contains(r#""reason":"missing_update_image""#)));
+    let sid = h.engine.sid_of(conn).expect("watch session");
+    assert!(h.engine.sessions[&sid].subs.is_empty());
+}
+
+fn ready_watch() -> (Harness, ConnId) {
+    let mut h = Harness::new(policies(None));
+    let conn = 1;
+    h.engine.open_watch(conn, None, user("alice", &[]), h.now);
+    h.send(conn, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    assert_eq!(h.reads.len(), 1);
+    h.answer_reads(&seed(), Ct(10));
+    (h, conn)
+}
+
+fn watch_lookup(
+    h: &mut Harness,
+    events: Vec<Event>,
+    expected_ids: &[Value],
+    images: Vec<Document>,
+) -> Vec<Output> {
+    h.events(events);
+    assert_eq!(h.lookups.len(), 1);
+    let (id, coll, ids) = h.lookups.remove(0);
+    assert_eq!(ids, expected_ids);
+    h.engine.lookup_done(id, &coll, Ok(images), h.now);
+    h.engine.take_outputs()
 }
 
 #[test]

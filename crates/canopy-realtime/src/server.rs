@@ -1,11 +1,13 @@
-use std::cell::{Cell, RefCell};
+#[cfg(test)]
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use canopy_engine::{ConnId, Engine, MutationOutcome, MutationRequest};
@@ -69,7 +71,6 @@ pub trait HttpRoutes {
 
 struct Shared {
     engine: EngineSender,
-    next_conn: AtomicU64,
     max_frame_bytes: usize,
     websocket: bool,
     http: Option<Arc<HttpTransport>>,
@@ -89,8 +90,7 @@ impl Server {
     pub fn new(options: TransportOptions) -> Self {
         let (engine_tx, commands) = std::sync::mpsc::channel();
         let shared = Arc::new(Shared {
-            engine: EngineSender(engine_tx),
-            next_conn: AtomicU64::new(1),
+            engine: EngineSender::new(engine_tx),
             max_frame_bytes: options.max_frame_bytes,
             websocket: options.websocket,
             http: options
@@ -187,7 +187,7 @@ enum Out {
 #[derive(Default)]
 struct Queue {
     items: RefCell<VecDeque<Out>>,
-    bytes: Cell<usize>,
+    bytes: Arc<AtomicUsize>,
     wake: Notify,
 }
 
@@ -195,7 +195,7 @@ impl Queue {
     /// Queues a frame whose weight the caller has already added to `bytes`. Wakes the writer when the queue was
     /// empty, or when the frame brings it to `COALESCE_BYTES`, which ends a coalescing window.
     fn push(&self, out: Out) {
-        let bytes = self.bytes.get();
+        let bytes = self.bytes.load(Ordering::Relaxed);
         let filled = bytes >= COALESCE_BYTES && bytes.saturating_sub(weight(&out)) < COALESCE_BYTES;
         let was_empty = {
             let mut items = self.items.borrow_mut();
@@ -269,8 +269,8 @@ fn start_shard<R: HttpRoutes + 'static>(
                             };
                             match registry.get(&conn) {
                                 Some(Sink::Socket(queue)) => {
-                                    let bytes = queue.bytes.get() + weight(&out);
-                                    queue.bytes.set(bytes);
+                                    let bytes = queue.bytes.load(Ordering::Relaxed) + weight(&out);
+                                    queue.bytes.store(bytes, Ordering::Relaxed);
                                     if bytes > HARD_QUEUE_BYTES {
                                         let _ = engine.send(Command::Slow { conn });
                                     }
@@ -370,7 +370,7 @@ async fn route<R: HttpRoutes>(
                 engine: &shared.engine,
                 address: routes.client_address(request.headers(), &peer),
                 shard,
-                next_conn: &shared.next_conn,
+                next_conn: &shared.engine.next_conn,
                 register: &register,
             };
             return Ok(http.handle(request, origin).await);
@@ -500,7 +500,7 @@ impl Outbox {
             self.woken = true;
         }
         while let Some(hold) = self.hold {
-            if Instant::now() >= hold || queue.bytes.get() >= COALESCE_BYTES {
+            if Instant::now() >= hold || queue.bytes.load(Ordering::Relaxed) >= COALESCE_BYTES {
                 break;
             }
             tokio::select! {
@@ -527,7 +527,6 @@ impl Outbox {
             wrote = true;
             open = write(socket, out, &mut self.batch, &mut self.pending).await;
         }
-        queue.bytes.set(queue.bytes.get().saturating_sub(size));
         queue.settle();
         let flushed = match open {
             Ok(true) => {
@@ -535,6 +534,7 @@ impl Outbox {
             }
             _ => false,
         };
+        queue.bytes.store(queue.bytes.load(Ordering::Relaxed).saturating_sub(size), Ordering::Relaxed);
         if self.pending.capacity() > IDLE_QUEUE_CAPACITY {
             self.pending.shrink_to_fit();
         }
@@ -546,10 +546,12 @@ impl Outbox {
 }
 
 async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry, peer: String, shard: usize) {
-    let conn = shared.next_conn.fetch_add(1, Ordering::Relaxed);
+    let conn = shared.engine.next_conn.fetch_add(1, Ordering::Relaxed);
     let queue = Rc::new(Queue::default());
     registry.borrow_mut().insert(conn, Sink::Socket(Rc::clone(&queue)));
-    if shared.engine.send(Command::Open { conn, address: peer, shard }).is_err() {
+    let counter = Arc::clone(&queue.bytes);
+    let queued_bytes = Box::new(move || counter.load(Ordering::Relaxed));
+    if shared.engine.send(Command::Open { conn, address: peer, shard, queued_bytes }).is_err() {
         registry.borrow_mut().remove(&conn);
         return;
     }
@@ -662,7 +664,7 @@ mod tests {
     /// Queues a frame the way the shard's dispatch does: its weight first, then the frame.
     fn enqueue(queue: &Queue, text: String) {
         let out = Out::Text(text);
-        queue.bytes.set(queue.bytes.get() + weight(&out));
+        queue.bytes.store(queue.bytes.load(Ordering::Relaxed) + weight(&out), Ordering::Relaxed);
         queue.push(out);
     }
 
@@ -691,7 +693,7 @@ mod tests {
         outbox.ready(&queue).await;
         assert!(outbox.drain(&mut server, &queue).await);
         assert_eq!(writes.get(), 1);
-        assert_eq!(queue.bytes.get(), 0);
+        assert_eq!(queue.bytes.load(Ordering::Relaxed), 0);
         assert_eq!(received(&mut client, 10).await, sent);
     }
 
@@ -779,7 +781,7 @@ mod tests {
                 seq: i,
             };
             let out = Out::Frame(frame);
-            queue.bytes.set(queue.bytes.get() + weight(&out));
+            queue.bytes.store(queue.bytes.load(Ordering::Relaxed) + weight(&out), Ordering::Relaxed);
             queue.push(out);
         }
         outbox.ready(&queue).await;

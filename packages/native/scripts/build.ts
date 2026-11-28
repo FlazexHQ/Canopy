@@ -117,6 +117,7 @@ const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as R
   name: string
   version: string
   license: string
+  repository: { type: string; url: string; directory: string }
   napi: { binaryName: string }
 }
 const catalog = (
@@ -148,7 +149,7 @@ function stage(name: string, manifest: Record<string, unknown>, files: readonly 
   mkdirSync(folder, { recursive: true })
   writeFileSync(
     join(folder, "package.json"),
-    `${JSON.stringify({ name, version: source.version, license: source.license, ...manifest }, null, 2)}\n`,
+    `${JSON.stringify({ name, version: source.version, license: source.license, repository: source.repository, ...manifest }, null, 2)}\n`,
   )
   for (const file of files) copyFileSync(join(root, file), join(folder, file))
   writeFileSync(join(folder, "README.md"), `# ${name}\n\n${String(manifest["description"])}\n`)

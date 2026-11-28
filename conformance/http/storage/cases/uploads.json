@@ -1,0 +1,509 @@
+{
+  "group": "uploads",
+  "cases": [
+    {
+      "id": "post-metadata",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-metadata": "{\"title\":\"notes\",\"secret\":\"internal\"}",
+              "x-request-id": "uploads.post-metadata.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "uploads.post-metadata.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{\"title\":\"notes\",\"secret\":\"internal\"},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"10\"},\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{\"title\":\"notes\",\"secret\":\"internal\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    },
+    {
+      "id": "put-upsert",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.put-upsert.0"
+            },
+            "body": "new"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "uploads.put-upsert.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":3,\"contentType\":\"text/plain\",\"etag\":\"11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.put-upsert.1"
+            },
+            "body": "replacement"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "uploads.put-upsert.1"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":11,\"contentType\":\"text/plain\",\"etag\":\"95713e9cbdd1dfcb2d4080c2537f418d43ca0da25f0d7d6631f4f7c97b89dc47\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "uploads.put-upsert.2"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-length": "11",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "text/plain",
+              "etag": "\"95713e9cbdd1dfcb2d4080c2537f418d43ca0da25f0d7d6631f4f7c97b89dc47\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "uploads.put-upsert.2"
+            },
+            "body": "replacement"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"11\"},\"contentType\":\"text/plain\",\"etag\":\"95713e9cbdd1dfcb2d4080c2537f418d43ca0da25f0d7d6631f4f7c97b89dc47\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    },
+    {
+      "id": "post-upsert",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.post-upsert.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "uploads.post-upsert.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-upsert": "true",
+              "x-request-id": "uploads.post-upsert.1"
+            },
+            "body": "replacement"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "uploads.post-upsert.1"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":11,\"contentType\":\"text/plain\",\"etag\":\"95713e9cbdd1dfcb2d4080c2537f418d43ca0da25f0d7d6631f4f7c97b89dc47\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "uploads.post-upsert.2"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-length": "11",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "text/plain",
+              "etag": "\"95713e9cbdd1dfcb2d4080c2537f418d43ca0da25f0d7d6631f4f7c97b89dc47\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "uploads.post-upsert.2"
+            },
+            "body": "replacement"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"11\"},\"contentType\":\"text/plain\",\"etag\":\"95713e9cbdd1dfcb2d4080c2537f418d43ca0da25f0d7d6631f4f7c97b89dc47\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    },
+    {
+      "id": "conflict",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.conflict.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "uploads.conflict.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.conflict.1"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.conflict.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:conflict\",\"title\":\"Conflict\",\"status\":409,\"code\":\"CANOPY_CONFLICT\",\"detail\":\"A file exists at this path; send x-upsert: true to replace it\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"uploads.conflict.1\",\"hint\":\"The document changed since it was read: read it again and retry the write.\",\"docs\":\"errors/conflict\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"10\"},\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    },
+    {
+      "id": "invalid-metadata-json",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-metadata": "{",
+              "x-request-id": "uploads.invalid-metadata-json.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.invalid-metadata-json.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"x-metadata must be a JSON object\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"uploads.invalid-metadata-json.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "invalid-metadata-shape",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-metadata": "[]",
+              "x-request-id": "uploads.invalid-metadata-shape.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.invalid-metadata-shape.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"x-metadata must be a JSON object\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"uploads.invalid-metadata-shape.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "declared-size-limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "content-length": "10485761",
+              "x-request-id": "uploads.declared-size-limit.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 413,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.declared-size-limit.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:payload-too-large\",\"title\":\"Payload too large\",\"status\":413,\"code\":\"CANOPY_PAYLOAD_TOO_LARGE\",\"detail\":\"The file may not exceed 10485760 bytes\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"uploads.declared-size-limit.0\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "streamed-size-limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/avatars/large.png",
+            "caller": "service",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "uploads.streamed-size-limit.0"
+            },
+            "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "stream": true
+          },
+          "response": {
+            "status": 413,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.streamed-size-limit.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:payload-too-large\",\"title\":\"Payload too large\",\"status\":413,\"code\":\"CANOPY_PAYLOAD_TOO_LARGE\",\"detail\":\"The file may not exceed 1024 bytes\",\"instance\":\"/storage/v1/object/avatars/large.png\",\"requestId\":\"uploads.streamed-size-limit.0\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "disallowed-type",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "image/png",
+              "x-request-id": "uploads.disallowed-type.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.disallowed-type.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:validation-failed\",\"title\":\"Validation failed\",\"status\":422,\"code\":\"CANOPY_VALIDATION_FAILED\",\"detail\":\"This bucket does not accept image/png\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"uploads.disallowed-type.0\",\"details\":{\"allowedTypes\":[\"text/plain\",\"application/octet-stream\"]},\"hint\":\"The collection's validator refused the document: compare the document with its JSON Schema.\",\"docs\":\"errors/validation-failed\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "empty-path",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.empty-path.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.empty-path.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Not found\",\"instance\":\"/storage/v1/object/docs/\",\"requestId\":\"uploads.empty-path.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "invalid-path",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/nested//file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.invalid-path.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.invalid-path.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The file path may not have empty, . or .. segments\",\"instance\":\"/storage/v1/object/docs/nested//file.txt\",\"requestId\":\"uploads.invalid-path.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "invalid-path-encoding",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/%FF",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.invalid-path-encoding.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.invalid-path-encoding.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The path is not validly percent encoded\",\"instance\":\"/storage/v1/object/docs/%FF\",\"requestId\":\"uploads.invalid-path-encoding.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "unknown-bucket",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/unknown/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "uploads.unknown-bucket.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "uploads.unknown-bucket.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No bucket is named unknown\",\"instance\":\"/storage/v1/object/unknown/file.txt\",\"requestId\":\"uploads.unknown-bucket.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    }
+  ]
+}

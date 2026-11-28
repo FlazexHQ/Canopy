@@ -67,7 +67,7 @@ error while evaluating a policy. Roles such as `staff` come from a token claim y
 Check the policies:
 
 ```bash
-bunx canopy policies lint --dir canopy/policies
+bunx --package @canopy/cli canopy policies lint --dir canopy/policies
 ```
 
 Policy tests sit next to the policies in `*.test.ts` files and run in memory and, with `--mongodb-uri`, against
@@ -91,13 +91,13 @@ describePolicies("orders", ({ doc, expect }) => {
 ```
 
 ```bash
-bunx canopy policies test --dir canopy/policies --mongodb-uri "$MONGODB_URI"
+bunx --package @canopy/cli canopy policies test --dir canopy/policies --mongodb-uri "$MONGODB_URI"
 ```
 
 ### 3. Check the deployment (1 minute)
 
 ```bash
-bunx canopy doctor --mongodb-uri "$MONGODB_URI" --dir canopy/policies
+bunx --package @canopy/cli canopy doctor --mongodb-uri "$MONGODB_URI" --dir canopy/policies
 ```
 
 `doctor` confirms the replica set, the MongoDB version and the change stream permission, loads the policies,

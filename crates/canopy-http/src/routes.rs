@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -30,7 +31,7 @@ pub enum Cors {
 
 impl Cors {
     /// The value of `Access-Control-Allow-Origin` for a request from `origin`, or `None` when it is not allowed.
-    fn allowed(&self, origin: Option<&str>) -> Option<String> {
+    pub fn allowed(&self, origin: Option<&str>) -> Option<String> {
         let origin = origin?;
         match self {
             Cors::Any => Some("*".to_owned()),
@@ -156,7 +157,7 @@ enum Route {
 /// The Data API routes served by the Rust data plane.
 pub struct Rest {
     authenticator: Authenticator,
-    pub(crate) reads: ReadPath,
+    pub(crate) reads: Arc<ReadPath>,
     pub(crate) base_path: String,
     pub(crate) problem_type_base: String,
     cors: Option<Cors>,
@@ -170,10 +171,10 @@ pub struct Rest {
 
 impl Rest {
     /// Creates the routes over a read path, authenticating callers with `authenticator`.
-    pub fn new(authenticator: Authenticator, reads: ReadPath, options: RestOptions) -> Rest {
+    pub fn new(authenticator: Authenticator, reads: impl Into<Arc<ReadPath>>, options: RestOptions) -> Rest {
         Rest {
             authenticator,
-            reads,
+            reads: reads.into(),
             base_path: trim_trailing_slashes(&options.base_path).to_owned(),
             problem_type_base: options.problem_type_base,
             cors: options.cors,
@@ -260,11 +261,21 @@ impl Rest {
     /// a safe token, or a minted UUIDv7. Never fails: failures become Problem Details responses. Returns `None`
     /// for a route this crate does not serve, which the caller passes on to the TypeScript handler.
     pub async fn serve(&self, request: &Request) -> Option<Response> {
-        let response = self.answer(request).await?;
+        self.serve_with_body(request, std::future::ready(None)).await
+    }
+
+    /// Serves a request whose transport supplies the body after the route authenticates its caller.
+    /// A body reader returning `None` leaves the body already present on the request in place.
+    pub async fn serve_with_body(
+        &self,
+        request: &Request,
+        body: impl Future<Output = Option<Body>>,
+    ) -> Option<Response> {
+        let response = self.answer(request, body).await?;
         Some(self.with_cors(response, request))
     }
 
-    async fn answer(&self, request: &Request) -> Option<Response> {
+    async fn answer(&self, request: &Request, body: impl Future<Output = Option<Body>>) -> Option<Response> {
         let request_id = request_id_of(request);
         let target = request.target.as_str();
         let Some(url) = parse_target(target) else {
@@ -273,7 +284,7 @@ impl Rest {
             return Some(with_request_id(problem_response(&problem, None), &request_id));
         };
         let instance = url.path().to_owned();
-        let response = match self.dispatch(request, &url, &request_id).await {
+        let response = match self.dispatch(request, &url, &request_id, body).await {
             Ok(Some(response)) => response,
             Ok(None) => return None,
             Err(error) => {
@@ -289,6 +300,7 @@ impl Rest {
         request: &Request,
         url: &url::Url,
         request_id: &str,
+        body: impl Future<Output = Option<Body>>,
     ) -> Result<Option<Response>, CanopyError> {
         let segments = segments_of(url.path(), &self.base_path)?
             .ok_or_else(|| CanopyError::new(ErrorCode::NotFound, "Not found"))?;
@@ -314,27 +326,63 @@ impl Rest {
             return Ok(Some(problem_response(&problem, None).with_header("allow", allow.join(", "))));
         };
         let collection = segments.first().map_or("", String::as_str);
+        if route == Route::Unserved {
+            return Ok(None);
+        }
+        let scope = [collection];
+        let caller = self
+            .caller(
+                request,
+                match route {
+                    Route::Aggregate | Route::Batch => None,
+                    _ => Some(&scope),
+                },
+            )
+            .await?;
+        let mut request = Cow::Borrowed(request);
+        if let Some(body) = body.await {
+            request.to_mut().body = body;
+        }
+        let request = request.as_ref();
         match route {
             Route::Unserved => Ok(None),
-            Route::Find => self.find(request, url, collection).await.map(Some),
-            Route::Count => self.count(request, collection).await.map(Some),
-            Route::Distinct => self.distinct(request, collection).await.map(Some),
-            Route::Aggregate => self.aggregate(request, collection).await.map(Some),
-            Route::Query => self.query(request, collection).await.map(Some),
-            Route::Explain => self.explain(request, collection).await.map(Some),
-            Route::Document => self.document(request, url, collection, &segments[1]).await.map(Some),
-            Route::Insert => self.insert(request, collection).await.map(Some),
-            Route::UpdateMany => self.update_many(request, collection).await.map(Some),
-            Route::DeleteMany => self.delete_many(request, collection).await.map(Some),
-            Route::Update => self.update(request, collection, &segments[1]).await.map(Some),
-            Route::Replace => self.replace(request, collection, &segments[1]).await.map(Some),
-            Route::Delete => self.remove(request, collection, &segments[1]).await.map(Some),
-            Route::Batch => self.batch(request, request_id, url.path()).await.map(Some),
+            Route::Find => self.find(request, &caller, url, collection).await.map(Some),
+            Route::Count => self.count(request, &caller, collection).await.map(Some),
+            Route::Distinct => self.distinct(request, &caller, collection).await.map(Some),
+            Route::Aggregate => self.aggregate(request, &caller, collection).await.map(Some),
+            Route::Query => self.query(request, &caller, collection).await.map(Some),
+            Route::Explain => self.explain(request, &caller, collection).await.map(Some),
+            Route::Document => self.document(request, &caller, url, collection, &segments[1]).await.map(Some),
+            Route::Insert => self.insert(request, &caller, collection).await.map(Some),
+            Route::UpdateMany => self.update_many(request, &caller, collection).await.map(Some),
+            Route::DeleteMany => self.delete_many(request, &caller, collection).await.map(Some),
+            Route::Update => self.update(request, &caller, collection, &segments[1]).await.map(Some),
+            Route::Replace => self.replace(request, &caller, collection, &segments[1]).await.map(Some),
+            Route::Delete => self.remove(request, &caller, collection, &segments[1]).await.map(Some),
+            Route::Batch => self.batch(request, &caller, request_id, url.path()).await.map(Some),
         }
     }
 
     /// The caller of a request: its credentials verified and the context lookups the policies of `collections`
     /// need resolved (every collection when `None`).
+    /// The caller of a request: its API key and token verified, its context lookups resolved for every
+    /// collection, a view token refused, and the request rate limits applied (a `CANOPY_RATE_LIMITED` error
+    /// when the caller or its address is over its budget).
+    pub async fn caller_of(&self, request: &Request) -> Result<Caller, CanopyError> {
+        self.caller(request, None).await
+    }
+
+    /// The caller of a request, with the contexts the policies of `collections` need resolved, under the same
+    /// credentials checks and rate limits as the Data API routes.
+    pub async fn caller_for(&self, request: &Request, collections: &[&str]) -> Result<Caller, CanopyError> {
+        self.caller(request, Some(collections)).await
+    }
+
+    /// The write path, when writes are served.
+    pub fn write_path(&self) -> Option<&Arc<WritePath>> {
+        self.writes.as_ref()
+    }
+
     pub(crate) async fn caller(
         &self,
         request: &Request,
@@ -366,12 +414,23 @@ impl Rest {
                 "A view token only follows data over realtime",
             ));
         }
-        let key = principal.key_id.as_deref().unwrap_or(&credentials.key);
+        self.limit_request(&principal, &credentials.key, address)?;
+        self.reads.caller(&principal, collections).await
+    }
+
+    pub(crate) fn limit_request(
+        &self,
+        principal: &canopy_engine::Principal,
+        key: &str,
+        address: &str,
+    ) -> Result<(), CanopyError> {
+        let Some(limits) = &self.rate_limits else { return Ok(()) };
+        let key = principal.key_id.as_deref().unwrap_or(key);
         let wait = limits.request(Some(key), &principal.subject, &principal.roles, address);
         if wait > 0 {
             return Err(self.limited(wait));
         }
-        self.reads.caller(&principal, collections).await
+        Ok(())
     }
 
     /// Reads and decodes an EJSON request body. An empty body reads as `None`. Fails with
@@ -387,38 +446,21 @@ impl Rest {
         request: &Request,
         accepted: &[&str],
     ) -> Result<Option<(Value, String)>, CanopyError> {
-        let too_large = || {
-            CanopyError::new(
-                ErrorCode::PayloadTooLarge,
-                format!("The request body may not exceed {} bytes", self.max_body_bytes),
-            )
+        read_body(request, self.max_body_bytes, accepted)
+    }
+
+    /// Counts a request that carries no credentials, such as a read of a public file, against its client
+    /// address under `key`, as an anonymous caller. Fails with `CANOPY_RATE_LIMITED` once the budget is spent.
+    pub fn limit_anonymous(&self, request: &Request, key: &str) -> Result<(), CanopyError> {
+        let (Some(limits), Some(address)) = (&self.rate_limits, request.client_address.as_deref()) else {
+            return Ok(());
         };
-        #[allow(clippy::cast_precision_loss)]
-        let max = self.max_body_bytes as f64;
-        if request
-            .header("content-length")
-            .is_some_and(|declared| declared.trim().parse::<f64>().is_ok_and(|length| length > max))
-        {
-            return Err(too_large());
+        let roles: canopy_policy::Roles = [canopy_policy::Role::ANON].into_iter().collect();
+        let wait = limits.request(Some(key), "anon", &roles, address);
+        if wait > 0 {
+            return Err(self.limited(wait));
         }
-        let bytes = match &request.body {
-            Body::TooLarge => return Err(too_large()),
-            Body::Unreadable => return Err(CanopyError::invalid_query("The request body could not be read")),
-            Body::Bytes(bytes) if bytes.is_empty() => return Ok(None),
-            Body::Bytes(bytes) => bytes,
-        };
-        let media_type = request.header("content-type").unwrap_or_default();
-        let media_type = media_type.split(';').next().unwrap_or_default().trim().to_lowercase();
-        if !accepted.contains(&media_type.as_str()) {
-            return Err(CanopyError::invalid_query(format!(
-                "The request body must be one of: {}",
-                accepted.join(", ")
-            )));
-        }
-        let text = std::str::from_utf8(bytes)
-            .map_err(|_| CanopyError::invalid_query("The request body is not valid UTF-8"))?;
-        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        Ok(Some((js_property_order(&parse(text, DecodeOptions::default())?), media_type)))
+        Ok(())
     }
 
     /// Checks a body document against the fields a route takes.
@@ -441,31 +483,42 @@ impl Rest {
         Ok(Response::new(200).with_header("content-type", content_type(encoding)).with_body(text))
     }
 
-    async fn count(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn count(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = match self.body(request)? {
             None | Some(Value::Null) => Value::Document(Document::new()),
             Some(input) => input,
         };
         let input = Rest::fields(&input, "count", &["filter"])?;
         let mode = preferences_of(request).count.unwrap_or(CountMode::Exact);
-        let result = self.reads.count(&caller, collection, input.get("filter"), mode).await?;
+        let result = self.reads.count(caller, collection, input.get("filter"), mode).await?;
         Rest::json(request, |encoding| result.encode(encoding))
     }
 
-    async fn distinct(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn distinct(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = self.body(request)?.unwrap_or(Value::Undefined);
         let input = Rest::fields(&input, "distinct", &["field", "filter"])?;
-        let result =
-            self.reads.distinct(&caller, collection, input.get("field"), input.get("filter")).await?;
+        let result = self.reads.distinct(caller, collection, input.get("field"), input.get("filter")).await?;
         Rest::json(request, |encoding| result.encode(encoding))
     }
 
     /// A find whose parameters are a body. The page carries its cluster time in the body only: no `ETag`, no
     /// `X-Canopy-Ct`, as the TypeScript handler answers it.
-    async fn query(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn query(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = match self.body(request)? {
             None | Some(Value::Null) => Value::Document(Document::new()),
             Some(input) => input,
@@ -476,15 +529,19 @@ impl Rest {
             PageLimits { max_limit: limits.max_limit, max_skip: limits.max_skip },
             preferences_of(request).count,
         )?;
-        let page = self.reads.find(&caller, find_request(collection, params)).await?;
+        let page = self.reads.find(caller, find_request(collection, params)).await?;
         Rest::json(request, |encoding| Ok(page.with_ct(&page.encode(encoding)?)))
     }
 
     /// Explains how DLS decides an operation for the caller stated in the body, with the policies and context
     /// lookups of real requests. The report shows the policy structure and resolved claim values, so only
     /// `service` callers may ask.
-    async fn explain(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn explain(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         if !caller.context.roles.contains(Role::SERVICE) {
             return Err(CanopyError::named(
                 ErrorCode::Forbidden,
@@ -545,7 +602,7 @@ impl Rest {
         let mut data = access_report_document(&report)?;
         if count && op != Operation::Insert {
             let effective = Value::Document(report.effective.to_filter());
-            let counted = self.reads.count(&caller, collection, Some(&effective), CountMode::Exact).await?;
+            let counted = self.reads.count(caller, collection, Some(&effective), CountMode::Exact).await?;
             #[allow(clippy::cast_precision_loss)]
             data.insert("count", Value::from_js_number(counted.count as f64));
         }
@@ -556,11 +613,15 @@ impl Rest {
         })
     }
 
-    async fn aggregate(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, None).await?;
+    async fn aggregate(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = self.body(request)?.unwrap_or(Value::Undefined);
         let input = Rest::fields(&input, "aggregate", &["pipeline"])?;
-        let result = self.reads.aggregate(&caller, collection, input.get("pipeline")).await?;
+        let result = self.reads.aggregate(caller, collection, input.get("pipeline")).await?;
         Rest::json(request, |encoding| result.encode(encoding))
     }
 
@@ -580,10 +641,10 @@ impl Rest {
     async fn find(
         &self,
         request: &Request,
+        caller: &Caller,
         url: &url::Url,
         collection: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let pairs: Vec<(String, String)> =
             url.query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect();
         let limits = self.reads.limits();
@@ -597,7 +658,7 @@ impl Rest {
                 return Err(CanopyError::invalid_query(format!("{name} only applies to writes")));
             }
         }
-        let page = self.reads.find(&caller, find_request(collection, params)).await?;
+        let page = self.reads.find(caller, find_request(collection, params)).await?;
         let encoding = negotiate(request.header("accept").as_deref());
         let text = page.encode(encoding)?;
         let tag = validator(encoding, &text);
@@ -652,6 +713,48 @@ pub fn request_path(target: &str) -> Option<String> {
 
 fn parse_target(target: &str) -> Option<url::Url> {
     if target.starts_with('/') { url::Url::parse(&format!("http://canopy.test{target}")).ok() } else { None }
+}
+
+/// Reads and decodes an EJSON request body of one of the `accepted` media types, with its media type, as the
+/// TypeScript `readBody` does. An empty body reads as `None`. Fails with `CANOPY_PAYLOAD_TOO_LARGE` beyond
+/// `max_bytes`, and with an invalid query error for other media types, text that is not UTF-8 and malformed JSON.
+pub fn read_body(
+    request: &Request,
+    max_bytes: u64,
+    accepted: &[&str],
+) -> Result<Option<(Value, String)>, CanopyError> {
+    let too_large = || {
+        CanopyError::new(
+            ErrorCode::PayloadTooLarge,
+            format!("The request body may not exceed {max_bytes} bytes"),
+        )
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let max = max_bytes as f64;
+    if request
+        .header("content-length")
+        .is_some_and(|declared| declared.trim().parse::<f64>().is_ok_and(|length| length > max))
+    {
+        return Err(too_large());
+    }
+    let bytes = match &request.body {
+        Body::TooLarge => return Err(too_large()),
+        Body::Unreadable => return Err(CanopyError::invalid_query("The request body could not be read")),
+        Body::Bytes(bytes) if bytes.is_empty() => return Ok(None),
+        Body::Bytes(bytes) => bytes,
+    };
+    let media_type = request.header("content-type").unwrap_or_default();
+    let media_type = media_type.split(';').next().unwrap_or_default().trim().to_lowercase();
+    if !accepted.contains(&media_type.as_str()) {
+        return Err(CanopyError::invalid_query(format!(
+            "The request body must be one of: {}",
+            accepted.join(", ")
+        )));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| CanopyError::invalid_query("The request body is not valid UTF-8"))?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    Ok(Some((js_property_order(&parse(text, DecodeOptions::default())?), media_type)))
 }
 
 /// Answers a CORS preflight: no body, and the allowed origin only when the origin may call.

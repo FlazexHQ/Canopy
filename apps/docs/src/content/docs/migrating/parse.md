@@ -23,7 +23,7 @@ any data. Run both side by side while clients move over.
 ## 1. Expose the classes
 
 ```bash
-bunx canopy init --mongodb-uri "mongodb://parse-db:27017/parse?replicaSet=rs0"
+bunx --package @canopy/cli canopy init --mongodb-uri "mongodb://parse-db:27017/parse?replicaSet=rs0"
 ```
 
 Parse fields keep their stored names: `_id` is a string, timestamps are `_created_at` and `_updated_at`,

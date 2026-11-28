@@ -149,6 +149,7 @@ export interface GatewayAuth {
 }
 
 export interface GatewayOverrides {
+    readonly host?: string;
     readonly port?: number;
     readonly metricsPort?: number;
     readonly metricsHost?: string;
@@ -157,6 +158,21 @@ export interface GatewayOverrides {
     readonly auth?: GatewayAuth;
     readonly viewTokenKey?: JsonWebKey;
     readonly dataPlaneRoutes?: readonly string[];
+    readonly wire?: false | {
+        readonly port: number;
+        readonly host?: string;
+        readonly maxMessageBytes?: number;
+        readonly maxConnections?: number;
+        readonly idleTimeoutMs?: number;
+        readonly tls?: {
+            readonly certFile: string;
+            readonly keyFile: string;
+        };
+    };
+    readonly graphqlPersisted?: {
+        readonly operations: Readonly<Record<string, string>>;
+        readonly only: boolean;
+    };
 }
 
 class Gauge {
@@ -536,8 +552,10 @@ export interface RealtimeStats {
 }
 
 export interface RunningGateway {
+    readonly pid: number | undefined;
     readonly exited: Promise<number>;
     readonly listening: Promise<number | undefined>;
+    readonly wireListening: Promise<number | undefined>;
     stop(): void;
 }
 
@@ -604,9 +622,11 @@ function directoryPolicies(dir: string): PolicySource
 
 function docKey(coll: string, id: unknown): string
 
-function findGatewayBinary(env?: NodeJS.ProcessEnv, execPath?: string, from?: string): string | undefined
+function findGatewayBinary(env?: NodeJS.ProcessEnv, execPath?: string, from?: string, target?: NativeTarget | undefined): string | undefined
 
 function gatewayConfig(config: ResolvedConfig, policies: { stored: unknown[]; contexts: unknown; } | undefined, env?: NodeJS.ProcessEnv, overrides?: GatewayOverrides): Record<string, unknown>
+
+function gatewayFallbackMessage(): string
 
 function indexableConjunct(filter: Record<string, unknown>): IndexedConjunct | undefined
 
@@ -619,6 +639,8 @@ function mutationRequest(message: MutMessage): MutationRequest
 const noCheckpoints: CheckpointStore
 
 function normalize(raw: Record<string, unknown>): NormalizedEvent | ControlEvent | undefined
+
+function readPersistedGraphqlOperations(input: { readonly file: string; readonly only: boolean; }): Promise<NonNullable<GatewayOverrides["graphqlPersisted"]>>
 
 function readinessCheck(options: ReadinessOptions): () => Promise<Readiness>
 

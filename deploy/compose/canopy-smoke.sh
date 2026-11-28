@@ -39,6 +39,17 @@ realtime_status() {
   curl -sS -o /dev/null -w '%{http_code}' "$base/realtime/v1"
 }
 
+# Compose checks containers directly. Caddy can still be waiting for its next health probe.
+wait_for_edge_route() {
+  local path="$1" status attempt
+  for ((attempt = 0; attempt < 15; attempt++)); do
+    status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' "$base$path")"
+    [[ "$status" == "503" ]] || return 0
+    sleep 1
+  done
+  fail "$path stayed unavailable through the edge"
+}
+
 # Stops one service, checks that it drained and exited 0, and leaves it stopped.
 stop_and_check() {
   local service="$1"
@@ -54,6 +65,7 @@ stop_and_check() {
 }
 
 expect "edge health" 200 ok "" "$base/edge/healthz"
+wait_for_edge_route /readyz
 expect healthz 200 ok "" "$base/healthz"
 expect readyz 200 ready "" "$base/readyz"
 expect "insert with the secret key" 201 "" "\"_id\":\"$id\"" -X POST "$base/rest/v1/notes" \
@@ -63,9 +75,11 @@ expect "read with the secret key" 200 "" "\"_id\":\"$id\"" "$base/rest/v1/notes/
 expect "policies hide the note from anon" 200 "" '^\{"data":\[\],' "$base/rest/v1/notes" \
   -H "apikey: $publishable"
 expect "an unknown key is refused" 401 "" "" "$base/rest/v1/notes" -H "apikey: pk_wrong"
+wait_for_edge_route /studio/
 expect "studio through the edge" 200 "" "<html" "$base/studio/"
 expect "api metrics" 200 "" 'canopy_build_info\{runtime="bun"' "$api_metrics"
 expect "realtime metrics" 200 "" 'canopy_build_info\{runtime="bun"' "$realtime_metrics"
+wait_for_edge_route /realtime/v1
 status="$(realtime_status)"
 [[ "$status" =~ ^4 ]] || fail "realtime answered a plain GET with $status, not a 4xx refusal"
 echo "ok  realtime answers through the edge"
@@ -76,6 +90,7 @@ expect "REST keeps working without realtime" 201 "" "\"_id\":\"$id-2\"" -X POST 
   -d "{\"_id\":\"$id-2\",\"ownerId\":\"user_1\",\"text\":\"still here\"}"
 expect "the edge reports realtime as unavailable" 503 "" '"code":"CANOPY_UNAVAILABLE"' "$base/realtime/v1"
 "${compose[@]}" up -d --no-build --wait --wait-timeout 120 realtime >/dev/null
+wait_for_edge_route /realtime/v1
 
 stop_and_check api
 status="$(realtime_status)"
@@ -85,4 +100,5 @@ expect "studio keeps working without api" 200 "" "<html" "$base/studio/"
 expect "the edge reports the API as unavailable" 503 "" '"code":"CANOPY_UNAVAILABLE"' "$base/rest/v1/notes" \
   -H "apikey: $secret"
 "${compose[@]}" up -d --no-build --wait --wait-timeout 120 api >/dev/null
+wait_for_edge_route /readyz
 expect "the API is back" 200 "" "\"_id\":\"$id-2\"" "$base/rest/v1/notes/$id-2" -H "apikey: $secret"

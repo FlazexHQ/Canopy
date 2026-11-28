@@ -16,6 +16,7 @@ export interface SchedulerOptions {
   /** Called after this server stored a fire. */
   readonly onEnqueued: (hook: string) => void
   readonly now?: () => number
+  readonly uuid?: () => string
 }
 
 interface ScheduleState {
@@ -103,7 +104,7 @@ export class Scheduler {
   async run(name: string): Promise<string | undefined> {
     if (!this.crons.has(name)) return undefined
     const at = new Date(this.now())
-    const id = `schedule:${name}:run:${at.toISOString()}:${randomUUID()}`
+    const id = `schedule:${name}:run:${at.toISOString()}:${(this.options.uuid ?? randomUUID)()}`
     await this.options.queue.enqueue([
       { id, hook: name, kind: "schedule", body: this.body(name, at) },
     ])

@@ -94,6 +94,7 @@
       "version": "0.0.0",
       "devDependencies": {
         "@canopy/auth": "workspace:*",
+        "@canopy/graphql": "workspace:*",
         "@canopy/matcher": "workspace:*",
         "@canopy/native": "workspace:*",
         "@canopy/node-http": "workspace:*",
@@ -265,9 +266,9 @@
       "name": "@canopy/cli",
       "version": "0.0.0",
       "bin": {
-        "canopy": "./dist/cli.js",
+        "canopy": "./dist/launcher.mjs",
       },
-      "dependencies": {
+      "devDependencies": {
         "@canopy/auth": "workspace:*",
         "@canopy/config": "workspace:*",
         "@canopy/policy": "workspace:*",
@@ -277,12 +278,10 @@
         "@canopy/rest": "workspace:*",
         "@canopy/schema": "workspace:*",
         "@canopy/server": "workspace:*",
-        "mongodb": "catalog:",
-      },
-      "devDependencies": {
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
         "canopy.js": "0.0.0",
+        "mongodb": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -295,6 +294,56 @@
       },
       "devDependencies": {
         "@types/node": "catalog:",
+        "ajv": "catalog:",
+        "canopy.js": "0.0.0",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/control": {
+      "name": "@canopy/control",
+      "version": "0.0.0",
+      "bin": {
+        "canopy-control": "./dist/bin/canopy-control.js",
+      },
+      "dependencies": {
+        "@canopy/config": "workspace:*",
+        "@canopy/node-http": "workspace:*",
+        "@canopy/policy": "workspace:*",
+        "@canopy/realtime": "workspace:*",
+        "@canopy/server": "workspace:*",
+      },
+      "devDependencies": {
+        "@canopy/testing": "workspace:*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/deploy-tests": {
+      "name": "@canopy/deploy-tests",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@canopy/config": "workspace:*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+        "yaml": "catalog:",
+      },
+    },
+    "packages/embedded": {
+      "name": "@canopy/embedded",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/config": "workspace:*",
+        "@canopy/node-http": "workspace:*",
+        "@canopy/server": "workspace:*",
+      },
+      "devDependencies": {
+        "@canopy/policy": "workspace:*",
+        "@canopy/testing": "workspace:*",
+        "@types/node": "catalog:",
+        "mongodb": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -391,6 +440,8 @@
       "devDependencies": {
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
+        "ajv": "catalog:",
+        "canopy.js": "0.0.0",
         "fast-check": "catalog:",
         "mongodb": "catalog:",
         "typescript": "catalog:",
@@ -492,6 +543,8 @@
       "devDependencies": {
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
+        "ajv": "catalog:",
+        "canopy.js": "0.0.0",
         "fast-check": "catalog:",
         "mongodb": "catalog:",
         "typescript": "catalog:",
@@ -543,6 +596,7 @@
         "@canopy/storage": "workspace:*",
         "@canopy/studio": "workspace:*",
         "canopy.js": "0.0.0",
+        "jose": "catalog:",
         "mongodb": "catalog:",
       },
       "devDependencies": {
@@ -555,7 +609,6 @@
         "@types/node": "catalog:",
         "@types/ws": "catalog:",
         "fast-check": "catalog:",
-        "jose": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
         "ws": "catalog:",
@@ -683,6 +736,7 @@
     "@ui-sdk/react": "0.1.0-beta.6",
     "@vitejs/plugin-react": "6.1.2",
     "@vitest/coverage-v8": "5.0.5",
+    "ajv": "8.20.0",
     "astro": "7.4.5",
     "bson": "7.3.3",
     "class-variance-authority": "0.7.1",
@@ -884,7 +938,13 @@
 
     "@canopy/config": ["@canopy/config@workspace:packages/config"],
 
+    "@canopy/control": ["@canopy/control@workspace:packages/control"],
+
+    "@canopy/deploy-tests": ["@canopy/deploy-tests@workspace:packages/deploy-tests"],
+
     "@canopy/docs": ["@canopy/docs@workspace:apps/docs"],
+
+    "@canopy/embedded": ["@canopy/embedded@workspace:packages/embedded"],
 
     "@canopy/example-auth-notes": ["@canopy/example-auth-notes@workspace:examples/auth-notes"],
 
@@ -3096,6 +3156,8 @@
 
     "@canopy/cli/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
 
+    "@canopy/config/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
+
     "@canopy/example-auth-notes/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
 
     "@canopy/example-express-dropin/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
@@ -3106,7 +3168,11 @@
 
     "@canopy/example-todo-react/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
 
+    "@canopy/policy/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
+
     "@canopy/realtime/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
+
+    "@canopy/schema/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
 
     "@canopy/sdk-e2e/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"], "bin": { "canopy-stack": "./dist/cli/bin.js" } }],
 

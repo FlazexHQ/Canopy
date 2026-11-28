@@ -22,7 +22,7 @@ import { cpuMillis, waitFor } from "../server-process.ts"
  *
  * Environment: `CANOPY_BENCH_MONGODB_URI` (or `CANOPY_TEST_MONGODB_URI`), `CANOPY_BENCH_OWNERS` (default 200),
  * `CANOPY_BENCH_SECONDS` (per scenario and target, default 8), `CANOPY_BENCH_CONCURRENCY` (default 32),
- * `CANOPY_BENCH_ROUNDS` (alternating rounds, default 3), `CANOPY_GATEWAY_BIN` (else the release or debug build),
+ * `CANOPY_BENCH_ROUNDS` (alternating rounds, default 3), `CANOPYD_BIN` (else the release or debug build),
  * `CANOPY_BENCH_OUT` (a file for the JSON report).
  */
 const URI =
@@ -214,7 +214,7 @@ function comparable(text: string, prefix: string): string {
 async function main(): Promise<void> {
   const gatewayBinary = findGatewayBinary(process.env)
   if (gatewayBinary === undefined)
-    throw new Error("Build the gateway first: cargo build --release -p canopy-gateway")
+    throw new Error("Build the gateway first: cargo build --release -p canopyd")
   const database = `canopy_d2_${process.pid}`
   const metaDatabase = `${database}_meta`
   const mongo = new MongoClient(URI)

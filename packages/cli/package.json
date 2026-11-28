@@ -1,31 +1,25 @@
 {
   "name": "@canopy/cli",
   "version": "0.0.0",
-  "description": "The canopy command line: init, dev, doctor, policies, type generation, indexes and realtime images.",
+  "description": "Launcher for the native Canopy command line.",
   "license": "UNLICENSED",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/commands.d.ts",
-      "@canopy/source": "./src/commands.ts",
-      "default": "./dist/commands.js"
-    },
     "./package.json": "./package.json"
   },
   "bin": {
-    "canopy": "./dist/cli.js"
+    "canopy": "./dist/launcher.mjs"
   },
   "files": [
-    "dist",
-    "src",
-    "!**/*.tsbuildinfo"
+    "dist/launcher.mjs"
   ],
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b test",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:launcher": "bun build-launcher.ts"
   },
-  "dependencies": {
+  "devDependencies": {
     "@canopy/auth": "workspace:*",
     "@canopy/config": "workspace:*",
     "@canopy/policy": "workspace:*",
@@ -35,13 +29,12 @@
     "@canopy/rest": "workspace:*",
     "@canopy/schema": "workspace:*",
     "@canopy/server": "workspace:*",
-    "mongodb": "catalog:"
-  },
-  "devDependencies": {
+    "mongodb": "catalog:",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "canopy.js": "0.0.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  }
+  },
+  "preferUnplugged": true
 }

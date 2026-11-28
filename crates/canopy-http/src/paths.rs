@@ -35,7 +35,7 @@ fn hex_digit(byte: u8) -> Option<u8> {
 
 /// Splits the path below `base_path` into decoded segments, or returns `None` when the path is outside it. A
 /// trailing slash is ignored.
-pub(crate) fn segments_of(pathname: &str, base_path: &str) -> Result<Option<Vec<String>>, CanopyError> {
+pub fn segments_of(pathname: &str, base_path: &str) -> Result<Option<Vec<String>>, CanopyError> {
     let inside =
         pathname == base_path || pathname.strip_prefix(base_path).is_some_and(|rest| rest.starts_with('/'));
     if !inside {

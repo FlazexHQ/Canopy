@@ -86,6 +86,12 @@ describe("checkCargo", () => {
     expect(await checkCargo(root)).toEqual([])
   })
 
+  it("accepts the canopyd data plane crate", async () => {
+    await valid()
+    await write("crates/canopyd/Cargo.toml", crate("canopyd"))
+    expect(await checkCargo(root)).toEqual([])
+  })
+
   it("finds crates that are not members and members without a manifest", async () => {
     await valid()
     await write(

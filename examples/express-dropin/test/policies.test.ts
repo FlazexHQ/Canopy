@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url"
-import { policiesLint, policiesTest } from "@canopy/cli"
 import { MONGODB_URI } from "@canopy/testing"
 import { describe, expect, it } from "vitest"
+import { policiesLint, policiesTest } from "../../../packages/cli/src/commands.ts"
 
 const dir = fileURLToPath(new URL("../canopy/policies", import.meta.url))
 

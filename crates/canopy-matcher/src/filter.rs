@@ -9,8 +9,8 @@ use canopy_protocol::{CanopyError, DocRef, Document, RawDocument, Regex, Value, 
 use crate::compare::{Bracket, BsonType, bracket, bracket_of, bson_type, compare, compare_options};
 use crate::equality::{KeySet, equality_key};
 use crate::errors::{is_unsupported, unsupported_query};
-use crate::numeric::{Numeric, is_nan, read_numeric, to_double};
-use crate::path::{Item, Outcome, any_path_value, present, split_path};
+use crate::numeric::{Numeric, compare_numeric, is_nan, read_numeric, to_double};
+use crate::path::{Item, Outcome, Segment, present, test_path};
 use crate::regex::{LinearRegex, compile_regex};
 
 type Leaf = Arc<dyn Fn(Option<ValueRef<'_>>) -> Outcome + Send + Sync>;
@@ -20,6 +20,9 @@ type DocTest = Arc<dyn for<'a> Fn(Item<'a>) -> Outcome + Send + Sync>;
 #[derive(Clone)]
 pub struct CompiledFilter {
     test: DocTest,
+    /// The field and the string when the whole filter is one top level field equal to a string, the most
+    /// common filter (a document owner), which an owned document then answers without the dynamic test.
+    equals: Option<Arc<(String, String)>>,
 }
 
 impl std::fmt::Debug for CompiledFilter {
@@ -32,7 +35,11 @@ impl CompiledFilter {
     /// Returns true when the document matches. An error (a regular expression input too large to match in
     /// process) means the decision is unknown; callers must treat it as a refusal, never as "no match" under
     /// a negation.
+    #[inline(always)]
     pub fn matches(&self, document: &Document) -> Outcome {
+        if let Some(equals) = &self.equals {
+            return Ok(field_equals_text(document, &equals.0, &equals.1));
+        }
         (self.test)(Item::Document(DocRef::Owned(document)))
     }
 
@@ -143,7 +150,16 @@ fn regex_of(value: &Value) -> Option<&Regex> {
 /// an `InvalidQueryError` for filters MongoDB would refuse.
 pub fn compile_filter(filter: &Value) -> Result<CompiledFilter, CanopyError> {
     let Value::Document(filter) = filter else { return Err(invalid("A filter must be a document")) };
-    Ok(CompiledFilter { test: compile_document(filter)? })
+    let test = compile_document(filter)?;
+    let equals = match filter.fields() {
+        [(field, Value::String(text) | Value::Symbol(text))]
+            if !field.starts_with('$') && !field.contains('.') =>
+        {
+            Some(Arc::new((field.clone(), text.clone())))
+        }
+        _ => None,
+    };
+    Ok(CompiledFilter { test, equals })
 }
 
 /// Returns true when every operator in `filter` can be evaluated in process. Filters MongoDB would refuse
@@ -190,14 +206,86 @@ fn negate_leaf(leaf: Leaf) -> Leaf {
     Arc::new(move |value| leaf(value).map(|matched| !matched))
 }
 
-fn expand(parts: &Arc<Vec<String>>, leaf: Leaf) -> DocTest {
-    let parts = Arc::clone(parts);
-    Arc::new(move |item| any_path_value(item, &parts, true, &*leaf))
+fn expand(parts: &Arc<Vec<Segment>>, leaf: Leaf) -> DocTest {
+    path_test(parts, true, leaf)
 }
 
-fn reach(parts: &Arc<Vec<String>>, leaf: Leaf) -> DocTest {
+fn reach(parts: &Arc<Vec<Segment>>, leaf: Leaf) -> DocTest {
+    path_test(parts, false, leaf)
+}
+
+fn path_test(parts: &Arc<Vec<Segment>>, expand_last: bool, leaf: Leaf) -> DocTest {
     let parts = Arc::clone(parts);
-    Arc::new(move |item| any_path_value(item, &parts, false, &*leaf))
+    Arc::new(move |item| test_path(item, &parts, expand_last, &*leaf))
+}
+
+fn string_matches(expected: &str, value: Option<ValueRef<'_>>) -> Outcome {
+    Ok(matches!(value, Some(ValueRef::String(text) | ValueRef::Symbol(text)) if text == expected))
+}
+
+/// Whether the top level `field` of an owned document equals `expected` as MongoDB compares a string (or
+/// symbol) operand: a string or symbol with the same text, or an array holding one at its top level.
+fn field_equals_text(document: &Document, field: &str, expected: &str) -> bool {
+    let value = document.fields().iter().find(|(key, _)| same_text(key, field)).map(|(_, value)| value);
+    match value {
+        Some(Value::String(text) | Value::Symbol(text)) => same_text(text, expected),
+        Some(Value::Array(items)) => items.iter().any(
+            |item| matches!(item, Value::String(text) | Value::Symbol(text) if same_text(text, expected)),
+        ),
+        _ => false,
+    }
+}
+
+/// Whether two strings are equal. Compares four bytes at a time in place instead of calling `memcmp`, which
+/// the size optimized WebAssembly client compiles to a loop over single bytes; field names and the strings
+/// such filters compare are mostly a few bytes long.
+fn same_text(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let length = left.len();
+    if length != right.len() {
+        return false;
+    }
+    if length < 4 {
+        let mut index = 0;
+        while index < length {
+            if left.get(index) != right.get(index) {
+                return false;
+            }
+            index += 1;
+        }
+        return true;
+    }
+    let mut index = 0;
+    while index + 4 <= length {
+        if word(left, index) != word(right, index) {
+            return false;
+        }
+        index += 4;
+    }
+    index == length || word(left, length - 4) == word(right, length - 4)
+}
+
+/// The four bytes at `at` as one little endian number, or `None` past the end.
+fn word(bytes: &[u8], at: usize) -> Option<u32> {
+    match bytes.get(at..at.checked_add(4)?) {
+        Some(&[a, b, c, d]) => Some(u32::from_le_bytes([a, b, c, d])),
+        _ => None,
+    }
+}
+
+fn equality_test(parts: &Arc<Vec<Segment>>, operand: &Value) -> DocTest {
+    if let ([part], Value::String(text) | Value::Symbol(text)) = (parts.as_slice(), operand) {
+        let field = part.name.clone();
+        let expected = text.clone();
+        let fallback = expand(parts, eq_leaf(operand));
+        return Arc::new(move |item| {
+            let Item::Document(DocRef::Owned(document)) = item else {
+                return fallback(item);
+            };
+            Ok(field_equals_text(document, &field, &expected))
+        });
+    }
+    expand(parts, eq_leaf(operand))
 }
 
 fn compile_document(filter: &Document) -> Result<DocTest, CanopyError> {
@@ -219,12 +307,12 @@ fn compile_top_operator(key: &str, value: &Value) -> Result<DocTest, CanopyError
     if is_logical(key) {
         let branches = match value {
             Value::Array(items) if !items.is_empty() => items,
-            _ => return Err(invalid(format!("{key} must be a nonempty array"))),
+            _ => return Err(invalid([key, " must be a nonempty array"].concat())),
         };
         let mut compiled = Vec::with_capacity(branches.len());
         for branch in branches {
             let Value::Document(branch) = branch else {
-                return Err(invalid(format!("{key} argument entries must be objects")));
+                return Err(invalid([key, " argument entries must be objects"].concat()));
             };
             compiled.push(compile_document(branch)?);
         }
@@ -235,15 +323,15 @@ fn compile_top_operator(key: &str, value: &Value) -> Result<DocTest, CanopyError
         });
     }
     if UNSUPPORTED_TOP.contains(&key) {
-        return Err(unsupported_query(format!("{key} is not evaluated in process")));
+        return Err(unsupported_query([key, " is not evaluated in process"].concat()));
     }
-    Err(invalid(format!("unknown top level operator: {key}")))
+    Err(invalid(["unknown top level operator: ", key].concat()))
 }
 
 fn compile_field_condition(path: &str, value: &Value) -> Result<DocTest, CanopyError> {
-    let parts = split_path(path);
-    if parts.iter().any(String::is_empty) {
-        return Err(invalid(format!("Invalid field path: {path}")));
+    let parts: Vec<_> = path.split('.').map(Segment::new).collect();
+    if parts.iter().any(|part| part.name.is_empty()) {
+        return Err(invalid(["Invalid field path: ", path].concat()));
     }
     let parts = Arc::new(parts);
     if let Some(regex) = regex_of(value) {
@@ -253,10 +341,10 @@ fn compile_field_condition(path: &str, value: &Value) -> Result<DocTest, CanopyE
         let Value::Document(ops) = value else { return Err(invalid("expected operators")) };
         return compile_operators(&parts, ops);
     }
-    Ok(expand(&parts, eq_leaf(value)))
+    Ok(equality_test(&parts, value))
 }
 
-fn compile_operators(parts: &Arc<Vec<String>>, ops: &Document) -> Result<DocTest, CanopyError> {
+fn compile_operators(parts: &Arc<Vec<Segment>>, ops: &Document) -> Result<DocTest, CanopyError> {
     let has_regex = ops.contains_key("$regex");
     if ops.contains_key("$options") && !has_regex {
         return Err(invalid("$options needs a $regex"));
@@ -264,7 +352,7 @@ fn compile_operators(parts: &Arc<Vec<String>>, ops: &Document) -> Result<DocTest
     let mut tests = Vec::with_capacity(ops.len());
     for (key, operand) in ops.iter() {
         if !key.starts_with('$') {
-            return Err(invalid(format!("unknown operator: {key}")));
+            return Err(invalid(["unknown operator: ", key].concat()));
         }
         match key {
             "$options" => {}
@@ -278,9 +366,9 @@ fn compile_operators(parts: &Arc<Vec<String>>, ops: &Document) -> Result<DocTest
     Ok(all_of(tests))
 }
 
-fn compile_operator(parts: &Arc<Vec<String>>, op: &str, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_operator(parts: &Arc<Vec<Segment>>, op: &str, operand: &Value) -> Result<DocTest, CanopyError> {
     Ok(match op {
-        "$eq" => expand(parts, eq_leaf(operand)),
+        "$eq" => equality_test(parts, operand),
         "$ne" => {
             if regex_of(operand).is_some() {
                 return Err(invalid("Can't have regex as arg to $ne."));
@@ -309,9 +397,9 @@ fn compile_operator(parts: &Arc<Vec<String>>, op: &str, operand: &Value) -> Resu
         "$elemMatch" => compile_elem_match(parts, operand)?,
         "$not" => compile_not(parts, operand)?,
         _ if UNSUPPORTED_FIELD.contains(&op) => {
-            return Err(unsupported_query(format!("{op} is not evaluated in process")));
+            return Err(unsupported_query([op, " is not evaluated in process"].concat()));
         }
-        _ => return Err(invalid(format!("unknown operator: {op}"))),
+        _ => return Err(invalid(["unknown operator: ", op].concat())),
     })
 }
 
@@ -332,8 +420,13 @@ fn is_nan_value(value: ValueRef<'_>) -> bool {
 }
 
 fn eq_leaf(operand: &Value) -> Leaf {
-    if matches!(operand, Value::Null) {
-        return Arc::new(|value| Ok(is_nullish(value)));
+    match operand {
+        Value::Null => return Arc::new(|value| Ok(is_nullish(value))),
+        Value::String(text) | Value::Symbol(text) => {
+            let expected = text.clone();
+            return Arc::new(move |value| string_matches(&expected, value));
+        }
+        _ => {}
     }
     if is_nan_value(operand.view()) {
         return Arc::new(|value| Ok(value.is_some_and(is_nan_value)));
@@ -351,16 +444,19 @@ fn eq_leaf(operand: &Value) -> Leaf {
 }
 
 fn comparison_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
+    let direction = match op {
+        "$gt" | "$gte" => Ordering::Greater,
+        _ => Ordering::Less,
+    };
+    let inclusive = matches!(op, "$gte" | "$lte");
+    compile_comparison(operand, direction, inclusive)
+}
+
+fn compile_comparison(operand: &Value, direction: Ordering, inclusive: bool) -> Result<Leaf, CanopyError> {
+    let accept = move |order| order == direction || (inclusive && order == Ordering::Equal);
     if regex_of(operand).is_some() {
         return Err(invalid("Can't have RegEx as arg to non-equality predicate"));
     }
-    let inclusive = op == "$gte" || op == "$lte";
-    let accept: fn(Ordering) -> bool = match op {
-        "$gt" => Ordering::is_gt,
-        "$gte" => Ordering::is_ge,
-        "$lt" => Ordering::is_lt,
-        _ => Ordering::is_le,
-    };
     if matches!(operand, Value::Null) {
         return Ok(if inclusive { Arc::new(|value| Ok(is_nullish(value))) } else { Arc::new(|_| Ok(false)) });
     }
@@ -371,21 +467,27 @@ fn comparison_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
             Ok(accept(compare(value.unwrap_or(ValueRef::Null), operand.view())))
         }));
     }
-    let operand_nan = is_nan_value(operand.view());
-    Ok(Arc::new(move |value| {
-        let Some(value) = value.filter(|value| bracket(*value) == expected) else { return Ok(false) };
-        if expected == Bracket::Number {
-            let value_nan = is_nan_value(value);
+    if expected == Bracket::Number {
+        let operand_nan = is_nan_value(operand.view());
+        return Ok(Arc::new(move |value| {
+            let (Some(value), Some(operand)) = (value.and_then(read_numeric), read_numeric(operand.view()))
+            else {
+                return Ok(false);
+            };
+            let value_nan = is_nan(value);
             if value_nan || operand_nan {
                 return Ok(inclusive && value_nan && operand_nan);
             }
-        }
-        Ok(accept(compare(value, operand.view())))
+            Ok(accept(compare_numeric(value, operand)))
+        }));
+    }
+    Ok(Arc::new(move |value| {
+        Ok(value.is_some_and(|value| bracket(value) == expected && accept(compare(value, operand.view()))))
     }))
 }
 
 fn in_leaf(operand: &Value, op: &str) -> Result<Leaf, CanopyError> {
-    let Value::Array(items) = operand else { return Err(invalid(format!("{op} needs an array"))) };
+    let Value::Array(items) = operand else { return Err(invalid([op, " needs an array"].concat())) };
     let mut keyed = KeySet::default();
     let mut keyed_numbers: Vec<Leaf> = Vec::new();
     let mut regexes: Vec<Leaf> = Vec::new();
@@ -393,7 +495,7 @@ fn in_leaf(operand: &Value, op: &str) -> Result<Leaf, CanopyError> {
     let mut matches_null = false;
     for item in items {
         if is_operator_object(item) {
-            return Err(invalid(format!("cannot nest $ under {op}")));
+            return Err(invalid(["cannot nest $ under ", op].concat()));
         }
         if let Some(regex) = regex_of(item) {
             regexes.push(regex_leaf(regex)?);
@@ -456,16 +558,18 @@ fn type_leaf(operand: &Value) -> Result<Leaf, CanopyError> {
     for spec in specs {
         if let Value::String(name) = spec {
             let types =
-                type_alias(name).ok_or_else(|| invalid(format!("Unknown type name alias: {name}")))?;
+                type_alias(name).ok_or_else(|| invalid(["Unknown type name alias: ", name].concat()))?;
             wanted.extend_from_slice(types);
             continue;
         }
         let numeric = read_numeric(spec.view())
             .ok_or_else(|| invalid("type must be represented as a number or a string"))?;
         let code = to_double(numeric);
-        let code_text = js_number_string(code);
+
         wanted.push(
-            type_code(code).ok_or_else(|| invalid(format!("Invalid numerical type code: {code_text}")))?,
+            type_code(code).ok_or_else(|| {
+                invalid(["Invalid numerical type code: ", &js_number_string(code)].concat())
+            })?,
         );
     }
     Ok(Arc::new(move |value| Ok(value.is_some_and(|value| wanted.contains(&bson_type(value))))))
@@ -534,12 +638,12 @@ fn regex_from_operator(pattern: &Value, options: Option<&Value>) -> Result<Regex
         Some(_) => return Err(invalid("$options has to be a string")),
     };
     match pattern {
-        Value::String(text) => Ok(Regex::new(text.clone(), options.unwrap_or(""))),
+        Value::String(text) => Ok(Regex::new(text, options.unwrap_or(""))),
         Value::Regex(regex) => {
             if options.is_some() && !regex.options.is_empty() {
                 return Err(invalid("options set in both $regex and $options"));
             }
-            Ok(Regex::new(regex.pattern.clone(), options.unwrap_or(&regex.options)))
+            Ok(Regex::new(&regex.pattern, options.unwrap_or(&regex.options)))
         }
         _ => Err(invalid("$regex has to be a string")),
     }
@@ -557,7 +661,7 @@ fn regex_leaf(regex: &Regex) -> Result<Leaf, CanopyError> {
     }))
 }
 
-fn compile_all(parts: &Arc<Vec<String>>, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_all(parts: &Arc<Vec<Segment>>, operand: &Value) -> Result<DocTest, CanopyError> {
     let Value::Array(items) = operand else { return Err(invalid("$all needs an array")) };
     if items.is_empty() {
         return Ok(Arc::new(|_| Ok(false)));
@@ -594,7 +698,7 @@ fn is_value_operator(key: &str) -> bool {
     key.starts_with('$') && !is_logical(key) && key != "$expr"
 }
 
-fn compile_elem_match(parts: &Arc<Vec<String>>, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_elem_match(parts: &Arc<Vec<Segment>>, operand: &Value) -> Result<DocTest, CanopyError> {
     let Value::Document(operand) = operand else { return Err(invalid("$elemMatch needs an Object")) };
     let value_form = operand.first_key().is_some_and(is_value_operator);
     let element: Leaf = if value_form {
@@ -664,9 +768,9 @@ fn value_operator_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
         "$all" => single_all_leaf(operand)?,
         "$not" => single_not_leaf(operand)?,
         _ if UNSUPPORTED_FIELD.contains(&op) => {
-            return Err(unsupported_query(format!("{op} is not evaluated in process")));
+            return Err(unsupported_query([op, " is not evaluated in process"].concat()));
         }
-        _ => return Err(invalid(format!("unknown operator: {op}"))),
+        _ => return Err(invalid(["unknown operator: ", op].concat())),
     })
 }
 
@@ -740,7 +844,7 @@ fn single_not_leaf(operand: &Value) -> Result<Leaf, CanopyError> {
     Ok(negate_leaf(all_leaves(leaves)))
 }
 
-fn compile_not(parts: &Arc<Vec<String>>, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_not(parts: &Arc<Vec<Segment>>, operand: &Value) -> Result<DocTest, CanopyError> {
     if let Some(regex) = regex_of(operand) {
         return Ok(negate(expand(parts, regex_leaf(regex)?)));
     }

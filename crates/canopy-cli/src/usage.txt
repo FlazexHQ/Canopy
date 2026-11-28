@@ -1,0 +1,111 @@
+Usage: canopy <command> [options]
+
+Commands:
+  init                   Add a canopy/ folder (config, starter policies, .env.example) to this project
+  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB too
+  doctor                 Check MongoDB, change streams, policies and indexes
+  policies lint          Validate and lint the policy directory
+  policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB
+  policies explain <collection>
+                         Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)
+  policies diff [collection...]
+                         Compare the policy directory with the published policies
+  policies push [collection...]
+                         Publish changed collections (versioned, audited, conditional)
+  policies pull [collection...]
+                         Write the published policies into the policy directory as TypeScript
+  policies history <collection>
+                         List the published versions of a collection
+  policies rollback <collection> <version>
+                         Republish an earlier version as a new one (asks first)
+  auth import <file>     Import app users from --from firebase|auth0|cognito|csv into built in auth;
+                         password hashes are checked on first sign in, then rehashed
+  keys list              List the API keys of the project
+  keys create            Create a key: --kind publishable|secret --name <name>
+  keys revoke <id>       Revoke a key for good (asks first)
+  admin list             List the Studio admins
+  admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]
+  admin reset-totp <id|email>
+                         Clear an admin's TOTP and end their sessions (asks first)
+  admin tokens create    Create a long lived admin API token for CI on the project behind --env:
+                         --name <name> [--role <role>] [--expires <days>]
+  admin tokens list      List your admin API tokens (--all: every admin's)
+  admin tokens revoke <id>
+                         Revoke an admin API token at once (asks first)
+  migrate                Bring the meta database up to date (--status lists the migrations)
+  login <url>            Verify an admin token and store it for a remote project in the OS keychain
+  logout <url>           Remove the stored admin token of a project
+  pull                   Write an editable collection schema from MongoDB
+  schema diff            Compare the schema file with MongoDB and exit 1 on drift
+  schema push            Apply collection validators from the schema file (asks first)
+  config print           Print the resolved config with secrets masked
+  build                  Write the project's bundle (config, policies, tests, schema) for deployments
+                         that publish without a JavaScript runtime
+  realtime enable-images <collection...>
+                         Turn on change stream pre and post images (asks first)
+  realtime disable-images <collection...>
+                         Turn them off (asks first)
+  indexes advise         Suggest indexes for the equality fields of policies and context lookups
+  indexes create         Create the suggested indexes (asks first)
+
+Settings come from canopy.config.ts (or canopy/canopy.config.ts), found from the working directory, and
+the CANOPY_* variables. Flags override both.
+
+Options:
+  --config <file>        The config file (default: discovered)
+  --dir <path>           Policy directory (default: the config's policies.dir, else ./canopy/policies)
+  --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)
+  --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)
+  --bundle <file>        Read the project from a bundle written by canopy build instead of running the config
+  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)
+                         build: the bundle (default canopy.bundle.json)
+  --js                   pull: emit JavaScript
+  --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)
+  --collection <name>    pull: add one collection to the schema file
+  --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions
+  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)
+  --sources              config print: show where each value came from
+  --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),
+                         otherwise from the official binaries (downloaded once, data in .canopy/mongodb)
+  --mongo-binary         dev --with-mongo: use the official binaries even when Docker runs
+  --mongo-version <x.y.z> dev --with-mongo: the binaries' version (default 8.0.34)
+  --port <n>             dev: the port to serve on (default: the config's server.port)
+  --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)
+  --mongo-image <image>  dev --with-mongo: the image (default mongodb/mongodb-community-server:8.0-ubi9)
+  --expect-version <v>   policies push: the version each change was made against, as n (one collection)
+                         or collection=n pairs (_context=n for the context lookups); policies
+                         rollback: the current version
+  --comment <text>       policies push, rollback: recorded in the history and the audit log
+  --dry-run              policies push: show what would be published; auth import: only read the file
+  --fail-on-drift        policies diff: exit 1 when anything differs
+  --force                policies pull: replace existing files
+                         pull: replace an edited schema file when pulling all collections
+  --limit <n>            policies history: how many versions (default 50)
+  --kind <kind>          keys create: publishable or secret
+  --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens
+                         create: the token's name
+  --email <email>        admin create: the admin's email
+  --role <role>          schema diff: report fields the role cannot read or write on insert
+                         admin create, admin
+                         tokens create: the role (a token's defaults to yours and may not be higher)
+  --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)
+  --all                  admin tokens list: every admin's tokens (owners and admins)
+  --status               migrate: list the migrations instead of running them
+  --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)
+  --env <name>           login: remember the project under this name; policies push, diff, pull,
+                         history, rollback and admin tokens: work on that project through its admin API
+                         ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).
+                         production and development also set CANOPY_ENV
+  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,
+                         admin tokens revoke, schema push: apply without asking
+  --from <system>        auth import: firebase, auth0, cognito or csv
+  --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and
+                         --mem-cost (the project's password hash parameters) imports password hashes
+  --as <claims>          policies explain: the caller's claims as JSON (default: anon)
+  --roles <a,b>          policies explain: custom roles of the caller
+  --op <op>              policies explain: read, insert, update or delete (default read)
+  --filter <json>        policies explain: the caller's read filter
+  --ctx <json>           policies explain: context lookup values instead of resolving them
+  --version              Print the version of the CLI
+  --debug                With an unexpected error, print its stack trace
+  --help                 Show this help

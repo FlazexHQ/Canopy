@@ -5,6 +5,7 @@
 use crate::build::{CollectionPlan, GeneratedSchema};
 use crate::errors::{GraphqlError, PathSegment};
 use crate::filters::{NotADocument, to_mongo_document, to_mongo_filter, to_mongo_sort, to_mongo_update};
+use crate::live::LiveQuery;
 use crate::model::{FieldPlan, MutationKind, Relation, TypeDef};
 use crate::values::{Input, parse_builtin, parse_custom, serialize};
 use apollo_compiler::ast::{OperationType, Type, Value as AstValue};
@@ -49,6 +50,8 @@ impl ExecutionResult {
 }
 
 const INVALID_QUERY: &str = "CANOPY_INVALID_QUERY";
+/// The code GraphQL Yoga gives a variable value that cannot be coerced, answered with `400`.
+const BAD_USER_INPUT: &str = "BAD_USER_INPUT";
 const RELATION_CHUNK: usize = 1000;
 const RELATION_PAGES: usize = 10;
 
@@ -372,8 +375,9 @@ impl<'d, 's> Exec<'d, 's> {
         for definition in &operation.variables {
             let name = definition.name.as_str();
             let locations = location_of(definition, self.document);
-            let fail =
-                |message: String| GraphqlError::coded(message, INVALID_QUERY).at(locations.clone(), None);
+            let fail = |message: String| {
+                GraphqlError::coded(message, BAD_USER_INPUT).with_status(400).at(locations.clone(), None)
+            };
             match given.iter().find(|(key, _)| key == name) {
                 None => match &definition.default_value {
                     Some(default) => match self.literal(default, &definition.ty) {
@@ -1076,14 +1080,8 @@ fn introspect(
         variables.iter().map(|(key, value)| (key.as_str().into(), to_bytes_json(value))).collect();
     let coerced = apollo_compiler::request::coerce_variable_values(schema, operation, &raw)
         .map_err(|error| GraphqlError::coded(error.message().to_string(), INVALID_QUERY))?;
-    let response = apollo_compiler::introspection::partial_execute(
-        schema,
-        &schema.implementers_map(),
-        document,
-        operation,
-        &coerced,
-    )
-    .map_err(|error| GraphqlError::coded(error.message().to_string(), INVALID_QUERY))?;
+    let response = crate::introspection::partial_execute(schema, document, operation, &coerced)
+        .map_err(|error| GraphqlError::coded(error.message().to_string(), INVALID_QUERY))?;
     Ok(response
         .data
         .map(|data| {
@@ -1163,6 +1161,261 @@ pub async fn execute(
         if root == "Mutation" {
             exec.load_relations().await;
         }
+    }
+    exec.load_relations().await;
+    let top = exec.alloc(Slot::Object(entries));
+    let data = exec.finish(top).unwrap_or(Json::Null);
+    ExecutionResult { data: Some(data), errors: exec.errors }
+}
+
+/// What a subscription's root field follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionKind {
+    /// `liveTodos`: the full result on every change.
+    Live,
+    /// `todoChanges`: added, changed and removed documents, then ready.
+    Changes,
+}
+
+/// The live query a subscription follows, from the arguments of its root field.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubscriptionSource {
+    /// Whether the field sends full results or changes.
+    pub kind: SubscriptionKind,
+    /// The query.
+    pub query: LiveQuery,
+}
+
+/// One event of a subscription, the value of its root field.
+#[derive(Clone, Debug)]
+pub enum SubscriptionEvent {
+    /// A full result.
+    Docs(Vec<Arc<Document>>),
+    /// One change.
+    Change(LiveChange),
+}
+
+/// The kind of a [`LiveChange`], the `ChangeKind` enum of the schema.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeKind {
+    /// A document entered the result.
+    Added,
+    /// A document of the result changed, or moved.
+    Changed,
+    /// A document left the result.
+    Removed,
+    /// The first result has been sent.
+    Ready,
+}
+
+impl ChangeKind {
+    /// The enum value of the schema.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ChangeKind::Added => "ADDED",
+            ChangeKind::Changed => "CHANGED",
+            ChangeKind::Removed => "REMOVED",
+            ChangeKind::Ready => "READY",
+        }
+    }
+}
+
+/// One change of a live query, as `todoChanges` sends it.
+#[derive(Clone, Debug)]
+pub struct LiveChange {
+    /// The kind.
+    pub kind: ChangeKind,
+    /// The document's `_id`, absent for `READY`.
+    pub id: Option<Value>,
+    /// The document, for `ADDED` and `CHANGED`.
+    pub doc: Option<Arc<Document>>,
+    /// The position in the result, absent for `READY`.
+    pub index: Option<usize>,
+}
+
+/// Turns successive full results into changes: removed documents first, then added and changed ones in result
+/// order, and `READY` after the first result. A document counts as changed when the follower replaced it or its
+/// position moved.
+#[derive(Default)]
+pub struct ChangeTracker {
+    previous: Option<Vec<(String, Arc<Document>, usize)>>,
+}
+
+impl ChangeTracker {
+    /// The changes from the previous result to `docs`.
+    pub fn changes(&mut self, docs: &[Arc<Document>]) -> Vec<LiveChange> {
+        let key_of = |doc: &Document| {
+            canonical_string(doc.get("_id").unwrap_or(&Value::Undefined)).unwrap_or_default()
+        };
+        let mut current: Vec<(String, Arc<Document>, usize)> = Vec::with_capacity(docs.len());
+        let mut positions: HashMap<String, usize> = HashMap::with_capacity(docs.len());
+        for (index, doc) in docs.iter().enumerate() {
+            let key = key_of(doc);
+            match positions.get(&key) {
+                Some(&at) => current[at] = (key, Arc::clone(doc), index),
+                None => {
+                    positions.insert(key.clone(), current.len());
+                    current.push((key, Arc::clone(doc), index));
+                }
+            }
+        }
+        let id_of = |doc: &Document| doc.get("_id").cloned();
+        let mut out = Vec::new();
+        let first = self.previous.is_none();
+        let previous = self.previous.take().unwrap_or_default();
+        let before: HashMap<&str, (&Arc<Document>, usize)> =
+            previous.iter().map(|(key, doc, index)| (key.as_str(), (doc, *index))).collect();
+        for (key, doc, index) in &previous {
+            if !positions.contains_key(key) {
+                out.push(LiveChange {
+                    kind: ChangeKind::Removed,
+                    id: id_of(doc),
+                    doc: None,
+                    index: Some(*index),
+                });
+            }
+        }
+        for (key, doc, index) in &current {
+            let kind = match before.get(key.as_str()) {
+                None => ChangeKind::Added,
+                Some((prior, prior_index)) if !Arc::ptr_eq(prior, doc) || prior_index != index => {
+                    ChangeKind::Changed
+                }
+                Some(_) => continue,
+            };
+            out.push(LiveChange { kind, id: id_of(doc), doc: Some(Arc::clone(doc)), index: Some(*index) });
+        }
+        if first {
+            out.push(LiveChange { kind: ChangeKind::Ready, id: None, doc: None, index: None });
+        }
+        self.previous = Some(current);
+        out
+    }
+}
+
+fn subscription_exec<'d, 's>(
+    generated: &'s GeneratedSchema,
+    schema: &'d Valid<Schema>,
+    document: &'d Valid<ExecutableDocument>,
+    services: &'s Services<'s>,
+) -> Exec<'d, 's> {
+    Exec {
+        generated,
+        schema,
+        document,
+        variables: HashMap::new(),
+        services,
+        slots: Vec::new(),
+        errors: Vec::new(),
+        pending: Vec::new(),
+        root: "Subscription",
+        root_mutations: 0,
+        writes: 0,
+    }
+}
+
+/// Resolves the live query of a subscription operation, as `subscribe` does before any event: the variables are
+/// coerced and the root field's `filter`, `sort` and `limit` (its default when absent, at most the largest
+/// limit) become the query. A failure is the operation's result: errors and no data.
+pub fn subscription_source(
+    generated: &GeneratedSchema,
+    schema: &Valid<Schema>,
+    document: &Valid<ExecutableDocument>,
+    operation: &Node<Operation>,
+    variables: &[(String, Json)],
+    services: &Services<'_>,
+) -> Result<SubscriptionSource, ExecutionResult> {
+    let mut exec = subscription_exec(generated, schema, document, services);
+    let errors = exec.coerce_variables(operation, variables);
+    if !errors.is_empty() {
+        return Err(ExecutionResult::failed(errors));
+    }
+    let mut collected = Vec::new();
+    let mut visited = Vec::new();
+    exec.collect("Subscription", &operation.selection_set, &mut collected, &mut visited);
+    let Some((key, group)) = collected.into_iter().next() else {
+        return Err(ExecutionResult::failed(vec![GraphqlError::coded(
+            "A subscription selects one field",
+            INVALID_QUERY,
+        )]));
+    };
+    let Some(first) = group.first().copied() else {
+        return Err(ExecutionResult::failed(Vec::new()));
+    };
+    let path = vec![PathSegment::Key(key)];
+    let source = (|| {
+        let plan = generated.model.field("Subscription", first.name.as_str()).map(|field| field.plan.clone());
+        let (kind, collection) = match plan {
+            Some(FieldPlan::Live { collection }) => (SubscriptionKind::Live, collection),
+            Some(FieldPlan::Changes { collection }) => (SubscriptionKind::Changes, collection),
+            _ => return Err(GraphqlError::coded("Live queries need realtime", INVALID_QUERY)),
+        };
+        let arguments =
+            exec.arguments(first).map_err(|message| GraphqlError::coded(message, INVALID_QUERY))?;
+        let argument = |name: &str| arguments.iter().find(|(key, _)| key == name).map(|(_, value)| value);
+        let model = exec.collection(&collection)?;
+        let filter = to_mongo_filter(argument("filter"), &model.filter_map)
+            .map_err(|NotADocument(message)| GraphqlError::coded(message, INVALID_QUERY))?;
+        let limit = match argument("limit") {
+            Some(Input::Int(limit)) => Some(i64::from(*limit).min(i64::from(generated.max_limit))),
+            _ => None,
+        };
+        Ok(SubscriptionSource {
+            kind,
+            query: LiveQuery { collection, filter, sort: to_mongo_sort(argument("sort")), limit },
+        })
+    })();
+    source.map_err(|error| {
+        exec.field_error(error, &group, &path);
+        ExecutionResult::failed(std::mem::take(&mut exec.errors))
+    })
+}
+
+/// Runs a subscription operation for one event: the event is the value of the root field, completed with the
+/// operation's selection and its relations loaded under the caller's policies, as for a query.
+pub async fn execute_event(
+    generated: &GeneratedSchema,
+    schema: &Valid<Schema>,
+    document: &Valid<ExecutableDocument>,
+    operation: &Node<Operation>,
+    variables: &[(String, Json)],
+    services: &Services<'_>,
+    event: &SubscriptionEvent,
+) -> ExecutionResult {
+    let mut exec = subscription_exec(generated, schema, document, services);
+    let errors = exec.coerce_variables(operation, variables);
+    if !errors.is_empty() {
+        return ExecutionResult::failed(errors);
+    }
+    let mut collected = Vec::new();
+    let mut visited = Vec::new();
+    exec.collect("Subscription", &operation.selection_set, &mut collected, &mut visited);
+    let mut entries = Vec::with_capacity(1);
+    if let Some((key, group)) = collected.into_iter().next()
+        && let Some(first) = group.first().copied()
+    {
+        let child = exec.alloc(Slot::Null);
+        let path = vec![PathSegment::Key(key.clone())];
+        entries.push((key, child, first.definition.ty.is_non_null()));
+        let value = match event {
+            SubscriptionEvent::Docs(docs) => {
+                Val::List(docs.iter().map(|doc| Val::Doc(Arc::clone(doc))).collect())
+            }
+            SubscriptionEvent::Change(change) => {
+                let mut fields = vec![("kind", Val::Leaf(Json::String(change.kind.as_str().to_owned())))];
+                if let Some(id) = &change.id {
+                    fields.push(("id", Val::Bson(id.clone())));
+                }
+                if let Some(doc) = &change.doc {
+                    fields.push(("doc", Val::Doc(Arc::clone(doc))));
+                }
+                if let Some(index) = change.index {
+                    fields.push(("index", Val::Leaf(Json::Number(index as f64))));
+                }
+                Val::Entries(fields)
+            }
+        };
+        exec.complete(child, &first.definition.ty, value, &group, &path, "Subscription");
     }
     exec.load_relations().await;
     let top = exec.alloc(Slot::Object(entries));

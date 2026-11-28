@@ -95,7 +95,8 @@ async function checkMember(
   if (pkg === undefined) return [`${where}: [package] is missing`]
 
   const folder = posix.basename(dir)
-  const expected = folder.startsWith("canopy-") ? folder : `canopy-${folder}`
+  const expected =
+    folder === "canopyd" || folder.startsWith("canopy-") ? folder : `canopy-${folder}`
   if (pkg["name"] !== expected) problems.push(`${where}: the crate must be named ${expected}`)
   if (typeof pkg["description"] !== "string" || pkg["description"].trim() === "") {
     problems.push(`${where}: [package] must have a description`)

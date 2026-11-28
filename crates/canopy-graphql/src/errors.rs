@@ -30,6 +30,8 @@ pub struct GraphqlError {
     pub status: Option<u16>,
     /// Whether the GraphQL over HTTP rules set the status, which `application/json` responses ignore.
     pub spec: bool,
+    /// Response headers the error asks for, such as `Allow`.
+    pub headers: Vec<(String, String)>,
 }
 
 impl GraphqlError {
@@ -42,6 +44,7 @@ impl GraphqlError {
             extensions: vec![("code".to_owned(), Json::String(code.to_owned()))],
             status: None,
             spec: false,
+            headers: Vec::new(),
         }
     }
 
@@ -65,6 +68,7 @@ impl GraphqlError {
             extensions,
             status: Some(code.http_status()),
             spec: false,
+            headers: Vec::new(),
         }
     }
 

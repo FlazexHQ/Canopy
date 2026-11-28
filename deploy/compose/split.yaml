@@ -1,0 +1,149 @@
+# Canopy with separate Rust data, control and auth services.
+#   docker compose -f deploy/compose/split.yaml up -d --build --wait
+#
+# Services, each with its own restart policy and health check:
+#   database  MongoDB replica set for application data and shared metadata
+#   data      Rust REST, GraphQL, realtime and the MongoDB wire endpoint; storage with a gateway config
+#   control   Admin API, policy publishing and webhooks
+#   auth      Rust built in auth when enabled (/auth/v1), the key set and app user administration; it runs
+#             the control role of the same image with CANOPY_AUTH_ENGINE=rust, so it keeps serving when
+#             control stops
+#   studio    Static admin dashboard
+#   edge      Public HTTP entry on port 8080; routes independently and returns 503 for an unavailable service
+#
+# Set CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS and CANOPY_MASTER_KEY in the environment or .env.
+# Add split-auth.yaml to enable built in auth. Use CANOPY_AUTH_CONFIG for custom auth settings (a canopyd
+# JSON config with an auth section of kind builtin) and CANOPY_GATEWAY_CONFIG for the data and control
+# settings. With a custom gateway config, configure built in JWT verification as shown in split-auth.yaml.
+# All three services use the shared CANOPY_META_DB.
+# Set CANOPY_POLICY_BUNDLE_FILE to replace the example JSON bundle published at startup.
+# For local file storage, set storage.backend.root to /app/storage in the gateway config.
+# MongoDB and the wire endpoint are published on loopback (ports 27017 and 27018 by default).
+
+name: canopy-split
+
+x-common: &common
+  MONGODB_URI: mongodb://database:27017/?replicaSet=rs0
+  CANOPY_MASTER_KEY: ${CANOPY_MASTER_KEY:?Set CANOPY_MASTER_KEY}
+  CANOPY_ENV: ${CANOPY_ENV:-development}
+  CANOPY_DB: ${CANOPY_DB:-app}
+  CANOPY_META_DB: ${CANOPY_META_DB:-canopy}
+  CANOPY_PUBLISHABLE_KEYS: ${CANOPY_PUBLISHABLE_KEYS:?Set CANOPY_PUBLISHABLE_KEYS}
+  CANOPY_SECRET_KEYS: ${CANOPY_SECRET_KEYS:?Set CANOPY_SECRET_KEYS}
+  CANOPY_JWT_JWKS_URL: ${CANOPY_JWT_JWKS_URL:-}
+  CANOPY_JWT_ISSUER: ${CANOPY_JWT_ISSUER:-}
+  CANOPY_JWT_AUDIENCE: ${CANOPY_JWT_AUDIENCE:-}
+  CANOPY_JWT_ALGORITHMS: ${CANOPY_JWT_ALGORITHMS:-}
+  CANOPY_JWT_ROLES_CLAIM: ${CANOPY_JWT_ROLES_CLAIM:-}
+  CANOPY_LOG_LEVEL: ${CANOPY_LOG_LEVEL:-info}
+  CANOPY_METRICS_TOKEN: ${CANOPY_METRICS_TOKEN:-}
+  CANOPY_TRUSTED_PROXIES: 172.29.0.10
+
+x-gateway-image: &gateway-image
+  image: ${CANOPY_GATEWAY_IMAGE:-canopy:dev}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/canopyd.Dockerfile
+    additional_contexts:
+      canopyjs: ../../../Canopy.js
+
+x-gateway-health: &gateway-health
+  test: ["CMD", "/usr/local/bin/canopyd", "--probe"]
+  interval: 5s
+  timeout: 5s
+  retries: 24
+
+services:
+  database:
+    extends:
+      file: canopy.yaml
+      service: database
+
+  data:
+    <<: *gateway-image
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      <<: *common
+      CANOPY_ROLE: api
+      CANOPY_DATA_PLANE_ROUTES: all
+      CANOPY_POLICIES: database
+      CANOPY_NODE_ID: data-1
+    ports:
+      - "127.0.0.1:${CANOPY_WIRE_PORT:-27018}:27018"
+      - "127.0.0.1:${CANOPY_METRICS_PORT:-9464}:9464"
+    volumes:
+      - ${CANOPY_GATEWAY_CONFIG:-./split-gateway.json}:/app/gateway.json:ro
+      - storage-data:/app/storage
+    stop_grace_period: 40s
+    healthcheck: *gateway-health
+
+  control:
+    <<: *gateway-image
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      <<: *common
+      CANOPY_ROLE: control
+      CANOPY_NODE_ID: control-1
+      CANOPY_REALTIME_INTERNAL_URL: http://data:8080
+      CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}
+      CANOPY_ADMIN_ORIGINS: ${CANOPY_ADMIN_ORIGINS:-}
+      CANOPY_MASTER_KEY_PREVIOUS: ${CANOPY_MASTER_KEY_PREVIOUS:-}
+      CANOPY_WEBHOOKS: ${CANOPY_WEBHOOKS:-}
+      CANOPY_WEBHOOK_SECRET: ${CANOPY_WEBHOOK_SECRET:-}
+      CANOPY_POLICY_BUNDLE: /app/policy-bundle.json
+    volumes:
+      - ${CANOPY_GATEWAY_CONFIG:-./split-gateway.json}:/app/gateway.json:ro
+      - ${CANOPY_POLICY_BUNDLE_FILE:-./split-policies.json}:/app/policy-bundle.json:ro
+    stop_grace_period: 20s
+    healthcheck: *gateway-health
+
+  auth:
+    <<: *gateway-image
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    command: ["--config", "/app/auth.json"]
+    environment:
+      <<: *common
+      CANOPY_ROLE: control
+      CANOPY_AUTH_ENGINE: rust
+      CANOPY_NODE_ID: auth-1
+      CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}
+      CANOPY_MASTER_KEY_PREVIOUS: ${CANOPY_MASTER_KEY_PREVIOUS:-}
+    volumes:
+      - ${CANOPY_AUTH_CONFIG:-./split-gateway.json}:/app/auth.json:ro
+    stop_grace_period: 20s
+    healthcheck: *gateway-health
+
+  studio:
+    extends:
+      file: canopy.yaml
+      service: studio
+
+  edge:
+    extends:
+      file: canopy.yaml
+      service: edge
+    volumes:
+      - ../helm/canopy/files/Caddyfile.split:/etc/caddy/Caddyfile:ro
+    networks:
+      default:
+        ipv4_address: 172.29.0.10
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+
+volumes:
+  database-data: {}
+  edge-data: {}
+  storage-data: {}

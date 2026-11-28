@@ -1,0 +1,66 @@
+[
+  {
+    "_id": "hit|/sign-in/email|native@example.com",
+    "count": {
+      "$numberInt": "1"
+    },
+    "windowStart": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1924992060000"
+      }
+    }
+  },
+  {
+    "_id": "hit|/sign-up/email|native@example.com",
+    "count": {
+      "$numberInt": "1"
+    },
+    "windowStart": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1924992060000"
+      }
+    }
+  },
+  {
+    "_id": "hit|/sign-up/email|passkey@example.com",
+    "count": {
+      "$numberInt": "1"
+    },
+    "windowStart": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1924992060000"
+      }
+    }
+  },
+  {
+    "_id": "hit|/sign-up/email|totp@example.com",
+    "count": {
+      "$numberInt": "1"
+    },
+    "windowStart": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "expiresAt": {
+      "$date": {
+        "$numberLong": "1924992060000"
+      }
+    }
+  }
+]

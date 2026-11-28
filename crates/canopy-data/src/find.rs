@@ -109,6 +109,11 @@ impl ReadPath {
         self
     }
 
+    /// The app database the read path reads.
+    pub fn database(&self) -> &Database {
+        &self.db
+    }
+
     /// The read limits in force.
     pub fn limits(&self) -> &ReadLimits {
         &self.limits
@@ -185,6 +190,28 @@ impl ReadPath {
     /// filter and sort. Fails with an invalid query error for malformed queries, references to unreadable
     /// fields and cursors of another query, and with `CANOPY_NOT_FOUND` for unknown collections.
     pub async fn find(&self, caller: &Caller, request: FindRequest) -> Result<FindPage, CanopyError> {
+        self.find_page(caller, request, None).await
+    }
+
+    /// Reads one page with a byte budget for buffered BSON and per document overhead.
+    /// A page that reaches the byte budget can be continued with its next cursor.
+    /// An omitted limit uses the maximum permitted find limit.
+    pub async fn find_bounded(
+        &self,
+        caller: &Caller,
+        mut request: FindRequest,
+        max_bytes: usize,
+    ) -> Result<FindPage, CanopyError> {
+        request.limit = request.limit.or(Some(self.limits.max_limit));
+        self.find_page(caller, request, Some(max_bytes)).await
+    }
+
+    async fn find_page(
+        &self,
+        caller: &Caller,
+        request: FindRequest,
+        max_bytes: Option<usize>,
+    ) -> Result<FindPage, CanopyError> {
         let engine = self.policies.current();
         let ctx = &caller.context;
         let name = request.collection.as_str();
@@ -240,6 +267,7 @@ impl ReadPath {
             filter: &filter,
             sort: &sort,
             limit: limit.saturating_add(1),
+            max_bytes,
             skip,
             projection: pushdown.as_ref(),
             max_time: Duration::from_millis(self.limits.max_time_ms),
@@ -247,7 +275,7 @@ impl ReadPath {
         };
         let result = read_page(&self.client, &self.db, read, service).await?;
         let page_len = usize::try_from(limit).unwrap_or(usize::MAX);
-        let more = result.documents.len() > page_len;
+        let more = result.more || result.documents.len() > page_len;
         let mut raws = result.documents;
         raws.truncate(page_len);
         let next = match raws.last() {
@@ -316,6 +344,7 @@ impl ReadPath {
             filter: &filter,
             sort: &sort,
             limit: 1,
+            max_bytes: None,
             skip: 0,
             projection: pushdown.as_ref(),
             max_time: Duration::from_millis(self.limits.max_time_ms),

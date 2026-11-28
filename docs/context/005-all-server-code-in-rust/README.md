@@ -1,0 +1,76 @@
+# Context for plan 005: all server code in Rust
+
+This folder is the working context for [plan 005](../../plans/005-all-server-code-in-rust.md) and
+[ADR-0018](../../adr/0018-all-server-code-in-rust.md). It exists so an agent can start a task without searching
+the repository: read the files below, then open only the source files your brief names.
+
+## How agents work here
+
+- **Read this context instead of searching.** Start with [08-progress.md](08-progress.md) (where to continue),
+  then the plan section of your stage. Search the code only for what your brief names and this context does
+  not answer, and add what you learned to this folder (through the context agent, see below).
+- **One stage, one gate.** A task belongs to one stage of [plan 005 §5](../../plans/005-all-server-code-in-rust.md#5-stages).
+  Do not start a stage before its entry gate is recorded as passed in `08-progress.md`.
+- **Oracles before code.** Behavior that must not change is proved against an oracle in `conformance/`
+  (recorded from TypeScript in R0, or from MongoDB). Never edit a frozen vector to make a test pass; a vector
+  recorded from Rust needs a reviewer named in the pull request (plan 005 §8).
+- **Nothing TypeScript is deleted before R7.** Earlier stages route around the TypeScript code and keep it as
+  the fallback.
+- **Repository rules apply** (`CLAUDE.md`): no dash punctuation, MongoDB vocabulary (documents, collections,
+  fields), comments only where they document, real tests that can fail, Conventional Commits with sign off,
+  licenses MIT, Apache 2.0, BSD or ISC. Other agents may share the checkout: touch only the files of your task.
+- **Report** the files changed, the commands run with their results, and what is left, then the context agent
+  records it in `08-progress.md`.
+- **Process and filesystem discipline:** stop only processes you started, by process id; never stop mongod
+  processes you did not start; keep temporary files and cargo output under the repository's `target/` folder,
+  never `%TEMP%` or a drive root.
+
+## Agent roster
+
+Every agent reads this folder first. Opus (`claudeAgent/claude-opus-5-5`) is allowed again for big tasks;
+Codex (`codex_prajo_s_codex` and `codex_sudhan_s_codex`, gpt-6.2-sol, medium effort) for small and medium code;
+Gemini (`antigravity_sudhan_s_antigravity`, gemini-3.8-flash) for tests and context. One agent at a time per account.
+
+| Agent | Model and effort | Use for |
+|---|---|---|
+| `claudeAgent` | claude-opus-5-5, high effort | Big tasks: complex protocol oracles, multi-crate orchestration, major subsystem migrations |
+| `codex_prajo_s_codex` | gpt-6.2-sol, medium effort | Small and medium tasks: one route group, one crate module, one oracle group |
+| `codex_sudhan_s_codex` | gpt-6.2-sol, medium effort | Small and medium tasks, in parallel with the other Codex account |
+| `antigravity_sudhan_s_antigravity` | gemini-3.8-flash | Updates of this context folder, verification, and test runs |
+
+## Reading order
+
+1. [08-progress.md](08-progress.md): the starting state, recent checkpoints, and the next tasks.
+2. [09-auth-router.md](09-auth-router.md): guide to the Rust auth router for agents working on R5 auth routes.
+3. [10-r7-removal-map.md](10-r7-removal-map.md): who imports each TypeScript package R7 removes, what must move first, the gates that still block R7, and a proposed order of removal commits.
+4. [Plan 005](../../plans/005-all-server-code-in-rust.md): target, stages and gates (§5), auth (§6), the Wasm
+   gate (§7), invariants (§8), what moves (§9), risks and open questions.
+5. [ADR-0018](../../adr/0018-all-server-code-in-rust.md): the decision and the auth building blocks.
+6. Plan 004's context for the data plane that already exists: [current Rust workspace](../004-rust-data-plane/02-current-rust-workspace.md),
+   [security invariants and compliance](../004-rust-data-plane/07-security-invariants-and-compliance.md).
+
+## Key sources by stage
+
+| Stage | TypeScript to read (the behavior) | Rust to extend |
+|---|---|---|
+| R0 | `packages/auth-builtin/src/` (`engine.ts` for the plugins and collections, `provider.ts` for the routes and ceremony cookies, `keyring.ts`, `legacy-passwords.ts`, `passwords.ts`); `packages/server/src/admin/`; `packages/server/src/webhooks/`; `packages/server/src/migrations.ts`; `packages/studio/src/handler.ts`; `packages/cli/src/cli.ts`; the existing recorders in `packages/testing/scripts/` | `conformance/` (see its README for the recorder pattern) |
+| R1 | `packages/control/src/index.ts`, `packages/server/src/admin/routes/`, `admin/rbac.ts`, `admin/totp.ts`, `admin/tokens.ts`, `policy-store.ts`, `webhooks/`, `migrations.ts`, `packages/auth-builtin/src/email/` | `crates/canopyd`, `crates/canopy-control`, `crates/canopy-mongo`, `crates/canopy-config` |
+| R2 | `packages/wasm/`, `../Canopy.js/src/core/`, `../Canopy.js/scripts/sync-core.ts`, `../Canopy.js/src/client/store.ts` and `live-queries.ts` (uses of the lite matcher) | `crates/canopy-port`, `crates/canopy-matcher`, `crates/canopy-policy`, `crates/canopy-query` |
+| R3 | `packages/config/src/` (`env.ts`, `load.ts`, `resolve.ts`), `packages/policy/src/dsl.ts`, `stored.ts`, `testing.ts`, `packages/schema/src/define/`, `packages/cli/src/policies.ts` | `crates/canopy-config`, `crates/canopy-policy`, `crates/canopy-data` (schema) |
+| R4 | `packages/cli/src/` (every command), `packages/schema/src/emit.ts`, `typescript.ts`, `diff.ts`, `packages/cli/src/dsl-writer.ts` | New `crates/canopy-cli`; the platform packages built by `.github/workflows/native-release.yml` |
+| R5 | `packages/auth-builtin/src/`, `packages/auth/src/` (`imported-hash.ts`, `rate-limit.ts`, `revocations.ts`), `packages/server/src/builtin-auth.ts`, `admin/routes/users.ts` | `crates/canopy-auth` (verification, JWKS, rate limits), `crates/canopy-authn` (see [09-auth-router.md](09-auth-router.md)), `crates/canopy-webauthn` |
+| R6 | `packages/studio/src/` | `crates/canopyd` |
+| R7 | Everything listed in plan 005 §9 | CI workflows, `knip.json`, `biome.json`, `tsconfig.json`, `tools/repo-check` |
+
+## Environment
+
+- MongoDB replica sets: 8.0.34 on `mongodb://localhost:37017/?replicaSet=rs0` and 9.0.8 on
+  `mongodb://localhost:37090/?replicaSet=rs0` (binaries and data under `target/mongo/8.0` and `target/mongo/9.0`,
+  git ignored; restart with `bun packages/testing/scripts/mongod.ts --version <v> --dir <that folder> --port <port>`).
+  Never touch the standalone `mongod` on port 27017.
+- Node 22 is first on PATH: run Node 26 with `fnm exec --using=26 -- <command>`.
+- Cargo builds use `-j 2` on this machine (a full parallel test build runs out of paging file memory).
+- Generated vector folders under `conformance/` are excluded from `bun fmt` and Biome (`bunfig.toml`,
+  `biome.json`); add any new folder there too.
+- Recording scripts follow the existing pattern: `packages/testing/scripts/http-*-vectors.ts` with `--check`,
+  recorders in the owning package's `test/conformance/`, the TypeScript engine only (`CANOPY_TEST_ENGINE` unset).

@@ -1,10 +1,9 @@
 import { type ChildProcess, spawn } from "node:child_process"
-import type { Server } from "node:http"
+import { createServer, type Server } from "node:http"
 import { createRequire } from "node:module"
-import { createServer } from "node:net"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, waitForListeningPort } from "@canopy/testing"
 import {
   type CanopyClient,
   createClient,
@@ -39,15 +38,6 @@ interface Ticket extends Document {
   readonly ownerId: string
   readonly status: string
   readonly internalNotes?: string
-}
-
-async function freePort(): Promise<number> {
-  const server = createServer()
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-  const address = server.address()
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (address === null || typeof address === "string") throw new Error("no port")
-  return address.port
 }
 
 async function until(test: () => boolean, what: string, timeoutMs = 15_000): Promise<void> {
@@ -124,23 +114,28 @@ suite("express-dropin: the helpdesk behind the canopy-realtime sidecar", () => {
   beforeAll(async () => {
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
-    const appPort = await freePort()
-    const sidecarPort = await freePort()
-    appUrl = `http://localhost:${appPort}`
-    sidecarUrl = `http://127.0.0.1:${sidecarPort}`
+    server = createServer()
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(0, "127.0.0.1", resolve)
+    })
+    const address = server.address()
+    if (address === null || typeof address === "string") throw new Error("Missing helpdesk port")
+    const appPort = address.port
+    appUrl = `http://127.0.0.1:${appPort}`
     helpdesk = await createApp({
       port: appPort,
       mongodbUri: MONGODB_URI ?? "",
       database,
       identity: { kind: "dev", issuer: `${appUrl}/`, audience: AUDIENCE },
       rolesClaim: ROLES_CLAIM,
-      canopyUrl: sidecarUrl,
+      get canopyUrl() {
+        return sidecarUrl
+      },
       publishableKey: KEY,
       production: false,
     })
-    server = await new Promise<Server>((resolve) => {
-      const listening = helpdesk.app.listen(appPort, () => resolve(listening))
-    })
+    server.on("request", helpdesk.app)
     await api("alice", "GET", "/api/tickets")
 
     const realtime = dirname(
@@ -161,19 +156,22 @@ suite("express-dropin: the helpdesk behind the canopy-realtime sidecar", () => {
           CANOPY_JWT_ISSUER: `${appUrl}/`,
           CANOPY_JWT_AUDIENCE: AUDIENCE,
           CANOPY_JWT_ROLES_CLAIM: ROLES_CLAIM,
-          CANOPY_LOG_LEVEL: "warn",
-          PORT: String(sidecarPort),
-          METRICS_PORT: String(await freePort()),
+          CANOPY_LOG_LEVEL: "info",
+          PORT: "0",
+          METRICS_PORT: "0",
         },
         stdio: ["ignore", "ignore", "pipe"],
       },
     )
+    const listening = waitForListeningPort(sidecar, "canopy-realtime listening")
     sidecar.stderr?.on("data", (chunk: Buffer) => {
       sidecarLog += chunk.toString()
     })
+    sidecarUrl = `http://127.0.0.1:${await listening}`
     const started = Date.now()
     for (;;) {
-      if (sidecar.exitCode !== null) throw new Error(`The sidecar exited early:\n${sidecarLog}`)
+      if (sidecar.exitCode !== null || sidecar.signalCode !== null)
+        throw new Error(`The sidecar exited early:\n${sidecarLog}`)
       const ready = await fetch(`${sidecarUrl}/readyz`).then(
         (response) => response.ok,
         () => false,
@@ -187,12 +185,12 @@ suite("express-dropin: the helpdesk behind the canopy-realtime sidecar", () => {
 
   afterAll(async () => {
     for (const client of clients) client.close()
-    if (sidecar !== undefined && sidecar.exitCode === null) {
+    if (sidecar !== undefined && sidecar.exitCode === null && sidecar.signalCode === null) {
       const exited = new Promise((resolve) => sidecar.once("exit", resolve))
       sidecar.kill("SIGTERM")
       await exited
     }
-    await new Promise((resolve) => server?.close(resolve))
+    if (server !== undefined) await new Promise((resolve) => server.close(resolve))
     await helpdesk?.close()
     if (mongo !== undefined) {
       await mongo.db(database).dropDatabase()

@@ -1,0 +1,207 @@
+{
+  "aggregate.json": {
+    "pass": [
+      "aggregate with multiple batches works",
+      "aggregate with a string comment",
+      "aggregate with a document comment",
+      "aggregate with a document comment \u002d pre 4.4",
+      "aggregate with comment sets comment on getMore",
+      "aggregate with comment does not set comment on getMore \u002d pre 4.4",
+      "Aggregate with multiple stages"
+    ],
+    "refuse": []
+  },
+  "bulkWrite.json": {
+    "pass": [
+      "BulkWrite with deleteOne operations",
+      "BulkWrite with deleteMany operations",
+      "BulkWrite with insertOne operations",
+      "BulkWrite with replaceOne operations",
+      "BulkWrite with updateOne operations",
+      "BulkWrite with updateMany operations",
+      "BulkWrite with mixed ordered operations",
+      "BulkWrite with mixed unordered operations",
+      "BulkWrite continue-on-error behavior with unordered (preexisting duplicate key)",
+      "BulkWrite continue-on-error behavior with unordered (duplicate key in requests)"
+    ],
+    "refuse": []
+  },
+  "deleteMany.json": {
+    "pass": ["DeleteMany when many documents match", "DeleteMany when no document matches"],
+    "refuse": []
+  },
+  "deleteOne.json": {
+    "pass": [
+      "DeleteOne when many documents match",
+      "DeleteOne when one document matches",
+      "DeleteOne when no documents match"
+    ],
+    "refuse": []
+  },
+  "distinct.json": {
+    "pass": ["Distinct without a filter", "Distinct with a filter"],
+    "refuse": []
+  },
+  "find.json": {
+    "pass": [
+      "find with multiple batches works",
+      "Find with filter",
+      "Find with filter, sort, skip, and limit",
+      "Find with limit, sort, and batchsize",
+      "Find with batchSize equal to limit"
+    ],
+    "refuse": []
+  },
+  "findOneAndDelete.json": {
+    "pass": [
+      "FindOneAndDelete when many documents match",
+      "FindOneAndDelete when one document matches",
+      "FindOneAndDelete when no documents match"
+    ],
+    "refuse": []
+  },
+  "findOneAndReplace.json": {
+    "pass": [
+      "FindOneAndReplace when many documents match returning the document before modification",
+      "FindOneAndReplace when many documents match returning the document after modification",
+      "FindOneAndReplace when one document matches returning the document before modification",
+      "FindOneAndReplace when one document matches returning the document after modification",
+      "FindOneAndReplace when no documents match returning the document before modification",
+      "FindOneAndReplace when no documents match returning the document after modification"
+    ],
+    "refuse": []
+  },
+  "findOneAndUpdate.json": {
+    "pass": [
+      "FindOneAndUpdate when many documents match returning the document before modification",
+      "FindOneAndUpdate when many documents match returning the document after modification",
+      "FindOneAndUpdate when one document matches returning the document before modification",
+      "FindOneAndUpdate when one document matches returning the document after modification",
+      "FindOneAndUpdate when no documents match returning the document before modification",
+      "FindOneAndUpdate when no documents match with upsert returning the document before modification",
+      "FindOneAndUpdate when no documents match returning the document after modification",
+      "FindOneAndUpdate when no documents match with upsert returning the document after modification"
+    ],
+    "refuse": []
+  },
+  "insertMany.json": {
+    "pass": [
+      "InsertMany with non-existing documents",
+      "InsertMany continue-on-error behavior with unordered (preexisting duplicate key)",
+      "InsertMany continue-on-error behavior with unordered (duplicate key in requests)"
+    ],
+    "refuse": []
+  },
+  "insertOne.json": {
+    "pass": ["InsertOne with a non-existing document"],
+    "refuse": []
+  },
+  "replaceOne.json": {
+    "pass": [
+      "ReplaceOne when many documents match",
+      "ReplaceOne when one document matches",
+      "ReplaceOne when no documents match",
+      "ReplaceOne with upsert when no documents match without an id specified",
+      "ReplaceOne with upsert when no documents match with an id specified"
+    ],
+    "refuse": []
+  },
+  "updateMany.json": {
+    "pass": [
+      "UpdateMany when many documents match",
+      "UpdateMany when one document matches",
+      "UpdateMany when no documents match",
+      "UpdateMany with upsert when no documents match"
+    ],
+    "refuse": []
+  },
+  "updateOne-arrayFilters.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "UpdateOne when no document matches arrayFilters",
+        "code": 2,
+        "reason": "Write statements do not accept arrayFilters."
+      },
+      {
+        "description": "UpdateOne when one document matches arrayFilters",
+        "code": 2,
+        "reason": "Write statements do not accept arrayFilters."
+      },
+      {
+        "description": "UpdateOne when multiple documents match arrayFilters",
+        "code": 2,
+        "reason": "Write statements do not accept arrayFilters."
+      },
+      {
+        "description": "UpdateOne when no documents match multiple arrayFilters",
+        "code": 2,
+        "reason": "Write statements do not accept arrayFilters."
+      },
+      {
+        "description": "UpdateOne when one document matches multiple arrayFilters",
+        "code": 2,
+        "reason": "Write statements do not accept arrayFilters."
+      }
+    ]
+  },
+  "updateOne-collation.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "UpdateOne when one document matches with collation",
+        "code": 2,
+        "reason": "Write statements do not accept collation."
+      }
+    ]
+  },
+  "updateOne-hint.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "UpdateOne with hint string",
+        "code": 2,
+        "reason": "Write statements do not accept index hints."
+      },
+      {
+        "description": "UpdateOne with hint document",
+        "code": 2,
+        "reason": "Write statements do not accept index hints."
+      }
+    ]
+  },
+  "updateOne-let.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "UpdateOne with let option",
+        "code": 2,
+        "reason": "Write commands do not accept let variables."
+      },
+      {
+        "description": "UpdateOne with let option unsupported (server-side error)",
+        "code": 2,
+        "reason": "Write commands do not accept let variables."
+      }
+    ]
+  },
+  "updateOne-pipeline.json": {
+    "pass": [],
+    "refuse": [
+      {
+        "description": "UpdateOne using pipelines",
+        "code": 2,
+        "reason": "The transactional write path refuses pipeline updates."
+      }
+    ]
+  },
+  "updateOne.json": {
+    "pass": [
+      "UpdateOne when many documents match",
+      "UpdateOne when one document matches",
+      "UpdateOne when no documents match",
+      "UpdateOne with upsert when no documents match"
+    ],
+    "refuse": []
+  }
+}

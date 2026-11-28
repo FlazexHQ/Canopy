@@ -314,9 +314,10 @@ pub fn js_number_string(number: f64) -> String {
         }
     } else if 0 < n && n <= 21 {
         let split = usize::try_from(n).unwrap_or(0);
-        out.push_str(&digits[..split]);
+        let (whole, fraction) = digits.split_at_checked(split).unwrap_or((&digits, ""));
+        out.push_str(whole);
         out.push('.');
-        out.push_str(&digits[split..]);
+        out.push_str(fraction);
     } else if -6 < n && n <= 0 {
         out.push_str("0.");
         for _ in 0..(-n) {
@@ -324,10 +325,11 @@ pub fn js_number_string(number: f64) -> String {
         }
         out.push_str(&digits);
     } else {
-        out.push_str(&digits[..1]);
-        if k > 1 {
+        let (first, rest) = digits.split_at_checked(1).unwrap_or((&digits, ""));
+        out.push_str(first);
+        if !rest.is_empty() {
             out.push('.');
-            out.push_str(&digits[1..]);
+            out.push_str(rest);
         }
         out.push('e');
         out.push(if n > 0 { '+' } else { '-' });

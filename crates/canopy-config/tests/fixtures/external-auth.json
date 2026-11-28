@@ -55,6 +55,15 @@
     "mutationTtlSeconds": 86400,
     "explainDenials": true
   },
+  "graphql": {
+    "path": "/graphql/v1",
+    "maxDepth": 10,
+    "maxComplexity": 5000,
+    "maxAliases": 30,
+    "maxBatch": 10,
+    "introspection": "always",
+    "collections": {}
+  },
   "log": {
     "level": "debug"
   },
@@ -63,5 +72,6 @@
   },
   "audit": {
     "dataWrites": false
-  }
+  },
+  "storage": false
 }

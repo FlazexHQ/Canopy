@@ -55,6 +55,7 @@ export {
   type FetchHandler,
 } from "./canopy.ts"
 export { type GatewayFrontDoor, startGatewayFrontDoor } from "./gateway-front-door.ts"
+export { type Listening, listenCanopy } from "./listen.ts"
 export {
   META_MIGRATIONS,
   type MetaMigration,

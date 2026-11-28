@@ -1,0 +1,218 @@
+[
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf082"
+    },
+    "key": "198.51.100.1|/sign-up/email",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf086"
+    },
+    "key": "198.51.100.1|/verify-email",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf089"
+    },
+    "key": "198.51.100.2|/sign-in/email",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0a1"
+    },
+    "key": "198.51.100.3|/sign-up/email",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0a5"
+    },
+    "key": "198.51.100.3|/verify-email",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0a8"
+    },
+    "key": "198.51.100.3|/two-factor/enable",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0ab"
+    },
+    "key": "198.51.100.3|/two-factor/verify-totp",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0b0"
+    },
+    "key": "198.51.100.4|/sign-up/email",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0b4"
+    },
+    "key": "198.51.100.4|/verify-email",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0b7"
+    },
+    "key": "198.51.100.4|/passkey/generate-register-options",
+    "count": {
+      "$numberInt": "2"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0b9"
+    },
+    "key": "198.51.100.4|/passkey/verify-registration",
+    "count": {
+      "$numberInt": "2"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0bf"
+    },
+    "key": "198.51.100.5|/sign-in/social",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0c1"
+    },
+    "key": "198.51.100.5|/callback/github",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0c7"
+    },
+    "key": "198.51.100.6|/sign-in/social",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0c9"
+    },
+    "key": "198.51.100.6|/callback/google",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0cf"
+    },
+    "key": "198.51.100.7|/sign-in/social",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0d1"
+    },
+    "key": "198.51.100.7|/callback/acme",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0d7"
+    },
+    "key": "198.51.100.8|/sign-in/anonymous",
+    "count": {
+      "$numberInt": "1"
+    },
+    "lastRequest": {
+      "$numberLong": "1924992000000"
+    }
+  }
+]

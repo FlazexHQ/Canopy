@@ -16,7 +16,7 @@ export default defineConfig({
   reporter: "list",
   globalSetup: "./e2e/global-setup.ts",
   use: {
-    baseURL: `http://127.0.0.1:${port}`,
+    baseURL: process.env["CANOPY_SPLIT_E2E_URL"] ?? `http://127.0.0.1:${port}`,
     trace: "retain-on-failure",
     actionTimeout: 15_000,
     ...devices["Desktop Chrome"],

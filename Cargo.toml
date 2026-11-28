@@ -27,3 +27,30 @@ print_stderr = "deny"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[profile.wasm]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+
+# Password hashing runs at full speed in tests too: the admin oracle replay hashes dozens of passwords.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.dev.package.scrypt]
+opt-level = 3
+
+[profile.dev.package.salsa20]
+opt-level = 3
+
+[profile.dev.package.bcrypt]
+opt-level = 3
+
+[profile.dev.package.blowfish]
+opt-level = 3
+
+[profile.dev.package.'pbkdf2:0.13.0']
+opt-level = 3

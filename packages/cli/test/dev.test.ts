@@ -1,11 +1,19 @@
+import { statSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { findGatewayBinary } from "@canopy/realtime"
+import * as realtimeServer from "@canopy/realtime"
+import * as server from "@canopy/server"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dev } from "../src/dev.ts"
+
+/** Whether a canopyd executable exists, as `canopy dev` checks before it chooses the gateway. */
+function installedGateway(): boolean {
+  const binary = realtimeServer.findGatewayBinary()
+  return binary !== undefined && statSync(binary, { throwIfNoEntry: false })?.isFile() === true
+}
 
 const scratch = fileURLToPath(new URL("./.tmp/dev/", import.meta.url))
 const suite = MONGODB_URI === undefined ? describe.skip : describe
@@ -69,7 +77,12 @@ export default collection("todos", { exposed: true, realtime: true, policies: [a
     const urls: string[] = []
     const stop = new AbortController()
     const running = dev(
-      { cwd: root, env: {}, port: 0, onReady: (url) => urls.push(url) },
+      {
+        cwd: root,
+        env: { CANOPY_REALTIME_SERVER: "ts" },
+        port: 0,
+        onReady: (url) => urls.push(url),
+      },
       { log: (line) => lines.push(line), error: (line) => errors.push(line) },
       stop.signal,
     )
@@ -124,35 +137,49 @@ export default collection("todos", { exposed: true, realtime: true, policies: [a
     await expect(fetch(`${restarted}/healthz`)).rejects.toThrow()
   })
 
-  it("generates session keys when none are configured and they work", async () => {
+  it("falls back to TypeScript with one notice and generates working session keys", async () => {
     const root = await project("")
+    using finder = vi
+      .spyOn(realtimeServer, "findGatewayBinary")
+      .mockReturnValueOnce(join(root, "missing-canopyd"))
+    using gateway = vi.spyOn(server, "startGatewayFrontDoor")
     const lines: string[] = []
+    const errors: string[] = []
     const urls: string[] = []
     const stop = new AbortController()
     const running = dev(
       { cwd: root, env: {}, port: 0, onReady: (url) => urls.push(url) },
-      { log: (line) => lines.push(line), error: (line) => lines.push(line) },
+      { log: (line) => lines.push(line), error: (line) => errors.push(line) },
       stop.signal,
     )
-    await until(
-      async () => urls.length,
-      (count) => count === 1,
-    )
-    const keyLine = lines.find((line) => line.startsWith("  Keys      publishable "))
-    const key = keyLine?.slice("  Keys      publishable ".length) ?? ""
-    expect(key).toMatch(/^canopy_pk_dev_[0-9a-f]{24}$/)
-    expect(lines.some((line) => /secret {6}canopy_sk_dev_[0-9a-f]{36} /.test(line))).toBe(true)
-    expect(await ids(urls[0] ?? "", key)).toEqual(["a"])
-    stop.abort()
-    expect(await running).toBe(0)
+    try {
+      await expect.poll(() => urls.length + errors.length).toBe(1)
+      expect(errors).toEqual([])
+      expect(finder).toHaveBeenCalledOnce()
+      expect(gateway).not.toHaveBeenCalled()
+      expect(lines.filter((line) => line.includes("Using the TypeScript server"))).toEqual([
+        expect.stringMatching(
+          /^No canopyd executable found\. Using the TypeScript server\. Install @canopy\/canopyd-[\w-]+ to use canopyd\.$/,
+        ),
+      ])
+      const keyLine = lines.find((line) => line.startsWith("  Keys      publishable "))
+      const key = keyLine?.slice("  Keys      publishable ".length) ?? ""
+      expect(key).toMatch(/^canopy_pk_dev_[0-9a-f]{24}$/)
+      expect(lines.some((line) => /secret {6}canopy_sk_dev_[0-9a-f]{36} /.test(line))).toBe(true)
+      expect(await ids(urls[0] ?? "", key)).toEqual(["a"])
+    } finally {
+      stop.abort()
+      expect(await running).toBe(0)
+    }
   })
 
-  it.skipIf(findGatewayBinary() === undefined)(
-    "serves REST and realtime through the gateway and restarts it on config edits",
+  it.skipIf(!installedGateway())(
+    "serves REST and realtime through the gateway by default and restarts it on config edits",
     async () => {
       const key = "canopy_pk_test"
-      const gateway = `, keys: { publishable: ["${key}"] }, realtime: { server: "gateway", drainWindow: "1s" }`
+      const gateway = `, keys: { publishable: ["${key}"] }, realtime: { drainWindow: "1s" }`
       const root = await project(gateway)
+      using launch = vi.spyOn(server, "startGatewayFrontDoor")
       const lines: string[] = []
       const errors: string[] = []
       const urls: string[] = []
@@ -169,6 +196,7 @@ export default collection("todos", { exposed: true, realtime: true, policies: [a
           (count) => count > 0,
         )
         expect(errors).toEqual([])
+        expect(launch).toHaveBeenCalledOnce()
         const base = urls[0] ?? ""
         const realtime = `${base.replace(/^http/, "ws")}/realtime/v1`
         expect(lines).toContain(`  REST      ${base}/rest/v1`)
@@ -200,6 +228,7 @@ export default collection("todos", { exposed: true, realtime: true, policies: [a
         await until(async () => urls.length === 2 || errors.length > 0, Boolean)
         expect(errors).toEqual([])
         expect(urls).toHaveLength(2)
+        expect(launch).toHaveBeenCalledTimes(2)
         await expect.poll(() => ws.readyState).toBe(WebSocket.CLOSED)
         expect(await ids(urls[1] ?? "", key)).toBe(404)
       } finally {
