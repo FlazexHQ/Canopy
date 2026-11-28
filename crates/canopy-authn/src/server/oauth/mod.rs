@@ -193,15 +193,24 @@ pub(super) struct Registry {
     http: Option<Arc<dyn ProviderHttp>>,
     social: Vec<SocialProvider>,
     oidc: Vec<OidcProvider>,
+    production: bool,
     discovered: Mutex<HashMap<String, Arc<Discovered>>>,
     key_sets: Mutex<HashMap<String, KeySet>>,
 }
 
+/// Whether a provider endpoint may be called: HTTPS, or also HTTP outside production.
+fn allowed_scheme(url: &Url, production: bool) -> bool {
+    url.scheme() == "https" || (!production && url.scheme() == "http")
+}
+
 impl Registry {
+    /// Validates the provider settings and discovers each OIDC provider. In production, discovery and every
+    /// endpoint it names must use HTTPS.
     pub(super) async fn open(
         social: Vec<SocialProvider>,
         oidc: Vec<OidcProvider>,
         http: Option<Arc<dyn ProviderHttp>>,
+        production: bool,
     ) -> Result<Self, String> {
         let mut ids = std::collections::HashSet::new();
         for provider in &social {
@@ -238,7 +247,7 @@ impl Registry {
                 });
             if !valid_id
                 || !ids.insert(provider.id.clone())
-                || !matches!(provider.discovery_url.scheme(), "http" | "https")
+                || !allowed_scheme(&provider.discovery_url, production)
                 || provider.client_id.is_empty()
                 || provider.client_secret.is_empty()
             {
@@ -250,7 +259,8 @@ impl Registry {
             None if social.is_empty() && oidc.is_empty() => None,
             None => Some(Arc::new(ReqwestProviderHttp::new()?) as Arc<dyn ProviderHttp>),
         };
-        let registry = Self { http, social, oidc, discovered: Mutex::default(), key_sets: Mutex::default() };
+        let registry =
+            Self { http, social, oidc, production, discovered: Mutex::default(), key_sets: Mutex::default() };
         let mut discovered = registry.discovered.lock().await;
         for provider in &registry.oidc {
             if let Some(found) = registry.discover(provider).await {
@@ -297,9 +307,7 @@ impl Registry {
             })
             .await?;
         let endpoint = |name: &str| {
-            Url::parse(document.get(name)?.as_str()?)
-                .ok()
-                .filter(|url| matches!(url.scheme(), "http" | "https"))
+            Url::parse(document.get(name)?.as_str()?).ok().filter(|url| allowed_scheme(url, self.production))
         };
         let issuer = document.get("issuer")?.as_str()?;
         Url::parse(issuer).ok()?;
@@ -314,7 +322,7 @@ impl Registry {
                 .collect(),
             Some(_) => return None,
         };
-        if algorithms.is_empty() || !matches!(jwks_uri.scheme(), "http" | "https") {
+        if algorithms.is_empty() || !allowed_scheme(&jwks_uri, self.production) {
             return None;
         }
         Some(Discovered {
@@ -367,5 +375,50 @@ impl Registry {
         }
         (verdict == jwt::Signature::Valid && jwt::claims_hold(&decoded.claims, expected))
             .then_some(decoded.claims)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use futures_util::future::BoxFuture;
+
+    use super::*;
+
+    struct Discovery(&'static str);
+
+    impl ProviderHttp for Discovery {
+        fn send(&self, _: ProviderRequest) -> BoxFuture<'_, Result<ProviderResponse, String>> {
+            Box::pin(std::future::ready(Ok(ProviderResponse {
+                status: 200,
+                body: self.0.as_bytes().to_vec(),
+            })))
+        }
+    }
+
+    fn provider(discovery: &str) -> OidcProvider {
+        OidcProvider {
+            id: "corp".into(),
+            discovery_url: Url::parse(discovery).expect("discovery URL"),
+            client_id: "client".into(),
+            client_secret: "secret".into(),
+            scopes: Vec::new(),
+        }
+    }
+
+    const PLAIN_ENDPOINTS: &str = r#"{"issuer":"https://idp.example","authorization_endpoint":"http://idp.example/authorize","token_endpoint":"https://idp.example/token","jwks_uri":"https://idp.example/keys"}"#;
+
+    #[tokio::test]
+    async fn production_discovers_oidc_providers_over_https_only() {
+        let http = || Some(Arc::new(Discovery(PLAIN_ENDPOINTS)) as Arc<dyn ProviderHttp>);
+        let plain = vec![provider("http://idp.example/.well-known/openid-configuration")];
+        assert!(Registry::open(Vec::new(), plain.clone(), http(), true).await.is_err());
+        assert!(Registry::open(Vec::new(), plain, http(), false).await.is_ok());
+        let secure = vec![provider("https://idp.example/.well-known/openid-configuration")];
+        let production = Registry::open(Vec::new(), secure.clone(), http(), true).await.expect("registry");
+        assert!(production.provider("corp").await.is_none(), "an http endpoint from discovery is refused");
+        let development = Registry::open(Vec::new(), secure, http(), false).await.expect("registry");
+        assert!(development.provider("corp").await.is_some());
     }
 }

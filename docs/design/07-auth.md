@@ -148,9 +148,10 @@ auth: {
   **Failures fail closed.** A timeout, a connection error, a status other than 2xx (redirects included), an
   answer over 4 KiB, a body that is not JSON, an answer that is not an object, a forbidden field or role, or a
   token over 4 KiB: **no token is issued** and the session is not refreshed. The answer is status 500 with
-  `{"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed: <reason>"}` (for an oversize token,
-  `The access token is <n> bytes, over the 4096 byte cap`), which the SDK surfaces as `AuthHookFailedError`,
-  and the audit log records `auth.claims_hook_failed` with the user as actor, the client address and
+  `{"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed"}` (for an oversize token,
+  `The access token is <n> bytes, over the 4096 byte cap`), which the SDK surfaces as `AuthHookFailedError`.
+  The reason, which can carry transport details of the hook's host, is never returned to the client (the
+  TypeScript server still appends it as `The claims hook failed: <reason>`); the audit log records `auth.claims_hook_failed` with the user as actor, the client address and
   `details.reason` (plus `details.bytes` for an oversize token). For memberships that change often, prefer
   `$ctx` lookups ([02 §10](02-document-level-security.md#10-context-lookups-ctx-membership-rules-without-joins)).
 

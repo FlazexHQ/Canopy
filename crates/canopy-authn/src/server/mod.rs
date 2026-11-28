@@ -15,6 +15,7 @@ use canopy_protocol::{CanopyError, ErrorCode};
 use futures_util::TryStreamExt;
 use serde::Serialize;
 use serde_json_bytes::{Value, json};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use url::Url;
 
 use crate::{
@@ -47,6 +48,11 @@ use documents::{AddressLimit, IdentifierLimit, User, id_text};
 use floor::ResponseFloor;
 
 type Result<T> = std::result::Result<T, CanopyError>;
+
+const PASSWORD_SLOTS: usize = 4;
+const PASSWORD_WAITERS: usize = 8;
+const PASSWORD_QUEUE_WAIT: Duration = Duration::from_millis(250);
+const PASSWORD_CAPACITY_MESSAGE: &str = "Password processing is busy. Try again shortly";
 
 /// The most an access token may take, in bytes, claims hook contributions included.
 pub const MAX_TOKEN_BYTES: usize = 4096;
@@ -161,7 +167,8 @@ pub struct AuthRouter {
     meta: Database,
     options: AuthOptions,
     mail: Arc<dyn AuthMail>,
-    password_slots: Arc<tokio::sync::Semaphore>,
+    password_slots: Arc<Semaphore>,
+    password_waiters: Semaphore,
     floor: ResponseFloor,
     oauth: oauth::Registry,
     claims: Option<claims::Hook>,
@@ -208,6 +215,7 @@ impl AuthRouter {
             std::mem::take(&mut options.social_providers),
             std::mem::take(&mut options.oidc_providers),
             options.provider_http.take(),
+            options.production,
         )
         .await
         .map_err(|message| CanopyError::new(ErrorCode::Internal, message))?;
@@ -216,7 +224,8 @@ impl AuthRouter {
             meta,
             options,
             mail,
-            password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            password_slots: Arc::new(Semaphore::new(PASSWORD_SLOTS)),
+            password_waiters: Semaphore::new(PASSWORD_WAITERS),
             floor,
             oauth,
             claims,
@@ -268,13 +277,19 @@ impl AuthRouter {
         let route = path.strip_prefix("/auth/v1").unwrap_or(path);
         let started = monotonic_now();
         let request_context = Call { router: self, request, route, now: DateTime::from_millis(now_ms) };
-        let mut response = request_context
-            .dispatch(path, query)
-            .await
-            .unwrap_or_else(|_| error(500, "CANOPY_INTERNAL", "Authentication request failed"));
+        let (mut response, overloaded) = match request_context.dispatch(path, query).await {
+            Ok(response) => (response, false),
+            Err(failure) if failure.code() == ErrorCode::Unavailable => {
+                let code = failure.code();
+                let mut response = api_error(code.http_status(), code.as_str(), failure.message());
+                header(&mut response, "retry-after", "1");
+                (response, true)
+            }
+            Err(_) => (error(500, "CANOPY_INTERNAL", "Authentication request failed"), false),
+        };
         if request.method == "POST"
             && response.status != 413
-            && response.header("retry-after").is_none()
+            && (overloaded || response.header("retry-after").is_none())
             && let Some(route) = ResponseFloor::route(route)
         {
             let took = monotonic_now().duration_since(started);
@@ -285,10 +300,27 @@ impl AuthRouter {
         if let Some(origin) = request.header("origin").filter(|origin| self.trusts_origin(origin)) {
             header(&mut response, "access-control-allow-origin", origin);
             header(&mut response, "access-control-allow-credentials", "true");
-            header(&mut response, "access-control-expose-headers", "set-auth-token, set-auth-ceremony");
+            let exposed = if overloaded {
+                "set-auth-token, set-auth-ceremony, retry-after"
+            } else {
+                "set-auth-token, set-auth-ceremony"
+            };
+            header(&mut response, "access-control-expose-headers", exposed);
             header(&mut response, "vary", "origin");
         }
         response
+    }
+
+    async fn password_permit(&self) -> Result<OwnedSemaphorePermit> {
+        let unavailable = || CanopyError::new(ErrorCode::Unavailable, PASSWORD_CAPACITY_MESSAGE);
+        if let Ok(permit) = Arc::clone(&self.password_slots).try_acquire_owned() {
+            return Ok(permit);
+        }
+        let _waiter = self.password_waiters.try_acquire().map_err(|_| unavailable())?;
+        tokio::time::timeout(PASSWORD_QUEUE_WAIT, Arc::clone(&self.password_slots).acquire_owned())
+            .await
+            .map_err(|_| unavailable())?
+            .map_err(internal)
     }
 
     fn collection(&self, name: &str) -> Collection<Document> {
@@ -444,9 +476,6 @@ impl Call<'_> {
             header(&mut reply, "retry-after", retry.to_string());
             return Ok(reply);
         }
-        if post && self.route == "/upgrade" {
-            return self.upgrade(parsed.as_ref()).await;
-        }
         let disabled = matches!(
             self.route,
             "/admin/list-users"
@@ -509,9 +538,17 @@ impl Call<'_> {
             if post {
                 self.audit_rate_limit().await?;
             }
+            if self.route == "/upgrade" {
+                let mut reply = api_error(429, "CANOPY_RATE_LIMITED", "Too many attempts; try again later");
+                header(&mut reply, "retry-after", retry.to_string());
+                return Ok(reply);
+            }
             let mut reply = response(429, object!("message":"Too many requests. Please try again later."));
             header(&mut reply, "x-retry-after", retry.to_string());
             return Ok(reply);
+        }
+        if post && self.route == "/upgrade" {
+            return self.upgrade(parsed.as_ref()).await;
         }
         if !allowed {
             return Ok(if post && self.route == "/delete-user" {
@@ -652,7 +689,7 @@ impl Call<'_> {
                 Ok(contributed) => contributed,
                 Err(reason) => {
                     self.audit_hook_failure(&subject, doc! {"reason": &reason}).await?;
-                    return Ok(hook_failed(&format!("The claims hook failed: {reason}")));
+                    return Ok(hook_failed("The claims hook failed"));
                 }
             },
         };
@@ -1020,7 +1057,97 @@ fn random_token_from<const ALPHABET_SIZE: usize>(
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_address;
+    use super::*;
+
+    struct NoMail;
+
+    impl AuthMail for NoMail {
+        fn send<'a>(
+            self: Arc<Self>,
+            _: EmailKind,
+            _: Recipient<'a>,
+        ) -> futures_util::future::BoxFuture<'a, ()> {
+            Box::pin(std::future::ready(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn password_overload_bounds_waiting_and_keeps_the_sign_in_floor()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else { return Ok(()) };
+        let mongo = canopy_mongo::mongodb::Client::with_uri_str(uri).await?;
+        let name = format!("canopy_password_capacity_{}", bson::oid::ObjectId::new());
+        let auth = mongo.database(&name);
+        let meta = mongo.database(&format!("{name}_meta"));
+        let result = async {
+            let public = "http://localhost:3000";
+            let mut options = AuthOptions::new(Url::parse(public)?, "a secret of more than thirty two bytes".into());
+            options.require_email_verification = false;
+            let floor = options.response_floor;
+            let router = AuthRouter::open(auth.clone(), meta.clone(), options, Arc::new(NoMail)).await?;
+            let now = DateTime::now().timestamp_millis();
+            let request = |path, email| {
+                Request::new("POST", path)
+                    .with_header("origin", public)
+                    .with_body(format!(r#"{{"name":"Known","email":"{email}","password":"test password"}}"#))
+            };
+            let known = "known@example.test";
+            assert_eq!(router.handle_endpoint_at(&request("/auth/v1/sign-up/email", known), now).await.status, 200);
+            let slots = Arc::clone(&router.password_slots)
+                .acquire_many_owned(u32::try_from(PASSWORD_SLOTS)?)
+                .await?;
+            let mut waiters: Vec<_> = (0..PASSWORD_WAITERS).map(|_| Box::pin(router.password_permit())).collect();
+            for waiter in &mut waiters {
+                assert!(futures_util::poll!(waiter).is_pending());
+            }
+            let started = Instant::now();
+            let refused = tokio::time::timeout(PASSWORD_QUEUE_WAIT / 2, router.password_permit())
+                .await
+                .map_err(|_| "a request waited after the password queue was full")?;
+            assert_eq!(refused.map_err(|error| error.code()).err(), Some(ErrorCode::Unavailable));
+            assert!(started.elapsed() < PASSWORD_QUEUE_WAIT);
+            drop(slots);
+            for waiter in waiters {
+                drop(waiter.await?);
+            }
+            let _slots = Arc::clone(&router.password_slots)
+                .acquire_many_owned(u32::try_from(PASSWORD_SLOTS)?)
+                .await
+                .map_err(|_| "sign in waited past the password slot deadline")?;
+            for email in [known, "missing@example.test"] {
+                let waited = std::cell::Cell::new(None);
+                let response = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    router.handle_endpoint_with_floor_timing(
+                        &request("/auth/v1/sign-in/email", email),
+                        now,
+                        || started,
+                        |duration| {
+                            waited.set(Some(duration));
+                            std::future::ready(())
+                        },
+                    ),
+                )
+                .await?;
+                assert_eq!((response.status, response.header("retry-after")), (503, Some("1")));
+                assert_eq!(
+                    response.header("access-control-expose-headers"),
+                    Some("set-auth-token, set-auth-ceremony, retry-after")
+                );
+                assert_eq!(
+                    serde_json::from_slice::<Value>(&response.body)?,
+                    json!({"code": "CANOPY_UNAVAILABLE", "message": "Password processing is busy. Try again shortly"})
+                );
+                assert_eq!(waited.get(), Some(floor));
+                assert_eq!(router.password_waiters.available_permits(), PASSWORD_WAITERS);
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        }
+        .await;
+        auth.drop().await?;
+        meta.drop().await?;
+        result
+    }
 
     #[test]
     fn normalizes_addresses_as_better_auth_keys_its_rate_limits() {

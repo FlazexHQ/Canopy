@@ -191,6 +191,7 @@ async fn session_effects(
 async fn invites(
     routes: &UserRoutes,
     router: &AuthRouter,
+    auth: &Database,
     outbox: &Outbox,
     steps: &[serde_json::Value],
     at: i64,
@@ -230,7 +231,15 @@ async fn invites(
     assert_eq!(session["user"]["email"], address);
     assert_eq!(session["user"]["emailVerified"], true);
     let rejected = operation("POST users/invite", "", Some(json(&steps[2]["operation"]["input"])?));
+    let users = auth.collection::<Document>("users");
+    let invited_before = users.find_one(doc! {"email": &address}).await?.ok_or("Invited user")?;
     check_error(routes.serve(&rejected).await, &steps[2])?;
+    let mut refused_input = steps[2]["operation"]["input"].clone();
+    refused_input["email"] = serde_json::json!("nobody-invited@example.com");
+    let refused = operation("POST users/invite", "", Some(json(&refused_input)?));
+    check_error(routes.serve(&refused).await, &steps[2])?;
+    assert_eq!(users.count_documents(doc! {"email": "nobody-invited@example.com"}).await?, 0);
+    assert_eq!(users.find_one(doc! {"email": &address}).await?, Some(invited_before));
     assert_eq!(outbox.0.lock().unwrap().len(), 1);
     Ok(())
 }
@@ -339,7 +348,7 @@ async fn replay(case: &serde_json::Value, auth: &Database, meta: &Database) -> T
     );
     match case["id"].as_str() {
         Some("create-update-ban-delete") => session_effects(&routes, &router, steps, at).await,
-        Some("invite") => invites(&routes, &router, &outbox, steps, at).await,
+        Some("invite") => invites(&routes, &router, auth, &outbox, steps, at).await,
         Some("import-and-rehash") => imported_passwords(&routes, &router, auth, &outbox, steps, at).await,
         _ => Err("Unexpected case".into()),
     }

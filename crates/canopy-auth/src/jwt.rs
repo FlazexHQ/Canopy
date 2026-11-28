@@ -27,6 +27,7 @@ const REFETCH_COOLDOWN: Duration = Duration::from_secs(30);
 const MAX_KEY_AGE: Duration = Duration::from_secs(600);
 const BUILTIN_KEY_AGE: Duration = Duration::from_secs(5);
 const BUILTIN_REFETCH_COOLDOWN: Duration = Duration::from_secs(1);
+const BUILTIN_LOAD_TIMEOUT: Duration = Duration::from_secs(2);
 const VERIFIED_FOR_S: f64 = 60.0;
 const MAX_VERIFIED: usize = 4096;
 
@@ -176,6 +177,7 @@ struct Jwt {
     config: JwtConfig,
     algorithms: Vec<String>,
     keys: Mutex<(Vec<Key>, Option<Instant>)>,
+    builtin_refresh: Mutex<Option<Instant>>,
     client: Option<reqwest::Client>,
     builtin: Option<BuiltinKeys>,
     verified: std::sync::Mutex<HashMap<String, Verified>>,
@@ -267,6 +269,11 @@ impl Authenticator {
     }
 
     /// Uses the control plane's public signing keys in MongoDB.
+    ///
+    /// A cached key verifies tokens for at most five seconds from the start of the primary read that loaded
+    /// it, so a revoked key stops verifying within that time. A token whose key is not cached waits for the
+    /// one refresh in progress (at most two seconds) rather than starting its own; tokens whose key is cached
+    /// never wait for a refresh. After a failed refresh no key verifies until a later one succeeds.
     pub fn new_with_builtin_jwks(
         config: JwtConfig,
         publishable: Option<Vec<String>>,
@@ -316,6 +323,7 @@ impl Authenticator {
                     config,
                     algorithms,
                     keys: Mutex::new((keys, None)),
+                    builtin_refresh: Mutex::new(None),
                     client: remote.then_some(client),
                     builtin,
                     verified: std::sync::Mutex::default(),
@@ -380,19 +388,36 @@ impl Authenticator {
 }
 
 impl Jwt {
-    async fn builtin_key(&self, source: &BuiltinKeys, kid: &str) -> Option<Key> {
-        let mut guard = self.keys.lock().await;
-        let age = guard.1.map(|at| at.elapsed());
-        let known = guard.0.iter().any(|key| key.kid.as_deref() == Some(kid));
-        if age.is_none_or(|age| age >= BUILTIN_KEY_AGE || (!known && age >= BUILTIN_REFETCH_COOLDOWN)) {
-            guard.0 = tokio::time::timeout(Duration::from_secs(2), source.load())
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            guard.1 = Some(Instant::now());
+    async fn builtin_key(
+        &self,
+        kid: &str,
+        load: impl std::future::Future<Output = Option<Vec<Key>>>,
+    ) -> Option<Key> {
+        let find_fresh = |(keys, read_started): &(Vec<Key>, Option<Instant>)| {
+            if read_started.is_some_and(|at| at.elapsed() < BUILTIN_KEY_AGE) {
+                keys.iter().find(|key| key.kid.as_deref() == Some(kid)).cloned()
+            } else {
+                None
+            }
+        };
+        if let Some(key) = find_fresh(&*self.keys.lock().await) {
+            return Some(key);
         }
-        guard.0.iter().find(|key| key.kid.as_deref() == Some(kid)).cloned()
+        let mut refresh =
+            tokio::time::timeout(BUILTIN_LOAD_TIMEOUT, self.builtin_refresh.lock()).await.ok()?;
+        if let Some(key) = find_fresh(&*self.keys.lock().await) {
+            return Some(key);
+        }
+        if refresh.is_some_and(|at| at.elapsed() < BUILTIN_REFETCH_COOLDOWN) {
+            return None;
+        }
+        let started = Instant::now();
+        *refresh = Some(started);
+        let keys = tokio::time::timeout(BUILTIN_LOAD_TIMEOUT, load).await.ok().flatten();
+        *refresh = Some(Instant::now());
+        let mut snapshot = self.keys.lock().await;
+        *snapshot = keys.map_or_else(|| (Vec::new(), None), |keys| (keys, Some(started)));
+        find_fresh(&snapshot)
     }
 
     async fn keys(&self, refresh: bool) -> Vec<Key> {
@@ -498,7 +523,7 @@ impl Jwt {
         let kid = text(&header_json, "kid");
         let message = format!("{header}.{payload}");
         let verified = if let Some(source) = &self.builtin {
-            let key = self.builtin_key(source, kid.ok_or_else(invalid)?).await.ok_or_else(invalid)?;
+            let key = self.builtin_key(kid.ok_or_else(invalid)?, source.load()).await.ok_or_else(invalid)?;
             verify(&key, alg, message.as_bytes(), &signature_bytes)
         } else {
             self.verify_jwks(kid, alg, message.as_bytes(), &signature_bytes).await

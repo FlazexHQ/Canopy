@@ -25,6 +25,13 @@ ceremony cookie set. `/two-factor/verify-totp` or `/two-factor/verify-backup-cod
 session. No recorded case signs a two factor user in through these routes, so the replay needs no allowance;
 the Rust tests in `crates/canopy-authn/tests/oauth_flows.rs` cover the new answers.
 
+Rust accepts each TOTP code once: the `canopy_auth.two_factors` document gains `lastTotpStep`, the time step
+of the last accepted code, and a code whose step is not later is refused. The TypeScript server writes no
+such field, so the Rust replay removes it from the stored factor after checking that it is a positive 64 bit
+integer, and compares the rest as recorded. No recorded case reuses a code, so no answer changes. Rust also
+counts `/upgrade` toward the per address limit (100 requests a minute), which the TypeScript server skips; the
+replay drops the `<address>|/upgrade` entry from `canopy_auth.rate_limits` before comparing.
+
 ```
 http/auth/
   fixture.json        the public URL, the secret, the first instant, the base options, and the signing keys

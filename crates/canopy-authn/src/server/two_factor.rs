@@ -13,6 +13,12 @@ use zeroize::Zeroizing;
 
 const CEREMONY_TTL: u64 = 600;
 const FRESH_MS: i64 = 900_000;
+const MAX_ATTEMPTS: u8 = 5;
+
+/// The identifier of the attempt count of codes verified with a session rather than a ceremony.
+fn session_attempts(session: &Session) -> String {
+    format!("2fa-attempts-session-{}", id_text(&session.id))
+}
 
 pub(super) fn is_route(route: &str) -> bool {
     matches!(
@@ -509,18 +515,31 @@ impl Call<'_> {
         let verifications = self.router.collection("verifications");
         let factor_filter = doc! {"_id": &factor.id};
         let mut count = factor.extra.get_i32("failedVerificationCount").unwrap_or_default().clamp(0, 10);
-        let mut attempt = None;
-        if let Some(challenge) = challenge {
-            if let Ok(locked) = factor.extra.get_datetime("lockedUntil") {
-                if *locked > self.now {
-                    return Ok(error(
-                        429,
-                        "ACCOUNT_TEMPORARILY_LOCKED",
-                        "Too many failed verification attempts. Your account is temporarily locked. Please try again later.",
-                    ));
-                }
-                count = 0;
+        if let Ok(locked) = factor.extra.get_datetime("lockedUntil") {
+            if *locked > self.now {
+                return Ok(error(
+                    429,
+                    "ACCOUNT_TEMPORARILY_LOCKED",
+                    "Too many failed verification attempts. Your account is temporarily locked. Please try again later.",
+                ));
             }
+            count = 0;
+        }
+        let mut attempt = None;
+        if let Some(session) = session {
+            let identifier = session_attempts(session);
+            let previous = verifications
+                .find_one(doc! {"identifier": &identifier, "expiresAt": {"$gt": self.now}})
+                .session(&mut *tx)
+                .await?
+                .and_then(|proof| proof.get_str("value").ok().and_then(|value| value.parse::<u8>().ok()))
+                .unwrap_or(0);
+            if previous >= MAX_ATTEMPTS {
+                return Ok(error(400, "TOO_MANY_ATTEMPTS", "Too many attempts. Please sign in again."));
+            }
+            attempt = Some((identifier, previous, session.expires_at));
+        }
+        if let Some(challenge) = challenge {
             let identifier = format!("2fa-attempts-{}", challenge.id);
             let Some(proof) = verifications
                 .find_one_and_delete(doc! {
@@ -531,9 +550,12 @@ impl Call<'_> {
             else {
                 return Ok(invalid_cookie());
             };
-            let previous =
-                proof.get_str("value").ok().and_then(|value| value.parse::<u8>().ok()).unwrap_or(5);
-            if previous >= 5 {
+            let previous = proof
+                .get_str("value")
+                .ok()
+                .and_then(|value| value.parse::<u8>().ok())
+                .unwrap_or(MAX_ATTEMPTS);
+            if previous >= MAX_ATTEMPTS {
                 verifications.delete_one(doc! {"identifier": &challenge.id}).session(&mut *tx).await?;
                 let mut reply = error(
                     400,
@@ -558,22 +580,38 @@ impl Call<'_> {
             length != codes.len()
         } else {
             let secret = self.decrypt_factor(&factor.secret).map_err(MongoError::custom)?;
-            totp::verify_totp(
+            let matched = totp::verify_totp(
                 secret.as_bytes(),
                 code,
                 self.now.timestamp_millis(),
                 TotpOptions::default(),
                 1,
-                None,
-            )
-            .is_some()
+                factor.extra.get_i64("lastTotpStep").ok(),
+            );
+            if let Some(step) = matched {
+                update.insert("lastTotpStep", step);
+            }
+            matched.is_some()
         };
         if !valid {
             if let Some((identifier, previous, expires)) = attempt {
-                verifications
-                    .insert_one(self.proof(&identifier, &(previous + 1).to_string(), expires))
-                    .session(&mut *tx)
-                    .await?;
+                let next = (previous + 1).to_string();
+                if challenge.is_some() {
+                    verifications
+                        .insert_one(self.proof(&identifier, &next, expires))
+                        .session(&mut *tx)
+                        .await?;
+                } else {
+                    verifications
+                        .update_one(
+                            doc! {"identifier": &identifier},
+                            doc! {"$set": {"value": next, "updatedAt": self.now},
+                            "$setOnInsert": {"_id": object_id(self.now), "expiresAt": expires, "createdAt": self.now}},
+                        )
+                        .upsert(true)
+                        .session(&mut *tx)
+                        .await?;
+                }
                 let locked = if count >= 9 { Bson::DateTime(self.date_after(FRESH_MS)) } else { Bson::Null };
                 factors
                     .update_one(
@@ -597,9 +635,15 @@ impl Call<'_> {
                 .session(&mut *tx)
                 .await?;
         }
-        if challenge.is_some() && (count != 0 || factor.extra.get_datetime("lockedUntil").is_ok()) {
+        if count != 0 || factor.extra.get_datetime("lockedUntil").is_ok() {
             update.insert("failedVerificationCount", 0);
             update.insert("lockedUntil", Bson::Null);
+        }
+        if let Some(session) = session {
+            verifications
+                .delete_one(doc! {"identifier": session_attempts(session)})
+                .session(&mut *tx)
+                .await?;
         }
         if !update.is_empty() {
             factors.update_one(factor_filter, doc! {"$set": update}).session(&mut *tx).await?;

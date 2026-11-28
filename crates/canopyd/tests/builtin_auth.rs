@@ -601,7 +601,7 @@ async fn rust_auth_runs_the_https_claims_hook_on_each_token() {
     assert_eq!(failed.headers().get("cache-control").and_then(|value| value.to_str().ok()), Some("no-store"));
     assert_eq!(
         body(failed, StatusCode::INTERNAL_SERVER_ERROR).await,
-        json!({"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed: the hook answered 503"}),
+        json!({"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed"}),
     );
     let audited = mongo
         .database(&format!("{database}_meta"))

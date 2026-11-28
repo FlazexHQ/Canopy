@@ -56,18 +56,18 @@ The P3 findings are documented below and left as they are.
 | RA-3 | P2 | Per address limits key IPv6 clients by their full address, so one host rotates through its /64 to escape them; the TypeScript server keys by /64 | Fixed |
 | RA-4 | P2 | `/list-sessions` returns the bearer token of every session of the user, `aal2` ones included | Fixed in Rust (f1a4c47f) |
 | RA-5 | P3 | Social and OIDC sign in gives an `aal1` session to a user with two factor enabled, while magic link and email code refuse such users | Fixed (the second factor is required on every first factor) |
-| RA-6 | P3 | An app user's TOTP code is accepted again within its window (no last step kept) | Documented |
+| RA-6 | P3 | An app user's TOTP code is accepted again within its window (no last step kept) | Fixed |
 | RA-7 | P3 | Secrets at rest: reset and magic link tokens in verification identifiers, email codes in clear, backup codes encrypted but not hashed, provider tokens in clear | Documented (oracle formats) |
 | RA-8 | P3 | Cookies use the `__Secure-` prefix, not `__Host-`, and the first cookie of a name wins: cookie tossing from a sibling subdomain | Accepted by the maintainer (names kept) |
 | RA-9 | P3 | A 32 character session token is accepted as a bearer token without its signature | Documented (as Better Auth's bearer plugin) |
-| RA-10 | P3 | Pre account hijack through the verification link keeps the squatter's password | Documented (both servers) |
-| RA-11 | P3 | Password hashing waits in an unbounded queue behind four slots | Documented |
-| RA-12 | P3 | The claims hook's failure reason, transport text included, is returned to the client | Documented |
+| RA-10 | P3 | Pre account hijack through the verification link keeps the squatter's password | Open, needs a decision (both servers) |
+| RA-11 | P3 | Password hashing waits in an unbounded queue behind four slots | Fixed |
+| RA-12 | P3 | The claims hook's failure reason, transport text included, is returned to the client | Fixed in Rust |
 | RA-13 | P3 | One secret keys the cookie HMAC, the mail JWT HMAC and the encryption key, with no labels | Documented (no confusion found) |
-| RA-14 | P3 | TOTP verification with a session (no ceremony) keeps no attempt count | Documented |
+| RA-14 | P3 | TOTP verification with a session (no ceremony) keeps no attempt count | Fixed |
 | RA-15 | P3 | Access token minting does not drop reserved roles from stored roles | Fixed |
-| RA-16 | P3 | The data plane reloads built in keys under one lock, and accepts a revoked key for up to 5 s | Documented |
-| RA-17 | P3 | Smaller items: change email on an unverified account without a fresh session, passkey deletion without a fresh session, `/upgrade` outside the per address limit, the invite that creates a user before refusing its redirect, http endpoints from OIDC discovery | Documented |
+| RA-16 | P3 | The data plane reloads built in keys under one lock, and accepts a revoked key for up to 5 s | Fixed (a revoked key still verifies for at most 5 s) |
+| RA-17 | P3 | Smaller items: change email on an unverified account without a fresh session, passkey deletion without a fresh session, `/upgrade` outside the per address limit, the invite that creates a user before refusing its redirect, http endpoints from OIDC discovery | Fixed in Rust |
 
 ## Details
 
@@ -206,6 +206,11 @@ recorded ones.
   ([`two_factor.rs`](../../crates/canopy-authn/src/server/two_factor.rs)), so a code observed by an attacker
   who also knows the password can be used again within its 90 s window (RFC 6238 §5.2 asks for one use).
   The primitive supports it; storing the last step on the factor would change its document shape.
+  **Fixed.** The factor document keeps `lastTotpStep`, the time step of the last accepted code, and every
+  TOTP verification (the ceremony, with a session, and enabling two factor) refuses a code whose step is not
+  later; two requests racing with one code both write the factor, so the transaction of the second retries
+  and refuses it. The Rust replay of the auth oracle accepts the extra field
+  (`review_regressions.rs`: `a_totp_code_signs_in_once_within_its_window`).
 - **RA-7.** Reset and magic link tokens sit in `verifications.identifier`, codes as `<code>:<attempts>`,
   backup codes are encrypted with the auth secret (not hashed), and provider access and refresh tokens are
   in clear in `accounts`. Read access to `canopy_auth` is therefore account takeover. These are the
@@ -221,20 +226,35 @@ recorded ones.
   verification link (`verify_email`, [`email.rs`](../../crates/canopy-authn/src/server/email.rs)) or uses an
   email verification code (`verify_with_otp`), the address is verified with the attacker's password still on
   it. Magic link and email code sign in (`promote_passwordless`) and provider sign in (which refuses to link
-  an unverified user) are safe. Both servers behave the same.
+  an unverified user) are safe. Both servers behave the same. **Open, needs a decision.** The server cannot
+  tell the squatter's verification link from an honest one, so each fix costs honest users something:
+  (a) the first verification of an account created with a password clears that password and ends its
+  sessions, so every new user resets the password they just chose; (b) sign up sets a cookie, and a link or
+  code used without it verifies the address but clears the password, so only users who verify on another
+  device or browser reset it; (c) verification keeps the password but ends every session created before it,
+  which only helps when verification is not required for sign in. Option (b) closes the hijack with the
+  least friction.
 - **RA-11.** `derive` waits for one of four permits with no bound or timeout. Sign up and sign in hash for
   unknown addresses too (as they must for uniform timing), so a distributed flood delays every password sign
-  in. A bounded queue answering `503` would cap it.
+  in. A bounded queue answering `503` would cap it. **Fixed.** Four hashes run and eight more may wait, each
+  for at most 250 ms; any other request answers `503 CANOPY_UNAVAILABLE` with `retry-after: 1` (exposed to
+  CORS), still held to the response floor so the answer does not reveal whether the address exists
+  (`password_overload_bounds_waiting_and_keeps_the_sign_in_floor`).
 - **RA-12.** `/token` answers `The claims hook failed: <reason>`, where the reason can carry the transport
   error of the hook call. Configuration detail, not a secret; a generic message with the reason in the
-  audit entry only would be tidier.
+  audit entry only would be tidier. **Fixed in Rust.** `/token` answers `The claims hook failed`; the reason,
+  with the transport error's detail, is written only to the `auth.claims_hook_failed` audit entry
+  (`claims_hook.rs`: `hides_connection_refusal_from_the_token_response`). The TypeScript server keeps its
+  message.
 - **RA-13.** Cookies and mail JWTs are both HMAC SHA-256 under the raw secret, and stored values are sealed
   with SHA-256 of it. Checked for confusion: cookie signatures are 44 character standard base64 and mail JWT
   tags 43 character base64url, and no attacker chosen value is ever signed as a cookie. A labelled key
   derivation would be better at the next format change.
 - **RA-14.** With a session and no ceremony, `/two-factor/verify-totp` keeps no attempt count, giving the
   session holder a code oracle limited only per address. It grants nothing (no step up on a verified
-  factor), so it is noted only.
+  factor), so it is noted only. **Fixed.** Codes verified with a session count failures per session (at most
+  five, then `400 TOO_MANY_ATTEMPTS` until the user signs in again) and toward the factor's lock, as the
+  ceremony does (`codes_verified_with_a_session_stop_after_five_failures`).
 - **RA-15.** `KeyRing::mint` ([`tokens.rs`](../../crates/canopy-authn/src/tokens.rs)) puts stored roles in the
   token as they are. Admin routes and the claims hook refuse reserved roles, and the data plane refuses a
   token claiming `service`, so this is defence in depth. Fixed: minting leaves out `anon`, `authenticated`,
@@ -242,12 +262,25 @@ recorded ones.
   `tests/tokens.rs` fails without the filter.
 - **RA-16.** `Jwt::builtin_key` ([`jwt.rs`](../../crates/canopy-auth/src/jwt.rs)) reloads the key set while
   holding the key lock (2 s timeout), so a slow MongoDB stalls every verification for that time, and a
-  revoked key verifies for up to 5 s (the reload interval).
+  revoked key verifies for up to 5 s (the reload interval). **Fixed.** The key set is read without holding
+  the key lock: a token whose key is cached never waits for a reload, one refresh runs at a time and other
+  tokens that need it wait for that one (at most 2 s) instead of starting their own, a cached key verifies
+  for at most 5 s from the start of the read that loaded it, and after a failed read no key verifies until a
+  later read succeeds (`jwt::tests::builtin_keys_follow_rotation_and_revocation`). A revoked key can still
+  verify for up to 5 s, the price of not reading MongoDB on every request.
 - **RA-17.** `change_email` on an unverified account mails the change straight to the new address with no
   password or fresh session; `/passkey/delete-passkey` needs no fresh session (as Better Auth); `/upgrade`
   runs before the per address limit (it needs an anonymous session and the identifier limit applies); an
   admin invite with a refused redirect still creates the user (recorded in R0); endpoints from OIDC
-  discovery may be `http` even in production.
+  discovery may be `http` even in production. **Fixed in Rust**, each with a test that fails without it:
+  changing the address of an unverified account and deleting a passkey need a session younger than 15
+  minutes (`changing_an_unverified_address_or_deleting_a_passkey_needs_a_fresh_session`); `/upgrade` is
+  dispatched after the per address limit (100 requests a minute, as the routes without a stricter limit; a
+  stricter one would change recorded answers), answering `429 CANOPY_RATE_LIMITED` with `retry-after`
+  (`upgrades_count_toward_the_address_limit`); an invite checks
+  its redirect before it creates or changes any user (the `invite` case of `user_auth_oracle.rs`; the recorded
+  answers are unchanged); in production, OIDC discovery and every endpoint it names must use HTTPS
+  (`production_discovers_oidc_providers_over_https_only`).
 
 ## Checked and found sound
 
@@ -328,7 +361,10 @@ recorded ones.
   attestation with an `x5c` chain, RS256 passkeys, key rotation over time, revocations written by another
   node, and an http public URL.
 - A timing study of the response floor under load on production hardware.
-- The TypeScript counterparts of RA-2, RA-4 and RA-5, while the TypeScript auth fallback remains deployable.
+- The TypeScript counterparts of RA-2, RA-4, RA-5, RA-6, RA-11, RA-12, RA-14 and RA-17, while the
+  TypeScript auth fallback remains deployable.
+- RA-10 needs a decision from the maintainer: every rule that removes the squatter's password also changes
+  sign up for honest users (see its entry).
 
 ## Verification
 

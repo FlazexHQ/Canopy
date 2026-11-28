@@ -113,7 +113,7 @@ impl Hook {
                     if error.is_timeout() {
                         timed_out()
                     } else {
-                        format!("the request failed: {}", error.without_url())
+                        format!("the request failed: {:?}", error.without_url())
                     }
                 })?;
             if !response.status().is_success() {
@@ -128,7 +128,7 @@ impl Hook {
                 if error.is_timeout() {
                     timed_out()
                 } else {
-                    format!("the answer could not be read: {}", error.without_url())
+                    format!("the answer could not be read: {:?}", error.without_url())
                 }
             })? {
                 if answer.len().saturating_add(chunk.len()) > MAX_CLAIMS_ANSWER_BYTES {

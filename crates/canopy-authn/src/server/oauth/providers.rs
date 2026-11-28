@@ -641,7 +641,7 @@ mod tests {
     async fn microsoft_photo_ignores_missing_and_oversized_responses() {
         for (status, size) in [(404, 3), (200, MAX_RESPONSE_BYTES + 1)] {
             let registry =
-                Registry::open(Vec::new(), Vec::new(), Some(Arc::new(PhotoReply { status, size })))
+                Registry::open(Vec::new(), Vec::new(), Some(Arc::new(PhotoReply { status, size })), false)
                     .await
                     .expect("provider registry");
             assert_eq!(microsoft_photo(&registry, Some("graph-access")).await, None);

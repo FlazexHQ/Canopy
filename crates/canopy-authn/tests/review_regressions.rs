@@ -1,5 +1,7 @@
 //! Regression tests for the internal security review of built in auth: the fresh session rule on the
-//! session list, the address lock across reissued email codes, and per network address limits for IPv6.
+//! session list, the address lock across reissued email codes, per network address limits for IPv6, a TOTP
+//! code accepted once only, the attempt limit of codes verified with a session, fresh sessions for changing
+//! the address of an unverified account and for deleting a passkey, and the address limit on `/upgrade`.
 
 #![allow(clippy::expect_used)]
 
@@ -11,6 +13,7 @@ use std::{
 
 use bson::{DateTime, Document, doc};
 use canopy_authn::server::{AuthMail, AuthOptions, AuthRouter};
+use canopy_authn::totp::{TotpOptions, base32_decode, totp};
 use canopy_http::{Request, Response};
 use canopy_mail::{EmailKind, Recipient};
 use canopy_mongo::mongodb::{Client, Database};
@@ -117,6 +120,44 @@ impl Harness {
             .with_header("content-type", "application/json")
             .with_body(body.to_string().into_bytes());
         self.send("203.0.113.9", request).await
+    }
+
+    async fn post_as(
+        &self,
+        address: &str,
+        path: &str,
+        body: &Value,
+        bearer: Option<&str>,
+        ceremony: Option<&str>,
+    ) -> Response {
+        let mut request = Request::new("POST", format!("/auth/v1{path}"))
+            .with_header("origin", APP)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string().into_bytes());
+        if let Some(bearer) = bearer {
+            request = request.with_header("authorization", format!("Bearer {bearer}"));
+        }
+        if let Some(ceremony) = ceremony {
+            request = request.with_header("x-canopy-ceremony", ceremony);
+        }
+        self.send(address, request).await
+    }
+
+    /// Turns two factor on for the user of `token` and returns the TOTP secret and the session that
+    /// replaced `token`.
+    async fn enable_totp(&self, token: &str) -> Result<(Vec<u8>, String)> {
+        let password = json!({"password": "correct horse battery"});
+        let enabled = self.post_as("203.0.113.20", "/two-factor/enable", &password, Some(token), None).await;
+        assert_eq!(enabled.status, 200, "{}", String::from_utf8_lossy(&enabled.body));
+        let uri = Url::parse(body(&enabled)["totpURI"].as_str().ok_or("totpURI")?)?;
+        let encoded = uri.query_pairs().find(|(name, _)| name == "secret").ok_or("secret")?.1.into_owned();
+        let secret = base32_decode(&encoded).ok_or("base32 secret")?;
+        let code = json!({"code": totp(&secret, self.now, TotpOptions::default())});
+        let confirmed =
+            self.post_as("203.0.113.21", "/two-factor/verify-totp", &code, Some(token), None).await;
+        assert_eq!(confirmed.status, 200, "{}", String::from_utf8_lossy(&confirmed.body));
+        let session = confirmed.header("set-auth-token").ok_or("replacement session")?.to_owned();
+        Ok((secret, session))
     }
 }
 
@@ -316,5 +357,99 @@ async fn ipv6_clients_share_the_address_limit_of_their_network() -> Result<()> {
         .filter_map(|key| key.as_str().map(str::to_owned))
         .collect();
     assert!(keys.contains(&"2001:0db8:0001:0002:0000:0000:0000:0000|/sign-in/email".to_owned()), "{keys:?}");
+    harness.close().await
+}
+
+#[tokio::test]
+async fn a_totp_code_signs_in_once_within_its_window() -> Result<()> {
+    let Some(mut harness) = Harness::open().await? else { return Ok(()) };
+    let token = harness.sign_up("203.0.113.30", "grace@example.com").await?;
+    let (secret, _) = harness.enable_totp(&token).await?;
+    let used = totp(&secret, harness.now, TotpOptions::default());
+    let credentials = json!({"email": "grace@example.com", "password": "correct horse battery"});
+    let first = harness.post_as("203.0.113.31", "/sign-in/email", &credentials, None, None).await;
+    assert_eq!(body(&first)["twoFactorRedirect"], json!(true));
+    let ceremony = first.header("set-auth-ceremony").ok_or("ceremony")?.to_owned();
+    let replayed = harness
+        .post_as("203.0.113.32", "/two-factor/verify-totp", &json!({"code": used}), None, Some(&ceremony))
+        .await;
+    assert_eq!((replayed.status, body(&replayed)["code"].clone()), (401, json!("INVALID_CODE")));
+    harness.now += 30_000;
+    let next = totp(&secret, harness.now, TotpOptions::default());
+    assert_ne!(next, used);
+    let accepted = harness
+        .post_as("203.0.113.33", "/two-factor/verify-totp", &json!({"code": next}), None, Some(&ceremony))
+        .await;
+    assert_eq!(accepted.status, 200, "{}", String::from_utf8_lossy(&accepted.body));
+    let again = harness.post_as("203.0.113.34", "/sign-in/email", &credentials, None, None).await;
+    let ceremony = again.header("set-auth-ceremony").ok_or("ceremony")?.to_owned();
+    let reused = harness
+        .post_as("203.0.113.35", "/two-factor/verify-totp", &json!({"code": next}), None, Some(&ceremony))
+        .await;
+    assert_eq!(reused.status, 401, "a code that signed in once is refused within its window");
+    harness.close().await
+}
+
+#[tokio::test]
+async fn codes_verified_with_a_session_stop_after_five_failures() -> Result<()> {
+    let Some(mut harness) = Harness::open().await? else { return Ok(()) };
+    let token = harness.sign_up("203.0.113.40", "hopper@example.com").await?;
+    let (secret, session) = harness.enable_totp(&token).await?;
+    harness.now += 30_000;
+    let right = totp(&secret, harness.now, TotpOptions::default());
+    let wrong = if right == "000000" { "111111" } else { "000000" };
+    for attempt in 0..5 {
+        let refused = harness
+            .post_as(
+                &format!("198.51.100.{attempt}"),
+                "/two-factor/verify-totp",
+                &json!({"code": wrong}),
+                Some(&session),
+                None,
+            )
+            .await;
+        assert_eq!(
+            (refused.status, body(&refused)["code"].clone()),
+            (401, json!("INVALID_CODE")),
+            "{attempt}"
+        );
+    }
+    let stopped = harness
+        .post_as("198.51.100.9", "/two-factor/verify-totp", &json!({"code": right}), Some(&session), None)
+        .await;
+    assert_eq!((stopped.status, body(&stopped)["code"].clone()), (400, json!("TOO_MANY_ATTEMPTS")));
+    harness.close().await
+}
+
+#[tokio::test]
+async fn changing_an_unverified_address_or_deleting_a_passkey_needs_a_fresh_session() -> Result<()> {
+    let Some(mut harness) = Harness::open().await? else { return Ok(()) };
+    let token = harness.sign_up("203.0.113.50", "lovelace@example.com").await?;
+    harness.now += FRESH_MS;
+    let change = json!({"newEmail": "elsewhere@example.com"});
+    let stale = harness.post_as("203.0.113.51", "/change-email", &change, Some(&token), None).await;
+    assert_eq!((stale.status, body(&stale)["code"].clone()), (403, json!("SESSION_NOT_FRESH")));
+    let passkey = json!({"id": "a passkey id"});
+    let stale =
+        harness.post_as("203.0.113.52", "/passkey/delete-passkey", &passkey, Some(&token), None).await;
+    assert_eq!((stale.status, body(&stale)["code"].clone()), (403, json!("SESSION_NOT_FRESH")));
+    harness.now -= 1;
+    let fresh = harness.post_as("203.0.113.53", "/change-email", &change, Some(&token), None).await;
+    assert_eq!(fresh.status, 200, "{}", String::from_utf8_lossy(&fresh.body));
+    harness.close().await
+}
+
+#[tokio::test]
+async fn upgrades_count_toward_the_address_limit() -> Result<()> {
+    let Some(harness) = Harness::open().await? else { return Ok(()) };
+    let upgrade = |index: u8| json!({"email": format!("anonymous{index}@example.com"), "password": "correct horse battery"});
+    for attempt in 0..100 {
+        let refused = harness.post_as("203.0.113.60", "/upgrade", &upgrade(attempt), None, None).await;
+        assert_eq!(refused.status, 401, "{attempt}");
+    }
+    let limited = harness.post_as("203.0.113.60", "/upgrade", &upgrade(100), None, None).await;
+    assert_eq!((limited.status, body(&limited)["code"].clone()), (429, json!("CANOPY_RATE_LIMITED")));
+    assert!(limited.header("retry-after").is_some());
+    assert_eq!(harness.post_as("203.0.113.61", "/upgrade", &upgrade(101), None, None).await.status, 401);
     harness.close().await
 }

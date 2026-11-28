@@ -628,6 +628,8 @@ async fn passwordless_sign_in_of_a_two_factor_user_waits_for_the_second_factor()
         assert!(coded.header("set-auth-token").is_none());
         assert_eq!(harness.session_count("guarded").await?, 1, "the code alone creates no session");
         let ceremony = coded.header("set-auth-ceremony").ok_or("ceremony header")?.to_owned();
+        // A TOTP code signs in once, so the second ceremony waits for the next code.
+        harness.advance(30_000);
         let session = harness.verify_totp(&mut Browser { cookies: Vec::new() }, Some(&ceremony)).await?;
         assert_eq!(session.get_str("aal")?, "aal2");
         assert_eq!(harness.session_count("guarded").await?, 2);

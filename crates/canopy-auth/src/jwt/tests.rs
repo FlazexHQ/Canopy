@@ -388,7 +388,11 @@ fn builtin_keys_follow_rotation_and_revocation() -> Result<(), Box<dyn std::erro
         let second = second_pair();
         let old = token_for(&first, "k1", ISSUER, "api");
         let new = token_for(&second, "k2", ISSUER, "api");
-        let age_cache = async |age| jwt.keys.lock().await.1 = Instant::now().checked_sub(age);
+        let age_cache = async |age| {
+            let at = Instant::now().checked_sub(age);
+            jwt.keys.lock().await.1 = at;
+            *jwt.builtin_refresh.lock().await = at;
+        };
         keys.insert_one(stored("k1", &first)).await?;
         assert_eq!(auth.authenticate_access_token(&old).await?.subject, "u1");
         for invalid in [
@@ -403,6 +407,43 @@ fn builtin_keys_follow_rotation_and_revocation() -> Result<(), Box<dyn std::erro
         }
         keys.insert_one(stored("k2", &second)).await?;
         age_cache(BUILTIN_REFETCH_COOLDOWN).await;
+        let source = jwt.builtin.as_ref().ok_or("built in signing key source")?;
+        let (started, loading) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let refreshing = jwt.builtin_key("k2", async {
+            assert!(started.send(()).is_ok());
+            assert!(released.await.is_ok());
+            source.load().await
+        });
+        let concurrent = async {
+            loading.await?;
+            let known =
+                tokio::time::timeout(Duration::from_millis(250), auth.authenticate_access_token(&old)).await;
+            assert_eq!(known.map_err(|_| "a token with a cached key waited for the reload")??.subject, "u1");
+            let another_load = std::cell::Cell::new(false);
+            let mut unknown = std::pin::pin!(jwt.builtin_key("other", async {
+                another_load.set(true);
+                None
+            }));
+            let mut expired = std::pin::pin!(async {
+                jwt.keys.lock().await.1 = Instant::now().checked_sub(BUILTIN_KEY_AGE);
+                auth.authenticate_access_token(&old).await.map_err(|error| error.code())
+            });
+            assert!(futures_util::poll!(&mut unknown).is_pending());
+            assert!(futures_util::poll!(&mut expired).is_pending());
+            assert!(release.send(()).is_ok());
+            let (unknown, expired) =
+                tokio::time::timeout(Duration::from_secs(2), async { tokio::join!(unknown, expired) })
+                    .await
+                    .map_err(|_| "a token waited past the reload")?;
+            assert!(unknown.is_none());
+            assert!(!another_load.get(), "a second read started while one was in progress");
+            assert_eq!(expired.map(|principal| principal.subject), Ok("u1".to_owned()));
+            Ok::<_, Box<dyn std::error::Error>>(())
+        };
+        let (refreshed, concurrent) = tokio::join!(refreshing, concurrent);
+        concurrent?;
+        assert!(refreshed.is_some());
         assert_eq!(auth.authenticate_access_token(&new).await?.subject, "u1");
         assert!(auth.authenticate_access_token(&old).await.is_ok());
         keys.update_one(doc! { "_id": "k1" }, doc! { "$set": { "revokedAt": now } }).await?;

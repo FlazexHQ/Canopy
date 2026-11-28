@@ -81,8 +81,10 @@ impl Call<'_> {
         let Some((session, user)) = authenticated else {
             return Ok(error(401, "UNAUTHORIZED", "Unauthorized"));
         };
-        if matches!(self.route, "/passkey/generate-register-options" | "/passkey/verify-registration")
-            && !self.fresh(&session)
+        if matches!(
+            self.route,
+            "/passkey/generate-register-options" | "/passkey/verify-registration" | "/passkey/delete-passkey"
+        ) && !self.fresh(&session)
         {
             return Ok(error(403, "SESSION_NOT_FRESH", "Session is not fresh"));
         }

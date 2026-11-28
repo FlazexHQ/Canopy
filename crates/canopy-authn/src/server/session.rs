@@ -300,7 +300,12 @@ impl Call<'_> {
             }
             "/revoke-sessions" => "auth.sessions_revoked",
             "/update-user" => return self.update_user(body, &session, &user).await,
-            "/change-email" => return self.change_email(body, &user).await,
+            "/change-email" => {
+                if !user.email_verified && !self.fresh(&session) {
+                    return Ok(error(403, "SESSION_NOT_FRESH", "Session is not fresh"));
+                }
+                return self.change_email(body, &user).await;
+            }
             _ => return Ok(empty(404)),
         };
         self.end_sessions(filter).await?;

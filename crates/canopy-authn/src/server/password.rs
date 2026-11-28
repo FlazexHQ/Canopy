@@ -11,7 +11,7 @@ impl Call<'_> {
         password: &str,
         stored: Option<String>,
     ) -> Result<(bool, Option<String>)> {
-        let permit = Arc::clone(&self.router.password_slots).acquire_owned().await.map_err(internal)?;
+        let permit = self.router.password_permit().await?;
         let password = password.to_owned();
         tokio::task::spawn_blocking(move || {
             let _permit = permit;

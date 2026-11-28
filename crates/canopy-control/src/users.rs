@@ -427,17 +427,6 @@ impl UserRoutes {
         let address = email(input.get_str("email").unwrap_or_default())?;
         check_roles(&input)?;
         let callback = text(&input, "redirectTo").unwrap_or("/");
-        let mut changes = input.clone();
-        changes.remove("redirectTo");
-        let users = self.auth.collection::<Document>("users");
-        let user = if let Some(user) = users.find_one(doc! { "email": &address }).await.map_err(mongo)? {
-            changes.remove("email");
-            let revoke = changes.contains_key("roles");
-            let id = user.get("_id").map_or_else(String::new, id_text);
-            self.change(&id, changes, None, revoke, now).await?
-        } else {
-            self.create(changes, None, Vec::new(), now).await?
-        };
         let public = &self.options.public_url;
         let allowed = if callback.starts_with('/') {
             !callback.starts_with("//") && !callback.contains('\\')
@@ -451,6 +440,17 @@ impl UserRoutes {
         if !allowed {
             return Err(err(ErrorCode::Unauthorized, "The invite redirect is not in the allowlist"));
         }
+        let mut changes = input.clone();
+        changes.remove("redirectTo");
+        let users = self.auth.collection::<Document>("users");
+        let user = if let Some(user) = users.find_one(doc! { "email": &address }).await.map_err(mongo)? {
+            changes.remove("email");
+            let revoke = changes.contains_key("roles");
+            let id = user.get("_id").map_or_else(String::new, id_text);
+            self.change(&id, changes, None, revoke, now).await?
+        } else {
+            self.create(changes, None, Vec::new(), now).await?
+        };
         let token = random_url(24)?;
         let mut link = public
             .join("/auth/v1/magic-link/verify")

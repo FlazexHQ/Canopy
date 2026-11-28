@@ -378,14 +378,25 @@ async fn fails_closed_without_a_token() -> Result<()> {
     };
     let result = async {
         let hook = HookServer::start().await?;
-        let harness =
-            Harness::open(auth.clone(), meta.clone(), ClaimsHook::new(Url::parse(&hook.url)?, HOOK_KEY.into()))
-                .await?;
+        let harness = Harness::open(
+            auth.clone(),
+            meta.clone(),
+            ClaimsHook::new(Url::parse(&hook.url)?, HOOK_KEY.into()),
+        )
+        .await?;
         let (user, bearer) = harness.sign_up("failing-hook@example.test").await?;
         let big = "x".repeat(3500);
         let failures = [
-            ("a slow hook", Answer { delay: Duration::from_millis(600), ..Answer::json("{}") }, "timed out after 200 ms"),
-            ("an error status", Answer::status(503), "the hook answered 503"),
+            (
+                "an error status",
+                Answer { body: "private hook diagnostic".into(), ..Answer::status(500) },
+                "the hook answered 500",
+            ),
+            (
+                "a slow hook",
+                Answer { delay: Duration::from_millis(600), ..Answer::json("{}") },
+                "timed out after 200 ms",
+            ),
             (
                 "a redirect",
                 Answer { location: Some("/claims/elsewhere".into()), ..Answer::status(307) },
@@ -416,7 +427,11 @@ async fn fails_closed_without_a_token() -> Result<()> {
                 Answer::json(r#"{"roles":["service"]}"#),
                 "roles must be a list of names other than anon, authenticated, service and public",
             ),
-            ("app_metadata that is not an object", Answer::json(r#"{"app_metadata":"pro"}"#), "app_metadata must be an object"),
+            (
+                "app_metadata that is not an object",
+                Answer::json(r#"{"app_metadata":"pro"}"#),
+                "app_metadata must be an object",
+            ),
         ];
         for (index, (name, answer, reason)) in failures.into_iter().enumerate() {
             hook.answer(answer);
@@ -427,7 +442,7 @@ async fn fails_closed_without_a_token() -> Result<()> {
             let body: Value = serde_json::from_slice(&response.body)?;
             assert_eq!(
                 body,
-                json!({"code": "CANOPY_AUTH_HOOK_FAILED", "message": format!("The claims hook failed: {reason}")}),
+                json!({"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed"}),
                 "{name}"
             );
             assert_eq!(response.header("cache-control"), Some("no-store"), "{name}");
@@ -450,7 +465,10 @@ async fn fails_closed_without_a_token() -> Result<()> {
         let body: Value = serde_json::from_slice(&response.body)?;
         let message = body["message"].as_str().ok_or("message")?;
         assert_eq!(body["code"], json!("CANOPY_AUTH_HOOK_FAILED"));
-        assert!(message.starts_with("The access token is ") && message.ends_with(" bytes, over the 4096 byte cap"));
+        assert!(
+            message.starts_with("The access token is ")
+                && message.ends_with(" bytes, over the 4096 byte cap")
+        );
         let last = harness.failures(&user).await?.pop().ok_or("audit event")?;
         let details = last.get_document("details")?;
         assert_eq!(details.get_str("reason")?, "token too large");
@@ -484,11 +502,42 @@ async fn a_hook_with_another_secret_is_refused_by_the_receiver() -> Result<()> {
         let response = harness.token(&bearer).await;
         assert_eq!(response.status, 500);
         let body: Value = serde_json::from_slice(&response.body)?;
-        assert_eq!(body["message"], json!("The claims hook failed: the hook answered 401"));
+        assert_eq!(body["message"], json!("The claims hook failed"));
         let calls = hook.take();
         assert_eq!(calls.len(), 1);
         assert!(calls.iter().all(|call| !call.signed));
         assert_eq!(harness.failures(&user).await?.len(), 1);
+        Ok::<_, Box<dyn Error>>(())
+    }
+    .await;
+    auth.drop().await?;
+    meta.drop().await?;
+    result
+}
+
+#[tokio::test]
+async fn hides_connection_refusal_from_the_token_response() -> Result<()> {
+    let Some((auth, meta)) = databases().await else {
+        eprintln!("Skipping the claims hook because CANOPY_TEST_MONGODB_URI is unset");
+        return Ok(());
+    };
+    let result = async {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let url = Url::parse(&format!("http://{}/claims", listener.local_addr()?))?;
+        drop(listener);
+        let mut settings = ClaimsHook::new(url, HOOK_KEY.into());
+        settings.timeout = Duration::from_secs(3);
+        let harness = Harness::open(auth.clone(), meta.clone(), settings).await?;
+        let (user, bearer) = harness.sign_up("unreachable-hook@example.test").await?;
+        let response = harness.token(&bearer).await;
+        assert_eq!(response.status, 500);
+        let body: Value = serde_json::from_slice(&response.body)?;
+        assert_eq!(body, json!({"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed"}));
+        let audited = harness.failures(&user).await?;
+        assert_eq!(audited.len(), 1);
+        let reason = audited[0].get_document("details")?.get_str("reason")?;
+        assert!(reason.starts_with("the request failed: "), "{reason}");
+        assert!(reason.contains("ConnectionRefused"), "{reason}");
         Ok::<_, Box<dyn Error>>(())
     }
     .await;

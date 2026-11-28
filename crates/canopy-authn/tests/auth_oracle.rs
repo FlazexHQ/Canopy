@@ -729,6 +729,23 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
     }
     let mut actual = snapshot(&auth, "canopy_auth", None).await?;
     actual.extend(snapshot(&meta, "canopy", Some(&["audit_log", "revocations"])).await?);
+    // The Rust server counts `/upgrade` toward the per address limit, which the TypeScript server skips.
+    if let Some(limits) = actual.get_mut("canopy_auth.rate_limits") {
+        limits.retain(|limit| !limit["key"].as_str().is_some_and(|key| key.ends_with("|/upgrade")));
+    }
+    // The Rust server keeps the time step of the last accepted TOTP code, so a code signs in once.
+    if let Some(factors) = actual.get_mut("canopy_auth.two_factors") {
+        for factor in factors.iter_mut() {
+            let fields = factor.as_object_mut().ok_or("Two factor fields")?;
+            if let Some(step) = fields.remove("lastTotpStep") {
+                let step = step["$numberLong"]
+                    .as_str()
+                    .and_then(|step| step.parse::<i64>().ok())
+                    .ok_or("lastTotpStep is a 64 bit integer time step")?;
+                assert!(step > 0, "lastTotpStep {step}");
+            }
+        }
+    }
     let mut documents = case["documents"].clone();
     if !revoked_session_ids.is_empty() {
         let audit = documents["canopy.audit_log"].as_array_mut().ok_or("Audit documents")?;
