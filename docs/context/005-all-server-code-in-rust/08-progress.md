@@ -3,6 +3,77 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-28): R2 suites in browsers, gates re-measured, CLI --env replay (a4849f3e, 76428729; Canopy.js b806a46)
+
+Summary of Canopy commits a4849f3e and 76428729, and Canopy.js commit b806a46. Vitest browser mode runs the client and binding suites across Chromium, Firefox and WebKit (1,152 tests passed, 6 skipped across 48 files per browser) with no source changes. R2 performance gates are re-measured with the 152a8db2 client module across five rounds on a busy machine, meeting every gate: matching worst median 0.93x (Chromium 4x, DLS and user filter), under 0.76x on Node 26 and 0.72x on Bun; single update 1.97x Bun, 1.87x Node 26, 2.41x Chromium (36.75 µs); chained update 2.22x Bun, 1.94x Node 26, 2.70x Chromium (33.75 µs); client compile plus instantiate p95 23.20 ms in Chromium at 4x (gate 30 ms), 1.19 ms on Node 26. Conformance replay passes 1,991 filters and 1,995 updates in both formats on Bun and Node 26. In Canopy, a failpoint makes the REST read time limit test deterministic on macOS, and golden replays of `policies push` and `policies pull` with `--env` add four steps (61 steps total), closing the R4 open note. Windows Ctrl+Break automation was dropped to preserve forbidden unsafe code. CI is green on commit 152a8db2. The nightly workflow dispatched on refactor/rust-port passed 29 jobs, including 16 of the 17 fuzz targets for 20 minutes each with no finding; its other 7 failures were the workflow falling behind the repository (fixed in 50e8f6d1) and the `authn_tokens` fuzz harness.
+
+### What changed
+
+- **Canopy.js browser test suites (Canopy.js b806a46):**
+  - Commit b806a46 (`test: run the client and binding suites in Chromium, Firefox and WebKit`) adds Vitest browser mode using the Playwright provider (`@vitest/browser-playwright` 5.0.5, MIT; `playwright` 1.64.1, Apache 2.0), configured in `vitest.browser.config.ts` and run with `bun run test:browser` (`--browser=<name>` for one).
+  - Runs eight projects per browser: client on the Wasm core, client on the wasm2js core, react, vue, svelte, solid, tanstack-db, and devtools.
+  - Headless results on Windows: Chromium, Firefox and WebKit each pass 384 tests with 2 skipped and 0 failed across 48 files (1,152 passed, 6 skipped across all three browsers in one run).
+  - The 2 skips per browser are one test (OAuth sign in navigating when a browser location exists) that needs a replaceable `location`; it still runs on Bun, Node and Deno.
+  - No source change in `src/` was needed.
+  - Test harness adjustments: fixtures load through Vite (`import.meta.glob`, `?raw`, and a `canopy-conformance` alias pointing to `CANOPY_REPO` or `../Canopy`) instead of `node:fs`; a `freshModules` Vite plugin plus `freshGraph()` give fresh module copies because `vi.resetModules` does not reach a browser module map; the engine setup throws when the core loads in a format other than the expected format for that project; and the long lived token lifecycle test steps fake time 25 s at a time because browsers clamp the real timer each async step waits on to 4 ms (verified it still fails with the 24.8 day timer guard removed from `src/`).
+  - Finding: under happy-dom the binding suites in the Node run had always used the wasm2js core (Vite turns the Wasm path into a dev server URL nothing serves); they now set `CANOPY_TEST_CORE=js` explicitly and the browser run covers them on Wasm.
+  - CI: added a `browser` job per browser on `ubuntu-24.04`, and the Node job now checks out Canopy (`CANOPY_REPO`). Canopy.js CI only runs on `master` and pull requests to `master`, so neither job has run on GitHub yet. `bun run check` passes (361 tests) and Chromium was re-run by the reviewer (384 passed, 2 skipped).
+- **R2 gates re-measured (152a8db2):**
+  - Re-measured with the 152a8db2 client module on a busy machine across five rounds.
+  - Matching worst median: 0.93x (Chromium 4x, DLS and user filter), under 0.76x on Node 26 and 0.72x on Bun.
+  - Single update: 1.97x Bun, 1.87x Node 26, 2.41x Chromium (36.75 µs).
+  - Chained update: 2.22x Bun, 1.94x Node 26, 2.70x Chromium (33.75 µs).
+  - Client compile plus instantiate p95: 23.20 ms in Chromium at 4x (gate 30 ms), 1.19 ms on Node 26.
+  - Conformance replay: 1,991 filters and 1,995 updates pass in both formats on Bun and Node 26.
+  - Every gate met. Raw output under `target/tmp/r2-remeasure`.
+- **REST read time limit test deterministic with failpoint (Canopy a4849f3e):**
+  - Commit a4849f3e (`test(rest): make the read time limit test deterministic with a failpoint`): the macOS CI failure of `packages/rest/test/errors.test.ts` (a 100,000 document scan under `maxTimeMS` 1 that a fast machine finished first) now uses the `failCommand` failpoint with `blockConnection` for 100 ms on one find, so MongoDB answers `MaxTimeMSExpired` (code 50) every time. The test checks `CANOPY_TIMEOUT` with that cause.
+  - `deploy/compose/dev.yaml` and `packages/testing/scripts/mongod.ts` start mongod with `enableTestCommands=1`.
+  - Passed 20 consecutive runs on MongoDB 8.0.34 and 9.0.8.
+- **CLI replay for policies push and pull with `--env` (Canopy 76428729):**
+  - Commit 76428729 (`test(cli): replay policies push and pull with --env against the Rust CLI`): four new golden steps recorded from the TypeScript CLI (`policy-push-env`, `policy-pull-env`, `policy-push-unknown-env`, `policy-pull-unknown-env`), 61 steps in total, the 57 earlier ones unchanged.
+  - The Rust CLI resolves the remote before checking the named collections and pulls from one snapshot of the published policies.
+  - Changeset `cli-policies-env-order.md`. This closes the R4 note that policies push and pull with `--env` were unreplayed.
+- **Windows console control signals dropped from automation:**
+  - An automated test was written for Windows Ctrl+Break but needed `unsafe` (`GenerateConsoleCtrlEvent` through `windows-sys`) in a `canopy-cli` test; a PowerShell helper without `unsafe` did not work.
+  - The maintainer decided to drop the test and keep `unsafe_code = "forbid"` everywhere.
+  - Ctrl+C and Ctrl+Break on Windows stay a manual check at a real console.
+
+- **Internal security review of Rust auth (e3192c68, f1a4c47f, 9fe1de57):**
+  - [docs/reviews/2026-11-28-rust-auth-internal-review.md](../../reviews/2026-11-28-rust-auth-internal-review.md), written ahead of the external review of the R5 gate: no P0; 17 findings.
+  - Fixed, each with a regression test proved to fail without the fix: RA-1 (P1) listing sessions needs a session younger than 15 minutes; RA-2 (P2) wrong email codes count toward the address lock of wrong passwords; RA-3 (P2) per address limits key IPv6 clients by their /64 network; RA-15 (P3) minted tokens leave out reserved roles.
+  - Maintainer decisions: RA-4, Rust only (the TypeScript server is removed later): sessions are listed and revoked by id, never by token (f1a4c47f); RA-5, every first factor (social, OIDC ID token, magic link, email code) opens the two factor ceremony before any session exists (9fe1de57); RA-8, the `__Secure-` cookie names stay.
+  - The Rust replay of the auth oracle derives the expected answers of `/list-sessions` and `/revoke-session` from the recorded ones; no recorded case signs a two factor user in through the RA-5 routes. Canopy.js does not yet handle the two factor handoff after email code sign in or after a redirect in bearer mode; that follow up is in progress.
+- **authn_tokens fuzz harness:** `fuzz/Cargo.lock` moves `ahash` to 0.8.15 and the harness checks at startup that a token minted with each algorithm verifies. A local cargo fuzz build under WSL could not link (the WSL C compiler refuses the sanitizer runtime argument), so the fix is proven by the next nightly run instead.
+
+### Test evidence
+
+- **Canopy.js browser test suite:**
+  - Chromium, Firefox and WebKit each pass 384 tests with 2 skipped and 0 failed across 48 files (all three in one run: 1,152 passed, 6 skipped).
+  - The 2 skips per browser are one test (OAuth sign in navigating when a browser location exists) that needs a replaceable `location`; it still runs on Bun, Node and Deno.
+  - Reviewer re-run verified Chromium (384 passed, 2 skipped).
+  - `bun run check` passes (361 tests).
+- **R2 gate re-measurements:**
+  - Five rounds on a busy machine with client module 152a8db2: matching worst median 0.93x (Chromium 4x, DLS and user filter), under 0.76x on Node 26 and 0.72x on Bun; single update 1.97x Bun, 1.87x Node 26, 2.41x Chromium (36.75 µs); chained update 2.22x Bun, 1.94x Node 26, 2.70x Chromium (33.75 µs); client compile plus instantiate p95 23.20 ms in Chromium at 4x (gate 30 ms), 1.19 ms on Node 26.
+  - Conformance replay: 1,991 filters and 1,995 updates pass in both formats on Bun and Node 26.
+  - Raw output under `target/tmp/r2-remeasure`.
+- **Canopy REST failpoint and CLI golden replay:**
+  - `packages/rest/test/errors.test.ts` passed 20 consecutive runs on MongoDB 8.0.34 and 9.0.8.
+  - CLI replay passes all 61 golden steps against the Rust CLI.
+- **CI workflows:**
+  - Commit 152a8db2 green (CI, Native release builds).
+  - The Security workflow stays red from the accepted secret in 4692950d.
+  - The nightly workflow was dispatched on refactor/rust-port (run 46104909869) for an early read of the fuzz targets: 29 jobs passed, among them 16 of the 17 fuzz targets (20 minutes each, no finding), and 7 failed.
+  - Six failures were the workflow falling behind the repository, fixed in 50e8f6d1 (`ci(nightly)`): the Split Wasm conformance job and the Alpine containers lacked the Canopy.js checkout; the sharded cluster job filtered on the `client` project, which moved to Canopy.js (its tests now run in `sdk-e2e`); and Deno on Windows, Linux and macOS failed the TypeScript CLI oracle on Deno's user agent and its wording for a missing config module. The recorder now normalizes Deno's user agent, and both CLIs report `Cannot find config file '<path>'` on every runtime (two golden steps re-recorded, changeset missing-config-file.md).
+  - The seventh, `cargo fuzz (authn_tokens)`, crashed on its first input in the harness's own setup (`generated key ring`): the fuzz workspace's lockfile pinned `ahash` 0.8.13, with which the key ring did not load under the pinned nightly toolchain; with 0.8.15 it does. The main workspace uses 0.8.12 and is not affected. The harness fix also checks at startup that a token minted with each algorithm verifies, so a broken setup fails with a clear message.
+
+### Status across stages
+
+- **R2:** all speed gates met; Canopy.js suites green on Bun, Node 24, Node 26, Deno, and in Chromium, Firefox and WebKit; still unverified: React Native on devices (conformance vectors pass on Hermes); Hermes speed gate is the accepted known gap; Canopy.js browser CI unproven until a pull request to master.
+- **R4:** complete, including the --env steps; Windows Ctrl+C and Ctrl+Break remain manual checks.
+- **R5:** open, waiting on master for the 24 CPU hour fuzz campaign and the external review; the internal review found no P0 and its P1 and P2 findings are fixed.
+- **R7:** gated.
+
 ## Checkpoint (2026-11-27): R2 client module headroom and the Canopy.js suite on Node 24 and Deno (152a8db2; Canopy.js 5a9b47c, 4afcf8c)
 
 Summary of Canopy commit 152a8db2 and Canopy.js commits 5a9b47c and 4afcf8c. Dropping the string slicing panic path from formatting and parsing routines shrinks the client WebAssembly module from 81,835 to 78,049 Brotli bytes (3,786 bytes saved), creating 3,871 bytes of headroom under the 81,920 byte limit and resolving the client module headroom risk. Canopy.js syncs the smaller core in 4afcf8c. A configuration fix for the emit Vitest project in Canopy.js commit 5a9b47c loads the Deno worker setup and increases test timeout. Following that fix, the full Canopy.js suite passes on Node 24.22.3 and Deno 2.9.8 with `--pool=threads` (33 files, 361 tests, exit 0) in addition to Node 26 and Bun. Rerun macOS CI and Native release jobs for commit 21949e79 passed.
@@ -1854,9 +1925,9 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
-| 2 | R2 speed gates met across all hosts (matching under 1.2x everywhere, worst 0.98x; update under 2.55x; startup passes); client module 78,049 Brotli bytes (3,871 bytes headroom); Hermes speed gate dropped by maintainer decision; Canopy.js synced in 4afcf8c; unverified items: Canopy.js client suite in browsers through Playwright and React Native on devices | R2 | Big | `claudeAgent` |
+| 2 | R2 speed gates met across all hosts (matching worst median 0.93x; single update 2.41x, 36.75 µs; chained update 2.70x, 33.75 µs; startup p95 23.20 ms in Chromium 4x, 1.19 ms Node 26); client module 78,049 Brotli bytes (3,871 bytes headroom); Hermes speed gate dropped by maintainer decision; Canopy.js suites pass in Chromium, Firefox, WebKit, Bun, Node 24, Node 26, Deno; unverified items: React Native on devices, Hermes speed gate known gap, Canopy.js browser CI on master | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
-| 4 | R4 done: all 57 golden steps replay, canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b) | R4 | Big | `claudeAgent` |
+| 4 | R4 done: all 61 golden steps replay including --env (76428729), canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b), Windows Ctrl+C and Ctrl+Break manual checks | R4 | Big | `claudeAgent` |
 | 5 | R7 gated: prep map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
 
 ## Done

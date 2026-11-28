@@ -7,7 +7,7 @@ use bson::{DateTime, Document, doc};
 use canopy_auth::{Authenticator, JwtConfig};
 use canopy_authn::{
     key_material::generate,
-    tokens::{AccessSession, Algorithm, KeyRing},
+    tokens::{AccessSession, Algorithm, KeyRing, TokenError},
 };
 use canopy_protocol::json::parse_json;
 use libfuzzer_sys::fuzz_target;
@@ -15,6 +15,8 @@ use tokio::runtime::{Builder, Runtime};
 
 const URL: &str = "https://example.org";
 const SECRET: &str = "fuzz signing key secret";
+const ALGORITHMS: [Algorithm; 2] = [Algorithm::EdDSA, Algorithm::ES256];
+const SUBJECT: &str = "fuzz user";
 
 static RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Builder::new_current_thread().build().expect("fuzz runtime"));
@@ -22,17 +24,32 @@ static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::new()
 });
-static KEYS: LazyLock<[Document; 2]> = LazyLock::new(|| {
-    [Algorithm::EdDSA, Algorithm::ES256]
-        .map(|alg| generate(alg, SECRET, 0, i64::MAX).expect("fuzz key material"))
-});
-static VERIFIER: LazyLock<Authenticator> = LazyLock::new(|| {
+static KEYS: LazyLock<[Document; 2]> =
+    LazyLock::new(|| ALGORITHMS.map(|alg| generate(alg, SECRET, 0, i64::MAX).expect("fuzz key material")));
+
+struct Baseline {
+    verifier: Authenticator,
+    tokens: [String; 2],
+}
+
+static BASELINE: LazyLock<Baseline> = LazyLock::new(|| {
     let ring = load(KEYS.iter().cloned(), Algorithm::EdDSA).expect("generated key ring");
-    verifier(&ring.jwks(1).to_string()).expect("generated key set")
+    let now = DateTime::now().timestamp_millis();
+    let verifier = verifier(&ring.jwks(now).to_string()).expect("generated key set");
+    let tokens = std::array::from_fn(|index| {
+        let ring = load([KEYS[index].clone()], ALGORITHMS[index]).expect("generated signing key");
+        let token = mint(&ring, now).expect("generated access token");
+        let principal = RUNTIME
+            .block_on(verifier.authenticate_access_token(&token))
+            .expect("verify generated access token");
+        assert_eq!(principal.subject, SUBJECT);
+        token
+    });
+    Baseline { verifier, tokens }
 });
 
-fn load(docs: impl IntoIterator<Item = Document>, algorithm: Algorithm) -> Option<KeyRing> {
-    KeyRing::load(docs, URL, algorithm, 300, 300_000, 4096).ok()
+fn load(docs: impl IntoIterator<Item = Document>, algorithm: Algorithm) -> Result<KeyRing, TokenError> {
+    KeyRing::load(docs, URL, algorithm, 300, 300_000, 4096)
 }
 
 fn verifier(jwks: &str) -> Option<Authenticator> {
@@ -40,7 +57,7 @@ fn verifier(jwks: &str) -> Option<Authenticator> {
         Some(JwtConfig {
             issuers: vec![format!("{URL}/auth/v1")],
             audiences: vec![URL.to_owned()],
-            jwks: parse_json(jwks).ok(),
+            jwks: Some(parse_json(jwks).ok()?),
             jwks_url: None,
             algorithms: vec!["EdDSA".into(), "ES256".into()],
             roles_claim: Some("roles".into()),
@@ -54,10 +71,10 @@ fn verifier(jwks: &str) -> Option<Authenticator> {
     .ok()
 }
 
-fn mint(ring: &KeyRing, now_ms: i64) -> Option<String> {
+fn mint(ring: &KeyRing, now_ms: i64) -> Result<String, TokenError> {
     let metadata = Default::default();
     let session = AccessSession {
-        subject: "fuzz user",
+        subject: SUBJECT,
         session_id: "fuzz session",
         roles: &[],
         claim_roles: &[],
@@ -68,7 +85,7 @@ fn mint(ring: &KeyRing, now_ms: i64) -> Option<String> {
         claim_app_metadata: &metadata,
         user_metadata: &metadata,
     };
-    ring.mint(SECRET, session, now_ms).ok().map(|token| token.access_token)
+    ring.mint(SECRET, session, now_ms).map(|token| token.access_token)
 }
 
 fuzz_target!(|data: &[u8]| {
@@ -80,13 +97,24 @@ fuzz_target!(|data: &[u8]| {
     if let Some(local) = verifier(first) {
         let _ = RUNTIME.block_on(local.authenticate_access_token(second));
     }
-    let _ = RUNTIME.block_on(VERIFIER.authenticate_access_token(&input));
+    let baseline = &*BASELINE;
+    let _ = RUNTIME.block_on(baseline.verifier.authenticate_access_token(&input));
 
+    let payload = URL_SAFE_NO_PAD.encode(first);
+    let signature = URL_SAFE_NO_PAD.encode(second);
     let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"EdDSA"}"#);
-    let compact = format!("{header}.{}.{}", URL_SAFE_NO_PAD.encode(first), URL_SAFE_NO_PAD.encode(second));
-    assert!(RUNTIME.block_on(VERIFIER.authenticate_access_token(&compact)).is_err());
+    let compact = format!("{header}.{payload}.{signature}");
+    assert!(RUNTIME.block_on(baseline.verifier.authenticate_access_token(&compact)).is_err());
+    for token in &baseline.tokens {
+        let (header, _) = token.split_once('.').expect("generated access token header");
+        let (message, _) = token.rsplit_once('.').expect("generated access token signature");
+        let compact = format!("{header}.{payload}.{signature}");
+        let _ = RUNTIME.block_on(baseline.verifier.authenticate_access_token(&compact));
+        let compact = format!("{message}.{signature}");
+        let _ = RUNTIME.block_on(baseline.verifier.authenticate_access_token(&compact));
+    }
 
-    for (algorithm, key) in [Algorithm::EdDSA, Algorithm::ES256].into_iter().zip(KEYS.iter()) {
+    for (algorithm, key) in ALGORITHMS.into_iter().zip(KEYS.iter()) {
         let alg = match algorithm {
             Algorithm::EdDSA => "EdDSA",
             Algorithm::ES256 => "ES256",
@@ -95,13 +123,13 @@ fuzz_target!(|data: &[u8]| {
             "_id": "fuzz", "alg": alg, "publicKey": first, "privateKey": second,
             "createdAt": DateTime::from_millis(0), "expiresAt": DateTime::from_millis(i64::MAX),
         };
-        if let Some(ring) = load([arbitrary_public], algorithm) {
+        if let Ok(ring) = load([arbitrary_public], algorithm) {
             let _ = ring.jwks(1);
             let _ = mint(&ring, 1);
         }
         let mut arbitrary_private = key.clone();
         arbitrary_private.insert("privateKey", second);
-        if let Some(ring) = load([arbitrary_private], algorithm) {
+        if let Ok(ring) = load([arbitrary_private], algorithm) {
             let _ = mint(&ring, 1);
         }
     }
