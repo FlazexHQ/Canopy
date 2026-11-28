@@ -215,7 +215,7 @@ fn the_usage_additions_only_insert_lines() {
 fn cli_vectors() -> Result<(), Box<dyn std::error::Error>> {
     let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/cli");
     let vectors: Vectors = serde_json::from_slice(&fs::read(oracle.join("vectors.json"))?)?;
-    assert_eq!(vectors.steps.len(), 57);
+    assert_eq!(vectors.steps.len(), 61);
     let mut covered = BTreeSet::new();
     for step in &vectors.steps {
         if COVERED.contains(&step.id.as_str()) {

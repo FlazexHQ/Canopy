@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use canopy_mongo::mongodb::bson::{Bson, Document as BsonDocument, doc};
 use canopy_mongo::mongodb::{Client, Database};
 use canopy_mongo::publish::{PolicyPublisher, Publication};
@@ -60,6 +62,16 @@ pub(crate) struct Entry {
 pub(crate) trait PolicyTarget {
     fn published(&self) -> Result<Published, String>;
     fn definition(&self, collection: &str) -> Result<Option<CollectionPolicies>, String>;
+    fn snapshot(&self) -> Result<(Published, BTreeMap<String, CollectionPolicies>), String> {
+        let published = self.published()?;
+        let mut definitions = BTreeMap::new();
+        for (name, ..) in &published.collections {
+            if let Some(definition) = self.definition(name)? {
+                definitions.insert(name.clone(), definition);
+            }
+        }
+        Ok((published, definitions))
+    }
     /// Publishes a definition and returns its version and the warnings of the lint.
     fn publish(
         &self,
@@ -385,11 +397,7 @@ impl PolicyTarget for RemoteTarget {
     }
 
     fn definition(&self, collection: &str) -> Result<Option<CollectionPolicies>, String> {
-        let body = match self.admin.call(Method::GET, &format!("/policies/{}", component(collection)), None) {
-            Ok(body) => body,
-            Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
-            Err(error) => return Err(error.message),
-        };
+        let body = self.get(&format!("/policies/{}", component(collection)))?;
         match body.get("stored").filter(|stored| stored.is_object()) {
             Some(stored) => {
                 from_stored(&to_value(stored)?).map(Some).map_err(|error| error.message().to_owned())

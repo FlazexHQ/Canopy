@@ -2429,6 +2429,292 @@
         }
       },
       "auth": {}
+    },
+    {
+      "id": "policy-push-env",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "push",
+        "--env",
+        "development"
+      ],
+      "env": {
+        "CANOPY_ENVIRONMENTS": "fixture-environments.json",
+        "CANOPY_ADMIN_TOKEN": "<session-token>"
+      },
+      "stdin": "",
+      "stdout": "env development: <admin-url> as remote@example.test (admin)\npublished  notes  v4\nversions: notes=4\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "policies/\"notes\"": {
+          "before": {
+            "_id": "notes",
+            "version": {
+              "$numberInt": "3"
+            },
+            "exposed": true,
+            "realtime": false,
+            "policies": [
+              {
+                "name": "read own",
+                "kind": "permissive",
+                "ops": [
+                  "read"
+                ],
+                "roles": [
+                  "authenticated"
+                ],
+                "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+              }
+            ],
+            "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedBy": "system:cli:<user>"
+          },
+          "after": {
+            "_id": "notes",
+            "version": {
+              "$numberInt": "4"
+            },
+            "exposed": true,
+            "realtime": false,
+            "policies": [
+              {
+                "name": "owner read",
+                "kind": "permissive",
+                "ops": [
+                  "read"
+                ],
+                "roles": [
+                  "authenticated"
+                ],
+                "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+              }
+            ],
+            "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedBy": "admin:remote@example.test"
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:16>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:16>"
+            },
+            "action": "policy.publish",
+            "actor": {
+              "type": "admin",
+              "id": "<admin-id:2>",
+              "email": "remote@example.test",
+              "role": "admin"
+            },
+            "target": {
+              "collection": "notes",
+              "version": {
+                "$numberInt": "4"
+              }
+            },
+            "diff": {
+              "before": {
+                "_id": "notes",
+                "version": {
+                  "$numberInt": "3"
+                },
+                "exposed": true,
+                "realtime": false,
+                "policies": [
+                  {
+                    "name": "read own",
+                    "kind": "permissive",
+                    "ops": [
+                      "read"
+                    ],
+                    "roles": [
+                      "authenticated"
+                    ],
+                    "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                  }
+                ],
+                "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+                "updatedAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                },
+                "updatedBy": "system:cli:<user>"
+              },
+              "after": {
+                "_id": "notes",
+                "version": {
+                  "$numberInt": "4"
+                },
+                "exposed": true,
+                "realtime": false,
+                "policies": [
+                  {
+                    "name": "owner read",
+                    "kind": "permissive",
+                    "ops": [
+                      "read"
+                    ],
+                    "roles": [
+                      "authenticated"
+                    ],
+                    "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                  }
+                ],
+                "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+                "updatedAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                },
+                "updatedBy": "admin:remote@example.test"
+              }
+            },
+            "origin": {
+              "ip": "127.0.0.1",
+              "userAgent": "<runtime-user-agent>",
+              "requestId": "<uuid:4>"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        },
+        "policy_history/{\"$oid\":\"<object-id:17>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:17>"
+            },
+            "collection": "notes",
+            "version": {
+              "$numberInt": "4"
+            },
+            "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+            "document": {
+              "_id": "notes",
+              "version": {
+                "$numberInt": "4"
+              },
+              "exposed": true,
+              "realtime": false,
+              "policies": [
+                {
+                  "name": "owner read",
+                  "kind": "permissive",
+                  "ops": [
+                    "read"
+                  ],
+                  "roles": [
+                    "authenticated"
+                  ],
+                  "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                }
+              ],
+              "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+              "updatedAt": {
+                "$date": {
+                  "$numberLong": "<time-ms>"
+                }
+              },
+              "updatedBy": "admin:remote@example.test"
+            },
+            "publishedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "publishedBy": "admin:remote@example.test"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "policy-pull-env",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "pull",
+        "--env",
+        "development",
+        "--dir",
+        "remote-policies"
+      ],
+      "env": {
+        "CANOPY_ENVIRONMENTS": "fixture-environments.json",
+        "CANOPY_ADMIN_TOKEN": "<session-token>"
+      },
+      "stdin": "",
+      "stdout": "env development: <admin-url> as remote@example.test (admin)\nwrote  <project>/remote-policies/notes.ts\nPulled 1 collection: notes=4\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "remote-policies/notes.ts": {
+          "before": null,
+          "after": "import { allow, auth, collection } from \"canopy.js/policy\"\n\nexport default collection(\"notes\", {\n  exposed: true,\n  realtime: false,\n  policies: [\n    allow.read(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .named(\"owner read\"),\n  ],\n})\n"
+        }
+      },
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "policy-push-unknown-env",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "push",
+        "missing",
+        "--env",
+        "unknown"
+      ],
+      "env": {
+        "CANOPY_ENVIRONMENTS": "fixture-environments.json"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "No project for --env unknown: run canopy login <url> --env unknown, or set CANOPY_ADMIN_URL and CANOPY_ADMIN_TOKEN.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "policy-pull-unknown-env",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "pull",
+        "--env",
+        "unknown"
+      ],
+      "env": {
+        "CANOPY_ENVIRONMENTS": "fixture-environments.json"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "No project for --env unknown: run canopy login <url> --env unknown, or set CANOPY_ADMIN_URL and CANOPY_ADMIN_TOKEN.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
     }
   ],
   "typeGeneration": {

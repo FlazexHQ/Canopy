@@ -13,6 +13,7 @@ import { createCanopy, defineConfig } from "@canopy/server"
 import { BSON, type Db, MongoClient } from "mongodb"
 import { run } from "../../../src/cli.ts"
 import { loadCollectionSchemas } from "../../../src/collection-schemas.ts"
+import { saveEnvironment } from "../../../src/credentials.ts"
 import { cliActor } from "../../../src/policies.ts"
 
 const cli = fileURLToPath(new URL("../../../src/cli.ts", import.meta.url))
@@ -423,6 +424,8 @@ export async function recordCli(dir: string, uri: string, check: boolean): Promi
       },
     })
 
+    const environmentFile = "fixture-environments.json"
+    const environmentEnv = { CANOPY_ENVIRONMENTS: environmentFile }
     await remote(client, uri, names, async (url, token) => {
       bind(url, "<admin-url>")
       bind(token, "<session-token>")
@@ -463,6 +466,27 @@ export async function recordCli(dir: string, uri: string, check: boolean): Promi
         ["admin", "tokens", "revoke", id, "--env", "development", "--yes"],
         { env },
       )
+
+      await saveEnvironment("development", url, {
+        CANOPY_ENVIRONMENTS: join(project, environmentFile),
+      })
+      const policyEnv = { ...environmentEnv, CANOPY_ADMIN_TOKEN: token }
+      await step("policy-push-env", 0, ["policies", "push", "--env", "development"], {
+        env: policyEnv,
+      })
+      await step(
+        "policy-pull-env",
+        0,
+        ["policies", "pull", "--env", "development", "--dir", "remote-policies"],
+        { env: policyEnv },
+      )
+    })
+
+    await step("policy-push-unknown-env", 1, ["policies", "push", "missing", "--env", "unknown"], {
+      env: environmentEnv,
+    })
+    await step("policy-pull-unknown-env", 1, ["policies", "pull", "--env", "unknown"], {
+      env: environmentEnv,
     })
 
     const types = generateTypes(await loadCollectionSchemas({ database: names.app }, client))

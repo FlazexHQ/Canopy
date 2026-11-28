@@ -82,12 +82,11 @@ fn with_target(
     name: &str,
     call: &Invocation,
     project: &Project,
+    remote: Option<&RemoteTarget>,
     body: impl FnOnce(&dyn PolicyTarget) -> Result<ExitCode, String>,
 ) -> Result<ExitCode, String> {
-    if let Some(environment) = call.text("env") {
-        let debug = call.has_flag("debug");
-        let admin = crate::remote::resolve(environment, |error| crate::storage_error(error, debug))?;
-        return body(&RemoteTarget { admin });
+    if let Some(remote) = remote {
+        return body(remote);
     }
     let (uri, database) = crate::meta::meta_target(call, project, name)?;
     let target = MetaTarget::open(&uri, &database)?;
@@ -100,6 +99,14 @@ fn lifecycle(name: &str, args: &[String], call: &Invocation) -> Result<ExitCode,
     let debug = call.has_flag("debug");
     let needs_local = matches!(name, "policies diff" | "policies push");
     let project = project::configure(call, Command::Gen, needs_local).map_err(|error| error.text(debug))?;
+    let remote = call
+        .text("env")
+        .map(|environment| {
+            crate::remote::resolve(environment, |error| crate::storage_error(error, debug))
+                .map(|admin| RemoteTarget { admin })
+        })
+        .transpose()?;
+    let remote = remote.as_ref();
     let local = || {
         local_set(&project).map_err(|error| {
             let message = match error {
@@ -112,25 +119,27 @@ fn lifecycle(name: &str, args: &[String], call: &Invocation) -> Result<ExitCode,
     match name {
         "policies diff" => {
             let local = local()?;
-            with_target(name, call, &project, |target| {
+            with_target(name, call, &project, remote, |target| {
                 diff(&local, target, args, call.has_flag("fail-on-drift"))
             })
         }
         "policies push" => {
             let local = local()?;
-            push(&local, &project, args, call, name)
+            push(&local, &project, args, call, remote)
         }
-        "policies pull" => with_target(name, call, &project, |target| pull(call, &project, target, args)),
+        "policies pull" => {
+            with_target(name, call, &project, remote, |target| pull(call, &project, target, args))
+        }
         "policies history" => {
             let limit = count(call.text("limit"), "limit")?;
             let collection = args.first().map_or("", String::as_str);
-            with_target(name, call, &project, |target| history(target, collection, limit))
+            with_target(name, call, &project, remote, |target| history(target, collection, limit))
         }
         "policies rollback" => {
             let version = count(args.get(1).map(String::as_str), "version")?.unwrap_or(0);
             let expect = count(call.text("expect-version"), "expect-version")?;
             let collection = args.first().map_or("", String::as_str);
-            with_target(name, call, &project, |target| {
+            with_target(name, call, &project, remote, |target| {
                 let current = target.version(collection)?;
                 let question = format!("Republish {collection} v{version} as v{}?", current + 1);
                 if !call.has_flag("yes") && !confirmed(&question)? {
@@ -326,7 +335,7 @@ fn push(
     project: &Project,
     args: &[String],
     call: &Invocation,
-    name: &str,
+    remote: Option<&RemoteTarget>,
 ) -> Result<ExitCode, String> {
     for collection in args {
         if local.collection(collection).is_none() {
@@ -347,7 +356,7 @@ fn push(
         }
         return Err("Not pushed: fix the lint errors first (canopy policies lint).".to_owned());
     }
-    with_target(name, call, project, |target| {
+    with_target("policies push", call, project, remote, |target| {
         let remote = target.published()?;
         let changed: Vec<String> = names
             .iter()
@@ -475,20 +484,17 @@ fn pull(
     target: &dyn PolicyTarget,
     args: &[String],
 ) -> Result<ExitCode, String> {
-    let published = target.published()?;
-    let mut names: Vec<String> = if args.is_empty() {
-        published.collections.iter().map(|(name, ..)| name.clone()).collect()
-    } else {
-        args.to_vec()
-    };
+    let (published, definitions) = target.snapshot()?;
+    let mut names: Vec<String> =
+        if args.is_empty() { definitions.keys().cloned().collect() } else { args.to_vec() };
     names.sort();
     let dir = &project.policy_dir;
     let mut files: Vec<(std::path::PathBuf, String)> = Vec::new();
     for name in &names {
-        let Some(definition) = target.definition(name)? else {
+        let Some(definition) = definitions.get(name) else {
             return Err(format!("{name} has no published policies"));
         };
-        let module = crate::dsl::collection_module(&definition).map_err(|error| {
+        let module = crate::dsl::collection_module(definition).map_err(|error| {
             format!("{name}: {}; edit it in Studio or write the module by hand", error.message())
         })?;
         files.push((dir.join(format!("{}.ts", file_name(name))), module));

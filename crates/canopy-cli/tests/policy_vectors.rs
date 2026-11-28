@@ -9,6 +9,8 @@
 
 #![allow(clippy::print_stderr, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::io::{BufRead as _, BufReader, Write};
@@ -25,6 +27,7 @@ use canopy_schema::{GenerateOptions, generate_types};
 use futures_util::TryStreamExt as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use support::admin_api;
 
 type TestResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 type Snapshot = BTreeMap<String, Value>;
@@ -64,6 +67,10 @@ const STEPS: &[&str] = &[
     "indexes-create",
     "dev-missing-config",
     "dev-startup",
+    "policy-push-env",
+    "policy-pull-env",
+    "policy-push-unknown-env",
+    "policy-pull-unknown-env",
 ];
 
 #[derive(Deserialize)]
@@ -188,10 +195,9 @@ async fn replays_project_cli_vectors_through_canopy_js_emit() -> TestResult<()> 
     let app = client.database(&format!("cli_policy_app_{suffix}"));
     let meta = client.database(&format!("cli_policy_meta_{suffix}"));
     let auth = client.database(&format!("cli_policy_auth_{suffix}"));
-    let fixture = (app.clone(), meta.clone(), client.clone());
-    let auth_name = auth.name().to_owned();
+    let fixture = (app.clone(), meta.clone(), client.clone(), auth.clone());
     let result = tokio::spawn(async move {
-        replay(&uri, &fixture.2, &fixture.0, &fixture.1, &auth_name, &canopy_js).await
+        replay(&uri, &fixture.2, &fixture.0, &fixture.1, &fixture.3, &canopy_js).await
     })
     .await;
     let drops = tokio::join!(app.drop().into_future(), meta.drop().into_future(), auth.drop().into_future());
@@ -284,6 +290,7 @@ fn replace_times(text: &str) -> String {
 
 struct Ids {
     seen: Vec<String>,
+    offset: usize,
 }
 
 impl Ids {
@@ -298,19 +305,37 @@ impl Ids {
                             self.seen.len() - 1
                         }
                     };
-                    fields.insert("$oid".to_owned(), json!(format!("<object-id:{}>", position + 1)));
+                    fields.insert(
+                        "$oid".to_owned(),
+                        json!(format!("<object-id:{}>", position + self.offset + 1)),
+                    );
                     return;
                 }
                 if fields.get("$date").and_then(|date| date.get("$numberLong")).is_some() {
                     fields.insert("$date".to_owned(), json!({ "$numberLong": "<time-ms>" }));
                     return;
                 }
-                for item in fields.values_mut() {
+                for (field, item) in fields {
+                    if field == "requestId"
+                        && let Some(id) = item.as_str()
+                    {
+                        assert_eq!(id.len(), 36);
+                        *item = json!("<uuid:4>");
+                    }
                     self.normalize(item);
                 }
             }
             Value::Array(items) => items.iter_mut().for_each(|item| self.normalize(item)),
-            Value::String(text) => *text = text.replace(USER, "<user>"),
+            Value::String(text) => {
+                *text = text.replace(USER, "<user>");
+                match text.as_str() {
+                    admin_api::ADMIN_ID => *text = "<admin-id:2>".into(),
+                    concat!("canopy-cli/", env!("CARGO_PKG_VERSION")) => {
+                        *text = "<runtime-user-agent>".into()
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
@@ -479,7 +504,7 @@ async fn replay(
     client: &Client,
     app: &Database,
     meta: &Database,
-    auth: &str,
+    auth: &Database,
     canopy_js: &Path,
 ) -> TestResult<()> {
     let vectors: Vectors = serde_json::from_str(include_str!("../../../conformance/cli/vectors.json"))?;
@@ -494,27 +519,48 @@ async fn replay(
         .insert_one(doc! { "_id": "fixture", "ownerId": "alice", "title": "Fixture note" })
         .await?;
     let (version, fcv) = server_versions(client).await?;
-    let settings = Settings {
+    let mut settings = Settings {
         pairs: vec![
             ("<mongo-uri>".to_owned(), uri.to_owned()),
             ("<meta-db>".to_owned(), meta.name().to_owned()),
             ("<app-db>".to_owned(), app.name().to_owned()),
-            ("<auth-db>".to_owned(), auth.to_owned()),
+            ("<auth-db>".to_owned(), auth.name().to_owned()),
         ],
     };
-    let mut ids = Ids { seen: Vec::new() };
+    let mut ids = Ids { seen: Vec::new(), offset: 0 };
+    let mut remote = None;
     for step in &steps {
         if let Some(input) = &step.file_input {
             std::fs::write(project.join(&input.path), canopy_js_imports(&input.content))?;
         }
+        let remote_policy = step.env.contains_key("CANOPY_ENVIRONMENTS");
+        if let (true, None, Some(Some(environment_file))) =
+            (step.env.contains_key("CANOPY_ADMIN_TOKEN"), &remote, step.env.get("CANOPY_ENVIRONMENTS"))
+        {
+            let (url, server) = admin_api::start(app, meta, auth).await?;
+            std::fs::write(project.join(environment_file), json!({ "development": url }).to_string())?;
+            settings.pairs.extend([
+                ("<admin-url>".to_owned(), url),
+                ("<session-token>".to_owned(), admin_api::TOKEN.to_owned()),
+            ]);
+            remote = Some(server);
+            // The intervening recorder steps assign ObjectIds 7 through 15 outside this replay.
+            ids.offset = 9;
+        }
         let files_before = files(&project);
         let meta_before = snapshot(meta).await?;
+        let auth_before = snapshot(auth).await?;
         let mut command = Command::new(env!("CARGO_BIN_EXE_canopy"));
         command
             .current_dir(project.join(&step.cwd))
             .env(if cfg!(windows) { "USERNAME" } else { "USER" }, USER)
             .env_remove("CANOPY_EMITTER")
             .env_remove("CANOPY_RUNTIME");
+        if remote_policy {
+            for name in ["CANOPY_ADMIN_URL", "CANOPY_ADMIN_TOKEN", "MONGODB_URI"] {
+                command.env_remove(name);
+            }
+        }
         for (name, value) in &step.env {
             match value {
                 Some(value) => {
@@ -527,7 +573,14 @@ async fn replay(
         }
         let args: Vec<String> = step.args.iter().map(|arg| settings.actual(arg).to_owned()).collect();
         let dev = step.id == "dev-startup";
-        let output = if dev { run_dev(&mut command, &args)? } else { run(&mut command, &args, &step.stdin)? };
+        let output = if remote_policy {
+            let input = step.stdin.clone();
+            tokio::task::spawn_blocking(move || run(&mut command, &args, &input)).await??
+        } else if dev {
+            run_dev(&mut command, &args)?
+        } else {
+            run(&mut command, &args, &step.stdin)?
+        };
         let mut stdout = settings.normalize(&output.stdout, &project);
         let stderr = settings.normalize(&output.stderr, &project);
         if step.id == "doctor" {
@@ -556,11 +609,18 @@ async fn replay(
             hide_setup_hashes(&mut meta_changes);
         }
         assert_eq!(meta_changes, step.meta, "{}", step.id);
+        if remote_policy {
+            assert_eq!(snapshot(auth).await?, auth_before, "{}", step.id);
+        }
         if step.id == "schema-push" {
             let schema = load_schema(app, "notes", &SchemaSourceOptions::default()).await?;
             let generated = generate_types(&[schema], &GenerateOptions::default());
             assert_eq!(generated, vectors.type_generation.types, "type generation");
         }
+    }
+    if let Some(server) = remote {
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
     }
 
     let guards: Vec<Document> =

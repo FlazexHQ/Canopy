@@ -2,7 +2,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use canopy_authn::server::AuthMail;
-use canopy_control::{Control, ControlOptions, Environment, UserOptions, UserRoutes};
+use canopy_control::{Control, ControlOptions, Environment, PolicyRoutes, UserOptions, UserRoutes};
 use canopy_http::Request;
 use canopy_mail::{EmailKind, Recipient};
 use canopy_mongo::mongodb::{
@@ -58,6 +58,7 @@ pub(crate) async fn start(
     let url = format!("http://{}", listener.local_addr()?);
     let mut options =
         ControlOptions::new(app.client().clone(), app.name(), meta.name(), Environment::Development);
+    options.services.policies = Some(Arc::new(PolicyRoutes::new(meta, app, Arc::clone(&options.now))));
     options.services.users = Some(Arc::new(UserRoutes::new(
         auth.clone(),
         meta.clone(),
