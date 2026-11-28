@@ -403,6 +403,24 @@ fn unordered(bindings: &mut Bindings, expected: &[Value], actual: &[Value], path
     }
 }
 
+fn listed_session_caller(request: &Value) -> Result<&str> {
+    let credential = request["headers"]["authorization"]
+        .as_str()
+        .and_then(|header| header.strip_prefix("Bearer "))
+        .or_else(|| {
+            request["cookies"].as_array()?.iter().find_map(|cookie| {
+                let name = cookie["name"].as_str()?;
+                if matches!(name, "__Secure-canopy.session_token" | "canopy.session_token") {
+                    cookie["value"].as_str()
+                } else {
+                    None
+                }
+            })
+        })
+        .ok_or("Recorded session credential")?;
+    Ok(credential.split_once('.').map_or(credential, |(token, _)| token))
+}
+
 async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -> Result<usize> {
     let secret = str_at(fixture, "secret")?;
     let public = str_at(fixture, "publicUrl")?;
@@ -483,6 +501,8 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         return Err(format!("Expected one discovery request at startup, got {}", json!(discovery)).into());
     }
     let mut bindings = Bindings::default();
+    let mut listed_session_ids = HashMap::new();
+    let mut revoked_session_ids = Vec::new();
     let mut jars: HashMap<String, Vec<(String, String)>> = HashMap::new();
     let steps = case["steps"].as_array().ok_or("Steps")?;
     let bearer_clients: std::collections::HashSet<_> = steps
@@ -538,7 +558,8 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
             providers.set_user("4242", "other@example.com", "Octo Cat");
         }
         let check = async {
-            let mut http = Request::new(str_at(request, "method")?, path.clone());
+            let method = str_at(request, "method")?;
+            let mut http = Request::new(method.clone(), path.clone());
             http.client_address = Some(str_at(request, "ip")?);
             for (key, value) in request["headers"].as_object().ok_or("Request headers")? {
                 http = http.with_header(
@@ -569,8 +590,14 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                         path.ends_with("verify-registration"),
                     )?;
                 }
-                let text = match body {
-                    Value::String(text) => text.as_str().to_owned(),
+                let text = match (method.as_str(), path.as_str(), body) {
+                    ("POST", "/auth/v1/revoke-session", _) if step["response"]["status"] == 200 => {
+                        let token = str_at(body, "token")?;
+                        let id = listed_session_ids.get(&token).ok_or("Revocation target was not listed")?;
+                        revoked_session_ids.push(String::clone(id));
+                        object!("id": id).to_string()
+                    }
+                    (_, _, Value::String(text)) => text.as_str().to_owned(),
                     _ => body.to_string(),
                 };
                 http = http.with_body(bindings.resolve(&text)?.into_bytes());
@@ -607,6 +634,24 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 bindings.bind("<user-id-2>", &handle)?;
             }
             let mut expected = step["response"].clone();
+            if method == "GET" && path == "/auth/v1/list-sessions" && expected["status"] == 200 {
+                let caller = listed_session_caller(request)?;
+                // The Rust session list identifies sessions by id and keeps their bearer credentials private.
+                for entry in expected["body"].as_array_mut().ok_or("Listed sessions")? {
+                    let token = str_at(entry, "token")?;
+                    let id = str_at(entry, "id")?;
+                    let stored = auth
+                        .collection::<Document>("sessions")
+                        .find_one(doc! {"token": bindings.resolve(&token)?})
+                        .await?
+                        .ok_or("Stored listed session")?;
+                    bindings.compare_text(&id, &canopy_authn::users::id_text(stored.get("_id").ok_or("Session id")?))?;
+                    let fields = entry.as_object_mut().ok_or("Listed session fields")?;
+                    fields.retain(|key, _| key.as_str() != "token");
+                    fields.insert("current", json!(token == caller));
+                    listed_session_ids.insert(token, id);
+                }
+            }
             if path.starts_with("/auth/v1/error?") {
                 let mut headers: BTreeMap<_, _> = expected["headers"]
                     .as_object()
@@ -684,7 +729,25 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
     }
     let mut actual = snapshot(&auth, "canopy_auth", None).await?;
     actual.extend(snapshot(&meta, "canopy", Some(&["audit_log", "revocations"])).await?);
-    let expected = case["documents"].as_object().ok_or("Final documents")?;
+    let mut documents = case["documents"].clone();
+    if !revoked_session_ids.is_empty() {
+        let audit = documents["canopy.audit_log"].as_array_mut().ok_or("Audit documents")?;
+        let mut revocations = audit.iter_mut().filter(|event| event["action"] == "auth.session_revoked");
+        for id in revoked_session_ids {
+            let event = revocations.next().ok_or("Recorded single session revocation")?;
+            let fields = event.as_object_mut().ok_or("Single session revocation fields")?;
+            *fields = std::mem::take(fields)
+                .into_iter()
+                .flat_map(|(key, value)| {
+                    let target = (key.as_str() == "actor")
+                        .then(|| ("target".into(), object!("type": "session", "id": id)));
+                    std::iter::once((key, value)).chain(target)
+                })
+                .collect();
+        }
+        assert!(revocations.next().is_none(), "Unexpected recorded single session revocation");
+    }
+    let expected = documents.as_object().ok_or("Final documents")?;
     if expected.len() != actual.len() || !expected.keys().all(|key| actual.contains_key(key.as_str())) {
         return Err(format!(
             "Expected collections {:?}, got {:?}",

@@ -177,12 +177,32 @@ pub(super) fn iso(date: DateTime) -> String {
 
 impl Session {
     pub(super) fn public(&self) -> Value {
-        object!(
-            "expiresAt": iso(self.expires_at), "token": self.token, "createdAt": iso(self.created_at),
+        self.fields(None)
+    }
+
+    pub(super) fn listed(&self, current_id: &Bson) -> Value {
+        self.fields(Some(current_id))
+    }
+
+    fn fields(&self, current_id: Option<&Bson>) -> Value {
+        let mut fields = Map::new();
+        fields.insert("expiresAt", json!(iso(self.expires_at)));
+        if current_id.is_none() {
+            fields.insert("token", json!(self.token));
+        }
+        let Value::Object(rest) = object!(
+            "createdAt": iso(self.created_at),
             "updatedAt": iso(self.updated_at), "ipAddress": self.ip_address, "userAgent": self.user_agent,
             "userId": id_text(&self.user_id), "aal": self.extra.get_str("aal").unwrap_or("aal1"),
             "id": id_text(&self.id)
-        )
+        ) else {
+            return Value::Null;
+        };
+        fields.extend(rest);
+        if let Some(current_id) = current_id {
+            fields.insert("current", json!(self.id == *current_id));
+        }
+        Value::Object(fields)
     }
 }
 

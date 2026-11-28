@@ -23,6 +23,7 @@ import {
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const KEY = "pk_client_auth"
+const rustAuth = splitUrl !== undefined && process.env["CANOPY_AUTH_ENGINE"] !== "typescript"
 
 /** Checks a claims hook call the way a Standard Webhooks receiver does. */
 function signedWith(secret: string, request: IncomingMessage, body: string): boolean {
@@ -285,6 +286,67 @@ suite("@canopy/client/auth against built in auth", () => {
     expect(upgraded).toMatchObject({ id: anon.id, isAnonymous: false, email: "dee@example.com" })
   })
 
+  it("lists sessions and revokes another session using the engine's session identifier", async () => {
+    const credentials = { email: "sessions@example.com", password: "sessions password 1" }
+    await verifiedUser(credentials.email, credentials.password)
+    const signIn = async () => {
+      const http = fetcher()
+      const login = await http(new URL("/auth/v1/sign-in/email", url), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(credentials),
+      })
+      expect(login.status).toBe(200)
+      const token = login.headers.get("set-auth-token")
+      if (token === null) throw new Error("Missing session authorization")
+      const headers = { authorization: `Bearer ${token}` }
+      const response = await http(new URL("/auth/v1/get-session", url), { headers })
+      expect(response.status).toBe(200)
+      const { session } = (await response.json()) as { session: { id: string; token: string } }
+      expect(session.id).toMatch(/^[a-f0-9]{24}$/)
+      expect(session.token).toMatch(/^[a-zA-Z0-9]{32}$/)
+      return { http, headers, session }
+    }
+    const caller = await signIn()
+    const clear = await caller.http(new URL("/auth/v1/revoke-other-sessions", url), {
+      method: "POST",
+      headers: { ...caller.headers, "content-type": "application/json" },
+      body: "{}",
+    })
+    expect(clear.status).toBe(200)
+    expect(await clear.json()).toEqual({ status: true })
+    const other = await signIn()
+    const list = () =>
+      caller.http(new URL("/auth/v1/list-sessions", url), { headers: caller.headers })
+    const revoke = (target: { id: string } | { token: string }) =>
+      caller.http(new URL("/auth/v1/revoke-session", url), {
+        method: "POST",
+        headers: { ...caller.headers, "content-type": "application/json" },
+        body: JSON.stringify(target),
+      })
+    const { token: callerToken, ...callerFields } = caller.session
+    const { token: otherToken, ...otherFields } = other.session
+    const expectedCaller = rustAuth ? { ...callerFields, current: true } : caller.session
+    const expectedOther = rustAuth ? { ...otherFields, current: false } : other.session
+    const listed = await list()
+    expect(listed.status).toBe(200)
+    const text = await listed.text()
+    const sessions: unknown = JSON.parse(text)
+    expect(sessions).toHaveLength(2)
+    expect(sessions).toEqual(expect.arrayContaining([expectedCaller, expectedOther]))
+    if (rustAuth) {
+      expect(text).not.toContain(callerToken)
+      expect(text).not.toContain(otherToken)
+      const legacy = await revoke({ token: otherToken })
+      expect(legacy.status).toBe(400)
+      expect(await legacy.json()).toMatchObject({ code: "VALIDATION_ERROR" })
+    }
+    const revoked = await revoke(rustAuth ? { id: otherFields.id } : { token: otherToken })
+    expect(revoked.status).toBe(200)
+    expect(await revoked.json()).toEqual({ status: true })
+    expect(await (await list()).json()).toEqual([expectedCaller])
+  })
+
   it("drives the realtime client: reconnects as the new user on sign in and drops access when revoked", async () => {
     await verifiedUser("eve@example.com", "eve password 1")
     await verifiedUser("fay@example.com", "fay password 1")
@@ -330,6 +392,7 @@ suite("@canopy/client/auth against built in auth", () => {
           body: "{}",
         })
         expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ status: true })
       } else {
         expect(await canopy.auth?.users.revokeSessions(fay.id)).toBeGreaterThanOrEqual(1)
       }

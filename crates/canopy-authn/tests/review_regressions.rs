@@ -109,10 +109,98 @@ impl Harness {
             .with_header("authorization", format!("Bearer {token}"));
         self.send("203.0.113.9", request).await
     }
+
+    async fn revoke_session(&self, token: &str, body: &Value) -> Response {
+        let request = Request::new("POST", "/auth/v1/revoke-session")
+            .with_header("authorization", format!("Bearer {token}"))
+            .with_header("origin", APP)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string().into_bytes());
+        self.send("203.0.113.9", request).await
+    }
 }
 
 fn body(reply: &Response) -> Value {
     serde_json::from_slice(&reply.body).expect("JSON body")
+}
+
+#[tokio::test]
+async fn session_management_keeps_bearer_tokens_private_and_revokes_only_owned_ids() -> Result<()> {
+    let Some(mut harness) = Harness::open().await? else { return Ok(()) };
+    let result = async {
+        let caller = harness.sign_up("203.0.113.1", "ada@example.com").await?;
+        let login = harness
+            .post(
+                "203.0.113.2",
+                "/sign-in/email",
+                &json!({"email": "ada@example.com", "password": "correct horse battery"}),
+            )
+            .await;
+        assert_eq!(login.status, 200);
+        let login = body(&login);
+        let other = login["token"].as_str().ok_or("Other session token")?;
+        let foreign = harness.sign_up("203.0.113.3", "grace@example.com").await?;
+        let sessions = harness.auth.collection::<Document>("sessions");
+        assert_eq!(
+            sessions.update_one(doc! {"token": other}, doc! {"$set": {"aal": "aal2"}}).await?.matched_count,
+            1
+        );
+        let mut ids = Vec::new();
+        for token in [caller.as_str(), other, foreign.as_str()] {
+            let session = sessions.find_one(doc! {"token": token}).await?.ok_or("Stored session")?;
+            ids.push(session.get_object_id("_id")?.to_hex());
+        }
+        let [caller_id, other_id, foreign_id] = ids.as_slice() else { return Err("Session ids".into()) };
+
+        let listed = harness.list_sessions(&caller).await;
+        assert_eq!(listed.status, 200);
+        let text = std::str::from_utf8(&listed.body)?;
+        assert!(!text.contains(&caller) && !text.contains(other) && !text.contains(&foreign));
+        let listed = body(&listed);
+        assert_eq!(listed.as_array().map(Vec::len), Some(2));
+        for (entry, (id, current, aal)) in listed
+            .as_array()
+            .ok_or("Listed sessions")?
+            .iter()
+            .zip([(caller_id, true, "aal1"), (other_id, false, "aal2")])
+        {
+            assert_eq!(entry["id"], json!(id));
+            assert_eq!(entry["current"], json!(current));
+            assert_eq!(entry["aal"], json!(aal));
+            assert!(entry.get("token").is_none());
+        }
+
+        for request in [json!({"token": other}), json!({"id": other_id, "token": other})] {
+            let refused = harness.revoke_session(&caller, &request).await;
+            assert_eq!(refused.status, 400);
+            assert_eq!(body(&refused)["code"], json!("VALIDATION_ERROR"));
+        }
+        let unknown_id = bson::oid::ObjectId::new().to_hex();
+        let unknown = harness.revoke_session(&caller, &json!({"id": unknown_id})).await;
+        let untouched = harness.revoke_session(&caller, &json!({"id": foreign_id})).await;
+        assert_eq!((unknown.status, untouched.status), (200, 200));
+        assert_eq!(unknown.body, untouched.body);
+        assert_eq!(body(&untouched), json!({"status": true}));
+        assert_eq!(sessions.count_documents(doc! {}).await?, 3);
+
+        harness.now += FRESH_MS;
+        let revoked = harness.revoke_session(&caller, &json!({"id": other_id})).await;
+        assert_eq!(revoked.status, 200);
+        assert_eq!(body(&revoked), json!({"status": true}));
+        assert_eq!(sessions.count_documents(doc! {"token": other}).await?, 0);
+        assert_eq!(sessions.count_documents(doc! {"token": {"$in": [&caller, &foreign]}}).await?, 2);
+        let audit = harness.meta.collection::<Document>("audit_log");
+        for action in ["auth.session_revoked", "auth.session_ended"] {
+            let event = audit.find_one(doc! {"action": action}).await?.ok_or("Session audit event")?;
+            assert_eq!(event.get_document("target")?.get_str("id")?, other_id);
+            assert!(!event.to_string().contains(other));
+        }
+        assert_eq!(audit.count_documents(doc! {"action": "auth.session_revoked"}).await?, 1);
+        Ok::<_, Box<dyn Error>>(())
+    }
+    .await;
+    harness.close().await?;
+    result
 }
 
 #[tokio::test]

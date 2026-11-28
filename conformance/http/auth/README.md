@@ -6,6 +6,16 @@ to identity providers, and the documents each case leaves in `canopy_auth`, `can
 `canopy.revocations`. A Rust implementation replays every case and must give the same answers and documents
 after the placeholders below.
 
+Rust intentionally differs on two app user session routes. A successful `GET /auth/v1/list-sessions`
+keeps the recorded session ids and metadata, omits each bearer `token` and adds a `current` boolean.
+`POST /auth/v1/revoke-session` accepts `{ "id": "<session id>" }` and rejects bodies that include `token`.
+An unknown id and another user's id both return `{ "status": true }` without ending a session. The
+caller needs a session under 15 minutes old to list sessions and a valid session to revoke them.
+The Rust replay derives the expected list from the recorded response, verifies each id against its stored
+session and translates the recorded revoke target from token to id. The single session revocation audit
+event also includes that id as its target. The TypeScript oracle files continue to capture the original API.
+Rust clients should use the listed `id` for revocation and `current` to recognize their own session.
+
 ```
 http/auth/
   fixture.json        the public URL, the secret, the first instant, the base options, and the signing keys

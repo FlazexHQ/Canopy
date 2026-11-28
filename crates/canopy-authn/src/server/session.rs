@@ -111,6 +111,43 @@ impl Call<'_> {
         self.end_session(filter).await
     }
 
+    async fn revoke_one_session(&self, user: &User, body: &Value) -> Result<Response> {
+        if body.get("token").is_some() {
+            return Ok(error(400, "VALIDATION_ERROR", "Send the session id in the id field"));
+        }
+        let Some(id) = body.get("id").and_then(Value::as_str) else {
+            return Ok(validation(body, "id"));
+        };
+        if id.is_empty() {
+            return Ok(error(400, "VALIDATION_ERROR", "Session id must be nonempty"));
+        }
+        let filter = doc! {"userId": &user.id, "_id": crate::users::id_filter(id)};
+        let mut tx = self.router.auth.client().start_session().await.map_err(internal)?;
+        tx.start_transaction()
+            .and_run((self, filter), |tx, (call, filter)| {
+                Box::pin(async move {
+                    let ended = call
+                        .router
+                        .auth
+                        .collection::<Session>("sessions")
+                        .find_one_and_delete(filter.clone())
+                        .session(&mut *tx)
+                        .await?;
+                    if let Some(session) = &ended {
+                        call.revoke_session_in(tx, session).await?;
+                        call.router.meta.collection::<Document>("audit_log").insert_one(doc! {
+                            "_id": object_id(call.now), "action": "auth.session_revoked", "actor": {"type": "user"},
+                            "target": {"type": "session", "id": id_text(&session.id)}, "ip": call.ip(), "at": call.now
+                        }).session(tx).await?;
+                    }
+                    Ok(())
+                })
+            })
+            .await
+            .map_err(internal)?;
+        Ok(status())
+    }
+
     pub(super) async fn end_sessions_in(
         &self,
         session: &mut canopy_mongo::mongodb::ClientSession,
@@ -253,15 +290,10 @@ impl Call<'_> {
                     .try_collect()
                     .await
                     .map_err(internal)?;
-                return Ok(response(200, sessions.iter().map(Session::public).collect::<Vec<_>>()));
+                let listed: Vec<_> = sessions.iter().map(|entry| entry.listed(&session.id)).collect();
+                return Ok(response(200, listed));
             }
-            "/revoke-session" => {
-                let Some(token) = body.get("token").and_then(Value::as_str) else {
-                    return Ok(validation(body, "token"));
-                };
-                filter.insert("token", token);
-                "auth.session_revoked"
-            }
+            "/revoke-session" => return self.revoke_one_session(&user, body).await,
             "/revoke-other-sessions" => {
                 filter.insert("_id", doc! {"$ne": &session.id});
                 "auth.sessions_revoked"
