@@ -3,6 +3,72 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-28): stopped by the maintainer; where to start next
+
+The maintainer stopped implementation and every subagent on 2026-11-28. Nothing below this line was
+committed by the stopped agents. The branch head is `9d4b26c9` on `refactor/rust-port` (PR #6); Canopy.js is
+at `c6534aa` on `refactor/rust-core`.
+
+### Committed since the previous checkpoint
+
+- `e3192c68`, `f1a4c47f`, `9fe1de57` (`fix(authn)`): the internal review of Rust auth
+  ([2026-11-28-rust-auth-internal-review.md](../../reviews/2026-11-28-rust-auth-internal-review.md)), no P0;
+  RA-1, RA-2, RA-3 and RA-15 fixed; RA-4 sessions listed and revoked by id (Rust only); RA-5 every first
+  factor opens the two factor ceremony; RA-8 accepted (the `__Secure-` names stay).
+- `9d4b26c9` (`fix(fuzz)`): `authn_tokens` loads its key ring again (`ahash` 0.8.15 in `fuzz/Cargo.lock`, a
+  startup check that a token of each algorithm verifies).
+- Canopy.js `c6534aa` (`fix(client)`): `signInWithOtp` and `completeRedirect()` hand over to the second factor
+  (`TWO_FACTOR_REQUIRED` with `twoFactorMethods`); in bearer mode the verification request carries cookies.
+
+### Uncommitted work left by the stopped agents (review before use)
+
+None of it was verified: no clippy, fmt or test run was reported. Either finish and verify it, or discard
+it with `git checkout -- <files>`.
+
+- **RA-11, hashing queue** (Codex): `crates/canopy-authn/src/server/mod.rs` bounds password hashing to 4
+  running and 8 waiting requests, waits at most 250 ms, and answers `CANOPY_UNAVAILABLE` (503) with
+  `retry-after: 1` and the header exposed to CORS; `server/password.rs` takes its permit through
+  `password_permit()` (the one line change was authorized). A MongoDB backed unit test
+  `password_overload_bounds_waiting_and_keeps_the_sign_in_floor` was being written in `mod.rs`.
+- **RA-12, hook errors** (Codex): the client sees only `The claims hook failed`; `server/claims.rs` now
+  formats the internal reason with `{:?}` (check that the reason is still logged and that `{:?}` is the
+  intended form); `crates/canopy-authn/tests/claims_hook.rs` updated.
+- **RA-16, key reload** (Codex): `crates/canopy-auth/src/jwt.rs` no longer holds the key lock while it reads
+  MongoDB; one refresh runs at a time (`builtin_refresh`), others refuse instead of waiting, a key verifies
+  for at most five seconds from the start of the read that loaded it, and a failed refresh empties the
+  snapshot; tests in `crates/canopy-auth/src/jwt/tests.rs`; `crates/canopyd/tests/builtin_auth.rs` changed
+  by one line.
+- **RA-14, TOTP attempts with a session** (Opus): `crates/canopy-authn/src/server/two_factor.rs` counts failed
+  codes verified with a session (`2fa-attempts-session-<id>` in the verifications collection, at most 5) and
+  applies the `lockedUntil` check to session verification too. RA-6 (TOTP reuse in its window), RA-10 (the
+  squatter's password) and RA-17 (the smaller items) were not started or not written yet.
+- When this work is committed, update the RA rows of the review report (Opus was to edit the report itself;
+  Codex was to hand its report text to the coordinator).
+
+### CI state at the stop
+
+- Nightly run [46112234406](https://github.com/FlazexHQ/Canopy/actions/runs/46112234406) on `9d4b26c9` was
+  still queued with 21 jobs pending, 14 passed and 1 failed: **Alpine Linux (musl, Bun and Node.js 24)**,
+  `packages/testing/test/mongod.test.ts` "extracts MongoDB binaries from disk without their debug symbols"
+  (`expected [ Array(3) ] to deeply equal [ 'mongod' ]`): the extraction on musl yields three files where the
+  test expects only `mongod`. The `authn_tokens` fuzz job had not reported yet. Logs saved by the watcher:
+  `target/tmp/nightly-46112234406/`.
+- CI on `9d4b26c9` was queued and Native release builds were in progress. Security fails on PR #6 for the
+  reason recorded on 2026-11-25 (the unmarked credential URI test line in `9af1d9c1`; a path exclusion or
+  excluding the URI detector is the maintainer's decision).
+
+### Where to start
+
+1. Read the nightly run's final result; fix the Alpine `mongod.test.ts` failure (see why musl extraction keeps
+   two more files) and check `cargo fuzz (authn_tokens)`.
+2. Review the uncommitted RA-11, RA-12, RA-14 and RA-16 diffs above, finish RA-14's tests, run
+   `cargo clippy -j 2 --workspace --all-targets -- -D warnings`, `cargo fmt --all --check` and
+   `cargo test -j 2 -p canopy-auth -p canopy-authn -p canopyd` against MongoDB 8.0.34 (port 37017) and 9.0.8
+   (port 37090), including `replays_typescript_auth_oracle`; commit each finding with its regression test.
+3. RA-6, RA-10 and RA-17 remain open in the Rust server.
+4. Maintainer items: the Security finding on PR #6, merging `refactor/rust-port` to master (which starts the
+   24 CPU hour fuzz campaign and unblocks R7), the external review, React Native on devices.
+
 ## Checkpoint (2026-11-28): R2 suites in browsers, gates re-measured, CLI --env replay (a4849f3e, 76428729; Canopy.js b806a46)
 
 Summary of Canopy commits a4849f3e and 76428729, and Canopy.js commit b806a46. Vitest browser mode runs the client and binding suites across Chromium, Firefox and WebKit (1,152 tests passed, 6 skipped across 48 files per browser) with no source changes. R2 performance gates are re-measured with the 152a8db2 client module across five rounds on a busy machine, meeting every gate: matching worst median 0.93x (Chromium 4x, DLS and user filter), under 0.76x on Node 26 and 0.72x on Bun; single update 1.97x Bun, 1.87x Node 26, 2.41x Chromium (36.75 µs); chained update 2.22x Bun, 1.94x Node 26, 2.70x Chromium (33.75 µs); client compile plus instantiate p95 23.20 ms in Chromium at 4x (gate 30 ms), 1.19 ms on Node 26. Conformance replay passes 1,991 filters and 1,995 updates in both formats on Bun and Node 26. In Canopy, a failpoint makes the REST read time limit test deterministic on macOS, and golden replays of `policies push` and `policies pull` with `--env` add four steps (61 steps total), closing the R4 open note. Windows Ctrl+Break automation was dropped to preserve forbidden unsafe code. CI is green on commit 152a8db2. The nightly workflow dispatched on refactor/rust-port passed 29 jobs, including 16 of the 17 fuzz targets for 20 minutes each with no finding; its other 7 failures were the workflow falling behind the repository (fixed in 50e8f6d1) and the `authn_tokens` fuzz harness.
