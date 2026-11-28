@@ -54,11 +54,11 @@ The P3 findings are documented below and left as they are.
 | RA-1 | P1 | `/list-sessions` accepts a session of any age, while the TypeScript server requires a fresh one; the list holds every session's bearer token | Fixed |
 | RA-2 | P2 | Email codes for password reset and verification can be guessed across reissued codes without end: 3 attempts per code, 30 codes a minute, no lock per address | Fixed (TypeScript has the same flaw) |
 | RA-3 | P2 | Per address limits key IPv6 clients by their full address, so one host rotates through its /64 to escape them; the TypeScript server keys by /64 | Fixed |
-| RA-4 | P2 | `/list-sessions` returns the bearer token of every session of the user, `aal2` ones included | Open, needs a decision (TypeScript identical, part of the oracle) |
-| RA-5 | P3 | Social and OIDC sign in gives an `aal1` session to a user with two factor enabled, while magic link and email code refuse such users | Documented (as Better Auth) |
+| RA-4 | P2 | `/list-sessions` returns the bearer token of every session of the user, `aal2` ones included | Fixed in Rust (f1a4c47f) |
+| RA-5 | P3 | Social and OIDC sign in gives an `aal1` session to a user with two factor enabled, while magic link and email code refuse such users | Fixed (the second factor is required on every first factor) |
 | RA-6 | P3 | An app user's TOTP code is accepted again within its window (no last step kept) | Documented |
 | RA-7 | P3 | Secrets at rest: reset and magic link tokens in verification identifiers, email codes in clear, backup codes encrypted but not hashed, provider tokens in clear | Documented (oracle formats) |
-| RA-8 | P3 | Cookies use the `__Secure-` prefix, not `__Host-`, and the first cookie of a name wins: cookie tossing from a sibling subdomain | Documented (oracle cookie names) |
+| RA-8 | P3 | Cookies use the `__Secure-` prefix, not `__Host-`, and the first cookie of a name wins: cookie tossing from a sibling subdomain | Accepted by the maintainer (names kept) |
 | RA-9 | P3 | A 32 character session token is accepted as a bearer token without its signature | Documented (as Better Auth's bearer plugin) |
 | RA-10 | P3 | Pre account hijack through the verification link keeps the squatter's password | Documented (both servers) |
 | RA-11 | P3 | Password hashing waits in an unbounded queue behind four slots | Documented |
@@ -148,7 +148,7 @@ and the key is `2001:0db8:0001:0002:0000:0000:0000:0000|/sign-in/email`. The lis
 session's `ipAddress`. On the unfixed code both fail (`left: 401, right: 429`; the raw address in the
 listing).
 
-### RA-4 (P2, open): the session list returns bearer tokens
+### RA-4 (P2, fixed in Rust): the session list returned bearer tokens
 
 `Session::public` ([`documents.rs`](../../crates/canopy-authn/src/server/documents.rs)) includes `token`,
 and the raw token is a valid bearer credential (RA-9). Anyone with a fresh session (after RA-1) obtains
@@ -161,13 +161,47 @@ oracle records both, so removing the field changes the API.
 already does), in both servers, with a migration note for clients; or at least withhold tokens of sessions
 whose `aal` is higher than the caller's. Canopy.js does not call either route today.
 
+**Decision and fix.** The maintainer decided to change the Rust server only, since the TypeScript server is
+removed in a later stage (f1a4c47f). `/list-sessions` returns each session's `id`, metadata and a `current`
+flag, never a token; `/revoke-session` takes `{ "id" }` for one of the caller's own sessions, refuses a
+body with `token`, and answers an unknown id and another user's id alike; revocation is audited with the
+session id. The Rust replay of the oracle derives the expected answers of these two routes from the
+recorded ones.
+
 ### RA-5 to RA-17 (P3)
 
-- **RA-5.** `oauth_callback` and the ID token sign in ([`flow.rs`](../../crates/canopy-authn/src/server/oauth/flow.rs))
-  create `aal1` sessions whatever `twoFactorEnabled` says, while `passwordless_blocked` makes magic link and
-  email code sign in refuse such users. Recorded as kept behavior in the progress log and as residual risk 2
-  of the [Phase 4 review](2026-11-13-phase-4-security-review.md); `aal2` policies are the enforcement. The
-  inconsistency is worth one decision for the external review.
+- **RA-5 (fixed).** `oauth_callback` and the ID token sign in ([`flow.rs`](../../crates/canopy-authn/src/server/oauth/flow.rs))
+  created `aal1` sessions whatever `twoFactorEnabled` said, as Better Auth 1.7.18 does (its two factor
+  plugin only hooks `/sign-in/email`, `/sign-in/username` and `/sign-in/phone-number`), while
+  `passwordless_blocked` made magic link and email code sign in refuse such users. It was recorded as kept
+  behavior in the progress log and as residual risk 2 of the
+  [Phase 4 review](2026-11-13-phase-4-security-review.md). Maintainer decision (2026-11-28): **require the
+  second factor on every first factor.** Password, provider callback, ID token, magic link and email code
+  sign in of a user with `twoFactorEnabled` now all open the ceremony of password sign in
+  (`begin_two_factor` and `redirect_to_two_factor` in
+  [`two_factor.rs`](../../crates/canopy-authn/src/server/two_factor.rs)): no session document and no
+  session cookie, a `2fa-<id>` verification with its attempt counter, and the signed `canopy.two_factor`
+  cookie, also sent in `set-auth-ceremony` for clients that echo it in `x-canopy-ceremony`.
+  `/two-factor/verify-totp` or `/two-factor/verify-backup-code` then create the `aal2` session. Response
+  contract:
+  - JSON routes (ID token sign in, `/sign-in/email-otp`, `/magic-link/verify` without `callbackURL`) answer
+    `200 {"twoFactorRedirect":true,"twoFactorMethods":["totp"]}`, the same body as `/sign-in/email`.
+  - The provider callback and `/magic-link/verify` with `callbackURL` answer `302` to the callback URL with
+    `twoFactorRedirect=true&twoFactorMethods=<comma separated methods>` added to its query (before any
+    fragment), the ceremony cookie set and the session cookies cleared. The page there asks for the code.
+  - With two factor turned off, such users are refused as password sign in already was: `403 FORBIDDEN`,
+    or `error=FORBIDDEN` on the error URL of a redirect.
+
+  Passkey sign in is unchanged: it proves possession and user verification and is already `aal2`. Account
+  linking (`/link-social`) needs a live session and creates none, so it is unchanged. A magic link or code
+  for a not yet verified address with a second factor still does not mark the address verified (the factor
+  may belong to whoever registered the address first), and `/email-otp/verify-email`, a verification rather
+  than a sign in, still refuses such users. Automatic linking by verified address still adds the provider
+  account before the second step, as before. Tests: the three `*_waits_for_the_second_factor` cases of
+  `crates/canopy-authn/tests/oauth_flows.rs`, each failing on the previous code. The TypeScript server keeps
+  Better Auth's behavior until it is removed; no recorded oracle case signs a two factor user in through
+  these flows, so the replay needs no allowance (the divergence is recorded in
+  [`conformance/http/auth`](../../conformance/http/auth/README.md)).
 - **RA-6.** `verify_totp` is called with no last step in `verify_factor_in`
   ([`two_factor.rs`](../../crates/canopy-authn/src/server/two_factor.rs)), so a code observed by an attacker
   who also knows the password can be used again within its 90 s window (RFC 6238 §5.2 asks for one use).
@@ -179,6 +213,8 @@ whose `aal` is higher than the caller's. Canopy.js does not call either route to
 - **RA-8.** A sibling subdomain served over HTTPS can set `__Secure-canopy.session_token` with
   `Domain=<parent>` and a longer `Path`, which the browser sends first and `Call::cookie` takes: session
   fixation or login CSRF. `__Host-` names would prevent it, but cookie names are part of the oracle.
+  Maintainer decision (2026-11-28): keep the `__Secure-` names so existing sessions continue across the
+  move to Rust; deployments should serve Canopy from a host whose sibling subdomains are trusted.
 - **RA-9.** `session_token` accepts a bare 32 character token as a bearer value, so the cookie signature
   protects nothing that the token's 190 bits do not. Better Auth's bearer plugin does the same.
 - **RA-10.** An attacker signs up the victim's address with their own password. If the victim follows the
@@ -257,7 +293,9 @@ whose `aal` is higher than the caller's. Canopy.js does not call either route to
    and a live session whose token travels encrypted in the state. Provider redirects are not followed and
    answers are capped at 1 MiB.
 6. **Two factor and passkeys.** `aal2` is set only by the ceremony (TOTP or backup code with the signed
-   ceremony cookie or its header) and by passkey sign in; the ceremony allows 5 attempts and the factor locks
+   ceremony cookie or its header) and by passkey sign in; every first factor of a user with a second factor
+   (password, provider, ID token, magic link, email code) opens the ceremony and creates no session (RA-5);
+   the ceremony allows 5 attempts and the factor locks
    for 15 minutes after 10 failures; enrolment, disabling, the TOTP URI and new backup codes need the
    password and a fresh session; a passwordless account cannot enrol. Passkey challenges are 32 random bytes,
    single use, expire after 5 minutes, are bound to the ceremony cookie and, for registration, to the user;
@@ -283,14 +321,14 @@ whose `aal` is higher than the caller's. Canopy.js does not call either route to
 
 ## What remains for the external reviewers
 
-- RA-4 needs a decision (token free session listings), and RA-5 and RA-8 are worth an explicit position.
+- RA-8 is accepted by the maintainer (the `__Secure-` names stay); the external reviewers may weigh in.
 - The 24 CPU hour fuzz campaign per auth target on master (plan 005, R5 gate), including the WebAuthn
   decoders this review did not read.
 - Areas the oracle does not record: Apple, Microsoft and Discord against real providers, `packed`
   attestation with an `x5c` chain, RS256 passkeys, key rotation over time, revocations written by another
   node, and an http public URL.
 - A timing study of the response floor under load on production hardware.
-- The TypeScript counterparts of RA-2 and RA-4, while the TypeScript auth fallback remains deployable.
+- The TypeScript counterparts of RA-2, RA-4 and RA-5, while the TypeScript auth fallback remains deployable.
 
 ## Verification
 

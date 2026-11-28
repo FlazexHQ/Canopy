@@ -16,6 +16,15 @@ session and translates the recorded revoke target from token to id. The single s
 event also includes that id as its target. The TypeScript oracle files continue to capture the original API.
 Rust clients should use the listed `id` for revocation and `current` to recognize their own session.
 
+Rust also differs, by design, for users with a second factor (`twoFactorEnabled: true`): every first factor
+hands off to the two factor ceremony, where Better Auth applies it to `/sign-in/email` only. Provider
+callbacks, ID token sign in, `/magic-link/verify` and `/sign-in/email-otp` create no session for such a user;
+JSON routes answer `{ "twoFactorRedirect": true, "twoFactorMethods": [...] }` as `/sign-in/email` does, and
+redirects go to the callback URL with `twoFactorRedirect=true&twoFactorMethods=...` in the query, with the
+ceremony cookie set. `/two-factor/verify-totp` or `/two-factor/verify-backup-code` then create the `aal2`
+session. No recorded case signs a two factor user in through these routes, so the replay needs no allowance;
+the Rust tests in `crates/canopy-authn/tests/oauth_flows.rs` cover the new answers.
+
 ```
 http/auth/
   fixture.json        the public URL, the secret, the first instant, the base options, and the signing keys

@@ -124,7 +124,7 @@ impl Call<'_> {
                     "email_otp",
                 )
                 .await?;
-            if self.passwordless_blocked(&user) {
+            if self.banned(&user) || (Self::has_two_factor(&user) && !self.feature("two_factor")) {
                 return self
                     .sign_in_failure(
                         &email,
@@ -132,6 +132,11 @@ impl Call<'_> {
                         error(403, "FORBIDDEN", "Email OTP sign in is unavailable for this user"),
                     )
                     .await;
+            }
+            if Self::has_two_factor(&user) {
+                let reply = self.begin_two_factor(&user, true, "email_otp").await?;
+                limits.delete_one(doc! {"_id": failure_key}).await.map_err(internal)?;
+                return Ok(reply);
             }
             let session = self.create_session(&user, true, "email_otp").await?;
             limits.delete_one(doc! {"_id": failure_key}).await.map_err(internal)?;

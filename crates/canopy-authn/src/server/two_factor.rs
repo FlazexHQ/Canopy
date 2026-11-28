@@ -38,6 +38,19 @@ fn invalid_code(backup: bool) -> Response {
     }
 }
 
+fn ceremony_location(target: &str, methods: &[&str]) -> String {
+    let (base, fragment) = target.split_once('#').map_or((target, None), |(base, rest)| (base, Some(rest)));
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("twoFactorRedirect", "true")
+        .append_pair("twoFactorMethods", &methods.join(","))
+        .finish();
+    let separator = if base.contains('?') { '&' } else { '?' };
+    match fragment {
+        Some(fragment) => format!("{base}{separator}{query}#{fragment}"),
+        None => format!("{base}{separator}{query}"),
+    }
+}
+
 fn new_backup_codes() -> Result<Vec<String>> {
     (0..10).map(|_| Ok(format!("{}-{}", random_token(5)?, random_token(5)?))).collect()
 }
@@ -78,7 +91,50 @@ impl Call<'_> {
         "expiresAt": expires_at, "createdAt": self.now, "updatedAt": self.now}
     }
 
-    pub(super) async fn begin_two_factor(&self, user: &User, remember: bool) -> Result<Response> {
+    /// Answers a first factor of a user with a second factor: no session is created, and the signed
+    /// ceremony cookie (also sent in `set-auth-ceremony`) carries the sign in to `/two-factor/verify-totp`
+    /// or `/two-factor/verify-backup-code`, which create the `aal2` session.
+    pub(super) async fn begin_two_factor(
+        &self,
+        user: &User,
+        remember: bool,
+        method: &str,
+    ) -> Result<Response> {
+        let (signed, methods) = self.open_ceremony(user, remember, method).await?;
+        let mut reply = response(200, object!("twoFactorRedirect":true, "twoFactorMethods":methods));
+        self.ceremony_cookies(&mut reply, &signed, remember);
+        Ok(reply)
+    }
+
+    /// The same handoff for a sign in that reaches the application by a browser redirect (a provider
+    /// callback or a magic link): `reply` becomes a redirect to `target` with `twoFactorRedirect=true` and
+    /// the comma separated `twoFactorMethods` in its query, and the ceremony cookie set.
+    pub(super) async fn redirect_to_two_factor(
+        &self,
+        mut reply: Response,
+        user: &User,
+        method: &str,
+        target: &str,
+    ) -> Result<Response> {
+        let (signed, methods) = self.open_ceremony(user, true, method).await?;
+        self.ceremony_cookies(&mut reply, &signed, true);
+        reply.status = 302;
+        reply.body.clear();
+        header(&mut reply, "location", ceremony_location(target, &methods));
+        Ok(reply)
+    }
+
+    /// Whether every first factor of this user must hand off to the second factor.
+    pub(super) fn has_two_factor(user: &User) -> bool {
+        user.extra.get_bool("twoFactorEnabled").unwrap_or(false)
+    }
+
+    async fn open_ceremony(
+        &self,
+        user: &User,
+        remember: bool,
+        method: &str,
+    ) -> Result<(String, Vec<&'static str>)> {
         let id = format!("2fa-{}", random_token(20)?);
         let expires = self.date_after(CEREMONY_TTL as i64 * 1000);
         let provisional = self.new_session(user, remember, "aal1")?;
@@ -89,51 +145,55 @@ impl Call<'_> {
         let mut tx = self.router.auth.client().start_session().await.map_err(internal)?;
         let methods = tx
             .start_transaction()
-            .and_run((self, user, &provisional, &proofs), |tx, (call, user, provisional, proofs)| {
-                Box::pin(async move {
-                    let factor = call
-                        .router
-                        .auth
-                        .collection::<TwoFactor>("two_factors")
-                        .find_one(doc! {"userId": &user.id, "verified": {"$ne": false}})
-                        .session(&mut *tx)
-                        .await?;
-                    call.router
-                        .collection("verifications")
-                        .insert_many(proofs.iter())
-                        .session(&mut *tx)
-                        .await?;
-                    call.router
-                        .meta
-                        .collection::<Document>("audit_log")
-                        .insert_one(call.session_audit(provisional, "password"))
-                        .session(&mut *tx)
-                        .await?;
-                    call.revoke_session_in(tx, provisional).await?;
-                    Ok(if factor.is_some() { vec!["totp"] } else { Vec::new() })
-                })
-            })
+            .and_run(
+                (self, user, &provisional, &proofs, method),
+                |tx, (call, user, provisional, proofs, method)| {
+                    Box::pin(async move {
+                        let factor = call
+                            .router
+                            .auth
+                            .collection::<TwoFactor>("two_factors")
+                            .find_one(doc! {"userId": &user.id, "verified": {"$ne": false}})
+                            .session(&mut *tx)
+                            .await?;
+                        call.router
+                            .collection("verifications")
+                            .insert_many(proofs.iter())
+                            .session(&mut *tx)
+                            .await?;
+                        call.router
+                            .meta
+                            .collection::<Document>("audit_log")
+                            .insert_one(call.session_audit(provisional, method))
+                            .session(&mut *tx)
+                            .await?;
+                        call.revoke_session_in(tx, provisional).await?;
+                        Ok(if factor.is_some() { vec!["totp"] } else { Vec::new() })
+                    })
+                },
+            )
             .await
             .map_err(internal)?;
-        let mut reply = response(200, object!("twoFactorRedirect":true, "twoFactorMethods":methods));
+        Ok((sign_value(&self.router.options.secret, &id), methods))
+    }
+
+    fn ceremony_cookies(&self, reply: &mut Response, signed: &str, remember: bool) {
         for kind in [AuthCookie::SessionToken, AuthCookie::SessionData] {
-            self.set_cookie(&mut reply, kind, "", Expiration::MaxAge(0));
+            self.set_cookie(reply, kind, "", Expiration::MaxAge(0));
         }
         if !remember {
             let signed = sign_value(&self.router.options.secret, "true");
-            self.set_cookie(&mut reply, AuthCookie::DontRemember, &signed, Expiration::Session);
+            self.set_cookie(reply, AuthCookie::DontRemember, &signed, Expiration::Session);
         } else if !self.remember_session() {
-            self.set_cookie(&mut reply, AuthCookie::DontRemember, "", Expiration::MaxAge(0));
+            self.set_cookie(reply, AuthCookie::DontRemember, "", Expiration::MaxAge(0));
         }
-        let signed = sign_value(&self.router.options.secret, &id);
-        self.set_cookie(&mut reply, AuthCookie::TwoFactor, &signed, Expiration::MaxAge(CEREMONY_TTL));
+        self.set_cookie(reply, AuthCookie::TwoFactor, signed, Expiration::MaxAge(CEREMONY_TTL));
         header(
-            &mut reply,
+            reply,
             "set-auth-ceremony",
             format!("{}={signed}", AuthCookie::TwoFactor.name(self.router.secure())),
         );
-        header(&mut reply, "access-control-expose-headers", "set-auth-token");
-        Ok(reply)
+        header(reply, "access-control-expose-headers", "set-auth-token");
     }
 
     pub(super) async fn two_factor_route(&self, body: &Value) -> Result<Response> {

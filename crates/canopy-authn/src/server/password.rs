@@ -208,11 +208,11 @@ impl Call<'_> {
                 .map_err(internal)?;
         }
         let remember = body.get("rememberMe").and_then(Value::as_bool).unwrap_or(true);
-        if user.extra.get_bool("twoFactorEnabled").unwrap_or(false) {
+        if Self::has_two_factor(&user) {
             if !self.feature("two_factor") {
                 return Ok(error(403, "FORBIDDEN", "Password sign in is unavailable for this user"));
             }
-            let reply = self.begin_two_factor(&user, remember).await?;
+            let reply = self.begin_two_factor(&user, remember, "password").await?;
             limits.delete_one(doc! {"_id": fail_key}).await.map_err(internal)?;
             return Ok(reply);
         }

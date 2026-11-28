@@ -239,6 +239,18 @@ impl MockIdp {
         self.sign_id_token(&Value::Object(claims), alg, kid, faults.hs256.as_deref())
     }
 
+    /// An ID token of the generic provider for `client_id`, as a client that signed in at the provider
+    /// itself holds it for the ID token sign in.
+    pub(crate) fn issue_id_token(&self, client_id: &str, nonce: Option<&str>) -> String {
+        let grant = Grant {
+            nonce: nonce.map(str::to_owned),
+            client_id: client_id.to_owned(),
+            redirect_uri: String::new(),
+            challenge: None,
+        };
+        self.id_token(ISSUER, &grant, false)
+    }
+
     fn microsoft_id_token(&self, grant: &Grant) -> String {
         let now = self.state.lock().expect("IdP state").now_s;
         let claims = [

@@ -88,9 +88,22 @@ impl Call<'_> {
         };
         let (user, created) =
             self.passwordless_user(&proof.email, proof.name.as_deref(), None, "magic_link").await?;
-        if self.passwordless_blocked(&user) {
+        if self.banned(&user) || (Self::has_two_factor(&user) && !self.feature("two_factor")) {
             failure.query_pairs_mut().append_pair("error", "FORBIDDEN");
             return Ok(redirect(failure.as_str()));
+        }
+        if Self::has_two_factor(&user) {
+            return if query.contains_key("callbackURL") {
+                self.redirect_to_two_factor(
+                    redirect(callback.as_str()),
+                    &user,
+                    "magic_link",
+                    callback.as_str(),
+                )
+                .await
+            } else {
+                self.begin_two_factor(&user, true, "magic_link").await
+            };
         }
         let session = self.create_session(&user, true, "magic_link").await?;
         let mut reply = if query.contains_key("callbackURL") {
@@ -102,8 +115,11 @@ impl Call<'_> {
         Ok(reply)
     }
 
+    /// Whether a proof of the address alone may neither promote the account (verify the address, drop
+    /// other credentials) nor end in a session: a banned user, or one with a second factor, which may belong
+    /// to whoever registered the address first.
     pub(super) fn passwordless_blocked(&self, user: &User) -> bool {
-        self.banned(user) || user.extra.get_bool("twoFactorEnabled").unwrap_or(false)
+        self.banned(user) || Self::has_two_factor(user)
     }
 
     pub(super) async fn passwordless_user(

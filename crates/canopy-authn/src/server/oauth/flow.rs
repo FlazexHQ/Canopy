@@ -307,6 +307,12 @@ impl Call<'_> {
         if self.banned(&user) {
             return Ok(error(403, "BANNED_USER", BANNED_MESSAGE));
         }
+        if Self::has_two_factor(&user) {
+            if !self.feature("two_factor") {
+                return Ok(error(403, "FORBIDDEN", "Social sign in is unavailable for this user"));
+            }
+            return self.begin_two_factor(&user, true, "sign-in/social").await;
+        }
         let session = self.create_session(&user, true, "sign-in/social").await?;
         let mut reply =
             response(200, object!("redirect": false, "token": session.token, "user": user.public()));
@@ -473,6 +479,12 @@ impl Call<'_> {
         };
         if self.banned(&user) {
             return Ok(fail(reply, &error_url, "BANNED_USER", Some(BANNED_MESSAGE)));
+        }
+        if Self::has_two_factor(&user) {
+            if !self.feature("two_factor") {
+                return Ok(fail(reply, &error_url, "FORBIDDEN", None));
+            }
+            return self.redirect_to_two_factor(reply, &user, "oauth", &flow.callback_url).await;
         }
         let session = self.create_session(&user, true, "oauth").await?;
         self.set_session(&mut reply, &session.token, true);

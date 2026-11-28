@@ -1,14 +1,19 @@
 //! Social and OpenID Connect sign in through the router against mock providers: ID token refusals beyond
-//! the recorded oracle, the account linking rules, the state checks and Apple's form post callback.
+//! the recorded oracle, the account linking rules, the state checks, Apple's form post callback, and the
+//! second factor that every first factor (provider, ID token, magic link, email code) hands off to.
 
 #![allow(clippy::expect_used, clippy::print_stderr)]
 
 use std::{error::Error, sync::Arc};
 
 use bson::{DateTime, Document, doc};
-use canopy_authn::server::{
-    AuthMail, AuthOptions, AuthRouter,
-    oauth::{ClientSecret, OidcProvider, SocialProvider, SocialProviderKind},
+use canopy_authn::{
+    secrets,
+    server::{
+        AuthMail, AuthOptions, AuthRouter,
+        oauth::{ClientSecret, OidcProvider, SocialProvider, SocialProviderKind},
+    },
+    totp::{self, TotpOptions},
 };
 use canopy_http::{Request, Response};
 use canopy_mail::{EmailKind, Recipient};
@@ -26,6 +31,10 @@ const PUBLIC: &str = "https://auth.canopy.test";
 const APP: &str = "https://app.canopy.test";
 const HOME: &str = "https://app.canopy.test/home";
 const NOW: &str = "2031-01-01T00:00:00Z";
+const SECRET: &str = "a secret of more than thirty two bytes";
+const TOTP_SECRET: &str = "a totp secret of thirty two bytes";
+const CEREMONY: &str = "__Secure-canopy.two_factor";
+const SESSION: &str = "__Secure-canopy.session_token";
 
 struct NoMail;
 
@@ -71,8 +80,7 @@ struct Harness {
 impl Harness {
     async fn open(auth: Database, meta: Database, rs256: bool) -> Result<Self> {
         let idp = Arc::new(idp::MockIdp::default());
-        let mut options =
-            AuthOptions::new(Url::parse(PUBLIC)?, "a secret of more than thirty two bytes".into());
+        let mut options = AuthOptions::new(Url::parse(PUBLIC)?, SECRET.into());
         options.trusted_origins = vec![APP.into()];
         options.oidc_providers.push(OidcProvider {
             id: "acme".into(),
@@ -142,6 +150,80 @@ impl Harness {
     async fn count(&self, collection: &str) -> Result<u64> {
         Ok(self.auth.collection::<Document>(collection).count_documents(doc! {}).await?)
     }
+
+    /// A verified user with a confirmed authenticator app.
+    async fn two_factor_user(&self, id: &str, email: &str) -> Result<()> {
+        let now = DateTime::from_millis(self.now);
+        self.auth
+            .collection::<Document>("users")
+            .insert_one(doc! {
+                "_id": id, "name": "Two Factor", "email": email, "emailVerified": true,
+                "createdAt": now, "updatedAt": now, "isAnonymous": false, "role": "user", "banned": false,
+                "twoFactorEnabled": true, "roles": [],
+            })
+            .await?;
+        self.auth
+            .collection::<Document>("two_factors")
+            .insert_one(doc! {
+                "_id": bson::oid::ObjectId::new(),
+                "secret": secrets::encrypt(SECRET, TOTP_SECRET).ok_or("encrypted secret")?,
+                "backupCodes": secrets::encrypt(SECRET, r#"["aaaaa-bbbbb"]"#).ok_or("encrypted codes")?,
+                "userId": id, "verified": true, "failedVerificationCount": 0,
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn post(
+        &self,
+        browser: &mut Browser,
+        path: &str,
+        body: &Value,
+        ceremony: Option<&str>,
+    ) -> Response {
+        let mut request = Request::new("POST", path)
+            .with_header("origin", APP)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string().into_bytes());
+        if let Some(ceremony) = ceremony {
+            request = request.with_header("x-canopy-ceremony", ceremony);
+        }
+        self.send(browser, request).await
+    }
+
+    /// Finishes a ceremony with the app's current code and returns the new session document.
+    async fn verify_totp(&self, browser: &mut Browser, ceremony: Option<&str>) -> Result<Document> {
+        let code = totp::totp(TOTP_SECRET.as_bytes(), self.now, TotpOptions::default());
+        let verified =
+            self.post(browser, "/auth/v1/two-factor/verify-totp", &json!({"code": code}), ceremony).await;
+        assert_eq!(verified.status, 200, "{}", String::from_utf8_lossy(&verified.body));
+        assert!(verified.header("set-auth-token").is_some(), "the bearer bridge carries the session");
+        let body: Value = serde_json::from_slice(&verified.body)?;
+        let token = body["token"].as_str().ok_or("session token")?;
+        let session = self
+            .auth
+            .collection::<Document>("sessions")
+            .find_one(doc! {"token": token})
+            .await?
+            .ok_or("session document")?;
+        Ok(session)
+    }
+
+    async fn session_count(&self, user: &str) -> Result<u64> {
+        Ok(self.auth.collection::<Document>("sessions").count_documents(doc! {"userId": user}).await?)
+    }
+}
+
+fn has_cookie(browser: &Browser, name: &str) -> bool {
+    browser.cookies.iter().any(|(cookie, _)| cookie == name)
+}
+
+fn waiting_for_totp(target: &str) -> String {
+    format!("{target}?twoFactorRedirect=true&twoFactorMethods=totp")
+}
+
+fn sign_in_social(token: &str) -> Value {
+    json!({"provider": "acme", "idToken": {"token": token}})
 }
 
 async fn databases() -> Option<(Database, Database)> {
@@ -383,6 +465,173 @@ async fn revoked_session_cannot_finish_linking_an_account() -> Result<()> {
         assert_eq!(harness.count("accounts").await?, 1);
         assert_eq!(harness.count("sessions").await?, 0);
         Ok(())
+    }
+    .await;
+    cleanup(auth, meta).await?;
+    result
+}
+
+#[tokio::test]
+async fn provider_sign_in_of_a_two_factor_user_waits_for_the_second_factor() -> Result<()> {
+    let Some((auth, meta)) = databases().await else {
+        eprintln!("Skipping OAuth flows because CANOPY_TEST_MONGODB_URI is unset");
+        return Ok(());
+    };
+    let result = async {
+        let harness = Harness::open(auth.clone(), meta.clone(), false).await?;
+        harness.two_factor_user("guarded", "oidc@example.com").await?;
+
+        let mut browser = Browser { cookies: Vec::new() };
+        let path = harness.start(&mut browser, "acme").await?;
+        let callback = harness.send(&mut browser, Request::new("GET", &path)).await;
+        assert_eq!(callback.status, 302);
+        assert_eq!(callback.header("location"), Some(waiting_for_totp(HOME).as_str()));
+        assert!(callback.header("set-auth-token").is_none());
+        assert!(callback.header("set-auth-ceremony").is_some_and(|value| value.starts_with(CEREMONY)));
+        assert!(has_cookie(&browser, CEREMONY), "the ceremony cookie is set");
+        assert!(!has_cookie(&browser, SESSION), "no session cookie before the second factor");
+        assert_eq!(harness.session_count("guarded").await?, 0, "no session before the second factor");
+        assert_eq!(harness.count("accounts").await?, 1, "the provider account is linked by address");
+
+        let session = harness.verify_totp(&mut browser, None).await?;
+        assert_eq!(session.get_str("userId")?, "guarded");
+        assert_eq!(session.get_str("aal")?, "aal2");
+        assert!(has_cookie(&browser, SESSION));
+        assert!(!has_cookie(&browser, CEREMONY), "the ceremony cookie is cleared");
+        assert_eq!(harness.session_count("guarded").await?, 1);
+
+        harness.idp.set_user("idp-user-2", "plain@example.com", "Plain User");
+        let mut plain = Browser { cookies: Vec::new() };
+        let path = harness.start(&mut plain, "acme").await?;
+        assert_eq!(harness.callback(&mut plain, &path).await?, HOME, "no second factor, no detour");
+        assert!(has_cookie(&plain, SESSION));
+        assert!(!has_cookie(&plain, CEREMONY));
+        let user = auth
+            .collection::<Document>("users")
+            .find_one(doc! {"email": "plain@example.com"})
+            .await?
+            .ok_or("plain user")?;
+        let session = auth
+            .collection::<Document>("sessions")
+            .find_one(doc! {"userId": user.get("_id").ok_or("user id")?})
+            .await?
+            .ok_or("plain session")?;
+        assert_eq!(session.get_str("aal")?, "aal1");
+        Ok::<_, Box<dyn Error>>(())
+    }
+    .await;
+    cleanup(auth, meta).await?;
+    result
+}
+
+#[tokio::test]
+async fn id_token_sign_in_of_a_two_factor_user_waits_for_the_second_factor() -> Result<()> {
+    let Some((auth, meta)) = databases().await else {
+        eprintln!("Skipping OAuth flows because CANOPY_TEST_MONGODB_URI is unset");
+        return Ok(());
+    };
+    let result = async {
+        let harness = Harness::open(auth.clone(), meta.clone(), false).await?;
+        harness.two_factor_user("guarded", "oidc@example.com").await?;
+        let token = harness.idp.issue_id_token("acme-client", None);
+        let mut client = Browser { cookies: Vec::new() };
+        let signed_in =
+            harness.post(&mut client, "/auth/v1/sign-in/social", &sign_in_social(&token), None).await;
+        assert_eq!(signed_in.status, 200, "{}", String::from_utf8_lossy(&signed_in.body));
+        let body: Value = serde_json::from_slice(&signed_in.body)?;
+        assert_eq!(body, json!({"twoFactorRedirect": true, "twoFactorMethods": ["totp"]}));
+        assert!(signed_in.header("set-auth-token").is_none());
+        assert!(!has_cookie(&client, SESSION));
+        let ceremony = signed_in.header("set-auth-ceremony").ok_or("ceremony header")?.to_owned();
+        assert!(ceremony.starts_with(CEREMONY));
+        assert_eq!(harness.session_count("guarded").await?, 0, "no session before the second factor");
+
+        let session = harness.verify_totp(&mut Browser { cookies: Vec::new() }, Some(&ceremony)).await?;
+        assert_eq!(session.get_str("userId")?, "guarded");
+        assert_eq!(session.get_str("aal")?, "aal2");
+
+        harness.idp.set_user("idp-user-2", "plain@example.com", "Plain User");
+        let token = harness.idp.issue_id_token("acme-client", None);
+        let mut plain = Browser { cookies: Vec::new() };
+        let signed_in =
+            harness.post(&mut plain, "/auth/v1/sign-in/social", &sign_in_social(&token), None).await;
+        assert_eq!(signed_in.status, 200, "{}", String::from_utf8_lossy(&signed_in.body));
+        let body: Value = serde_json::from_slice(&signed_in.body)?;
+        assert!(body["token"].is_string(), "a user without a second factor signs in at once");
+        assert!(body.get("twoFactorRedirect").is_none());
+        assert!(has_cookie(&plain, SESSION));
+        Ok::<_, Box<dyn Error>>(())
+    }
+    .await;
+    cleanup(auth, meta).await?;
+    result
+}
+
+#[tokio::test]
+async fn passwordless_sign_in_of_a_two_factor_user_waits_for_the_second_factor() -> Result<()> {
+    let Some((auth, meta)) = databases().await else {
+        eprintln!("Skipping OAuth flows because CANOPY_TEST_MONGODB_URI is unset");
+        return Ok(());
+    };
+    let result = async {
+        let mut harness = Harness::open(auth.clone(), meta.clone(), false).await?;
+        harness.two_factor_user("guarded", "cal@example.com").await?;
+        let verifications = auth.collection::<Document>("verifications");
+        let proof = |identifier: &str, value: &str, now: i64| {
+            doc! {
+                "_id": bson::oid::ObjectId::new(), "identifier": identifier, "value": value,
+                "expiresAt": DateTime::from_millis(now + 300_000), "createdAt": DateTime::from_millis(now),
+                "updatedAt": DateTime::from_millis(now),
+            }
+        };
+        let link = r#"{"type":"magic-link","email":"cal@example.com"}"#;
+        verifications.insert_one(proof("magic-link:link-with-callback", link, harness.now)).await?;
+        verifications.insert_one(proof("magic-link:link-without-callback", link, harness.now)).await?;
+
+        let mut browser = Browser { cookies: Vec::new() };
+        let followed = harness
+            .send(
+                &mut browser,
+                Request::new(
+                    "GET",
+                    "/auth/v1/magic-link/verify?token=link-with-callback&callbackURL=https%3A%2F%2Fapp.canopy.test%2Fhome",
+                ),
+            )
+            .await;
+        assert_eq!(followed.status, 302, "{}", String::from_utf8_lossy(&followed.body));
+        assert_eq!(followed.header("location"), Some(waiting_for_totp(HOME).as_str()));
+        assert!(has_cookie(&browser, CEREMONY));
+        assert!(!has_cookie(&browser, SESSION));
+        assert_eq!(harness.session_count("guarded").await?, 0);
+        let session = harness.verify_totp(&mut browser, None).await?;
+        assert_eq!(session.get_str("aal")?, "aal2");
+
+        harness.advance(10_000);
+        let mut client = Browser { cookies: Vec::new() };
+        let answered = harness
+            .send(&mut client, Request::new("GET", "/auth/v1/magic-link/verify?token=link-without-callback"))
+            .await;
+        assert_eq!(answered.status, 200, "{}", String::from_utf8_lossy(&answered.body));
+        let body: Value = serde_json::from_slice(&answered.body)?;
+        assert_eq!(body, json!({"twoFactorRedirect": true, "twoFactorMethods": ["totp"]}));
+        assert!(!has_cookie(&client, SESSION));
+        assert!(has_cookie(&client, CEREMONY));
+        assert_eq!(harness.session_count("guarded").await?, 1, "only the session of the first ceremony");
+
+        verifications.insert_one(proof("sign-in-otp-cal@example.com", "123456:0", harness.now)).await?;
+        let mut bearer = Browser { cookies: Vec::new() };
+        let code = json!({"email": "cal@example.com", "otp": "123456"});
+        let coded = harness.post(&mut bearer, "/auth/v1/sign-in/email-otp", &code, None).await;
+        assert_eq!(coded.status, 200, "{}", String::from_utf8_lossy(&coded.body));
+        let body: Value = serde_json::from_slice(&coded.body)?;
+        assert_eq!(body, json!({"twoFactorRedirect": true, "twoFactorMethods": ["totp"]}));
+        assert!(coded.header("set-auth-token").is_none());
+        assert_eq!(harness.session_count("guarded").await?, 1, "the code alone creates no session");
+        let ceremony = coded.header("set-auth-ceremony").ok_or("ceremony header")?.to_owned();
+        let session = harness.verify_totp(&mut Browser { cookies: Vec::new() }, Some(&ceremony)).await?;
+        assert_eq!(session.get_str("aal")?, "aal2");
+        assert_eq!(harness.session_count("guarded").await?, 2);
+        Ok::<_, Box<dyn Error>>(())
     }
     .await;
     cleanup(auth, meta).await?;
