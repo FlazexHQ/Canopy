@@ -3,6 +3,54 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-28): internal auth review closed in Rust (e71199c4, e4142cac, 98d46132; Canopy.js ce09f7e)
+
+- `e71199c4` (`fix(testing)`): [`packages/testing/scripts/mongod.ts`](../../../packages/testing/scripts/mongod.ts)
+  removes any `.pdb` file left after extraction, because BusyBox tar on Alpine ignores `--exclude` and
+  the nightly Alpine job failed `mongod.test.ts`. Not yet confirmed by a nightly run.
+- `e4142cac` (`fix(authn)`): closes RA-6 (a TOTP code signs in once: `lastTotpStep` on the factor), RA-14
+  (codes verified with a session: five failures, then `TOO_MANY_ATTEMPTS`, and the factor lock), RA-11
+  (4 password hashes run, 8 wait at most 250 ms, others answer 503 `CANOPY_UNAVAILABLE` with `retry-after`,
+  still held to the response floor), RA-12 (`/token` answers "The claims hook failed"; the reason only in
+  the audit entry), RA-16 (built in keys read without holding the key lock; tokens with a cached key never
+  wait; one refresh at a time and others wait for it up to 2 s; a key verifies at most 5 s from the start
+  of its read), RA-17 (fresh session to change an unverified address and to delete a passkey; `/upgrade`
+  counts toward the per address limit of 100 a minute; an invite checks its redirect before creating or
+  changing a user; in production OIDC discovery and its endpoints must use HTTPS). Each with a regression
+  test proved to fail without its fix. The oracle replays accept three documented differences:
+  `lastTotpStep` in `canopy_auth.two_factors`, the `<address>|/upgrade` entry in `canopy_auth.rate_limits`,
+  and the foreign invite that no longer creates a user
+  ([`conformance/http/auth/README.md`](../../../conformance/http/auth/README.md) and
+  [`conformance/http/admin/README.md`](../../../conformance/http/admin/README.md)).
+- `98d46132` (`fix(authn)`): RA-10, the pre account hijack, by the maintainer's choice of the sign up
+  proof. Every successful `/sign-up/email` and `/upgrade` answer, also for a taken address (bound to no
+  account), carries a proof that the client signed the account up: the `__Secure-canopy.sign_up` cookie
+  (HttpOnly, SameSite=Lax, 30 days) and the same value in `set-auth-sign-up` (exposed to CORS on those
+  answers). The first verification of an address, by link or email code, without that proof (the cookie,
+  or `x-canopy-sign-up`, comma separated values) verifies the address but removes the password credential
+  and ends the account's sessions in one transaction, audited as `auth.password_removed`. Three regression
+  tests in [`crates/canopy-authn/tests/review_regressions.rs`](../../../crates/canopy-authn/tests/review_regressions.rs),
+  each failing without the fix. The auth oracle replay strips the proof from sign up answers and presents
+  it on each recorded client's later requests. Docs: [`docs/design/07-auth.md`](../../design/07-auth.md) §2.1
+  and the guides [`client.md`](../../../apps/docs/src/content/docs/guides/client.md),
+  [`react-native.md`](../../../apps/docs/src/content/docs/guides/react-native.md) and
+  [`two-factor-and-passkeys.md`](../../../apps/docs/src/content/docs/guides/two-factor-and-passkeys.md).
+  Accepted cost: a link opened in another browser, or by a bearer mode app, costs a password reset.
+- Canopy.js `ce09f7e` on `refactor/rust-core` (`feat(client)`): keeps the five newest sign up proofs in
+  storage and presents them on `verifyEmailWithOtp`; new `sendVerificationOtp`; `bun run check` passed
+  (370 tests).
+- Verification of the Rust commits: `cargo fmt` and workspace `clippy` clean; the auth, control and canopyd
+  suites pass on MongoDB 8.0.34 (port 37801) and 9.0.8 (port 37090), 182 tests each; `repo-check workspace`
+  and `dashes` clean.
+- The internal review
+  ([`docs/reviews/2026-11-28-rust-auth-internal-review.md`](../../reviews/2026-11-28-rust-auth-internal-review.md))
+  now has every P1 to P3 finding fixed in Rust except RA-7, RA-9 and RA-13 (documented formats), and RA-8
+  (accepted by the maintainer). The TypeScript counterparts are not fixed.
+- Remaining, needing the maintainer or outside work: the Security workflow finding on PR #6 (the credential
+  URI line in `9af1d9c1`), merging `refactor/rust-port` to master (which starts the 24 CPU hour fuzz campaign
+  and unblocks R7), the external review, React Native on devices, and a nightly run to confirm the Alpine
+  fix.
+
 ## Checkpoint (2026-11-28): stopped by the maintainer; where to start next
 
 The maintainer stopped implementation and every subagent on 2026-11-28. Nothing below this line was
@@ -1990,7 +2038,7 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
-| 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
+| 1 | R5: internal review findings closed in Rust, fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
 | 2 | R2 speed gates met across all hosts (matching worst median 0.93x; single update 2.41x, 36.75 µs; chained update 2.70x, 33.75 µs; startup p95 23.20 ms in Chromium 4x, 1.19 ms Node 26); client module 78,049 Brotli bytes (3,871 bytes headroom); Hermes speed gate dropped by maintainer decision; Canopy.js suites pass in Chromium, Firefox, WebKit, Bun, Node 24, Node 26, Deno; unverified items: React Native on devices, Hermes speed gate known gap, Canopy.js browser CI on master | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
 | 4 | R4 done: all 61 golden steps replay including --env (76428729), canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b), Windows Ctrl+C and Ctrl+Break manual checks | R4 | Big | `claudeAgent` |
