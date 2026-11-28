@@ -464,11 +464,13 @@ jobs:
       - name: Install and test with Bun on musl
         run: >-
           docker run --rm --network host -v "$PWD:/repo" -v "$PWD/../Canopy.js:/Canopy.js:ro" -w /repo -e CANOPY_TEST_MONGODB_URI
+          -e CANOPY_TEST_LAUNCHER=/repo/target/cli-launcher-musl/launcher.mjs
           oven/bun:${{ env.BUN_VERSION }}-alpine
-          sh -c "bun install --frozen-lockfile --ignore-scripts && bun --bun vitest run"
+          sh -c "bun install --frozen-lockfile --ignore-scripts && bun packages/cli/build-launcher.ts target/cli-launcher-musl && bun --bun vitest run"
       - name: Test with Node.js 24 on musl
         run: >-
           docker run --rm --network host -v "$PWD:/repo" -v "$PWD/../Canopy.js:/Canopy.js:ro" -w /repo -e CANOPY_TEST_MONGODB_URI
+          -e CANOPY_TEST_LAUNCHER=/repo/target/cli-launcher-musl/launcher.mjs
           node:24-alpine node node_modules/vitest/vitest.mjs run
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes

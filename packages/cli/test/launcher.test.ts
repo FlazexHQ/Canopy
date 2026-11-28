@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, expect, it } from "vitest"
@@ -28,6 +28,11 @@ beforeAll(() => {
       glibcVersionRuntime: process.env.TEST_LIBC === "glibc" ? "2.17" : undefined,
     } })`,
   )
+  const prebuilt = process.env["CANOPY_TEST_LAUNCHER"]
+  if (prebuilt !== undefined) {
+    copyFileSync(prebuilt, launcher)
+    return
+  }
   const build = fileURLToPath(new URL("../build-launcher.ts", import.meta.url))
   const result = spawnSync("bun", [build, dir], { encoding: "utf8" })
   expect(result.error).toBeUndefined()
