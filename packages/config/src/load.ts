@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 import type { Resolution } from "./resolution.ts"
 import { resolveConfig } from "./resolve.ts"
 import type { Command, ConfigContext, Environment } from "./types.ts"
@@ -125,6 +126,21 @@ export async function loadConfig(options: LoadOptions): Promise<LoadedConfig> {
   const cwd = resolve(options.cwd ?? process.cwd())
   const processEnv = options.env ?? process.env
   const file = options.file === undefined ? await findConfig(cwd) : resolve(cwd, options.file)
+  if (options.file !== undefined && file !== undefined) {
+    const metadata = await stat(file).catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) {
+        return undefined
+      }
+      throw error
+    })
+    if (!metadata?.isFile()) {
+      throw new CanopyError(ErrorCode.NotFound, `Cannot find config file '${file}'`)
+    }
+  }
   const baseDir = file === undefined ? cwd : dirname(file)
   let env: Record<string, string | undefined> = { ...processEnv }
   let envOrigins = new Map<string, string>()

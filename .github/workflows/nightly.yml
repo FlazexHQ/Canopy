@@ -33,6 +33,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
@@ -259,7 +260,7 @@ jobs:
           node-version: "24"
       - run: bun install --frozen-lockfile
       - name: Sharded cluster suite (Node)
-        run: node node_modules/vitest/vitest.mjs run --project client test/sharded.e2e.test.ts --testTimeout=120000
+        run: node node_modules/vitest/vitest.mjs run --project sdk-e2e test/sharded.e2e.test.ts --testTimeout=120000
         env:
           CANOPY_TEST_SHARDED_URI: mongodb://localhost:27017
       - if: failure()
@@ -455,15 +456,19 @@ jobs:
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - name: Install and test with Bun on musl
         run: >-
-          docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
+          docker run --rm --network host -v "$PWD:/repo" -v "$PWD/../Canopy.js:/Canopy.js:ro" -w /repo -e CANOPY_TEST_MONGODB_URI
           oven/bun:${{ env.BUN_VERSION }}-alpine
           sh -c "bun install --frozen-lockfile --ignore-scripts && bun --bun vitest run"
       - name: Test with Node.js 24 on musl
         run: >-
-          docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
+          docker run --rm --network host -v "$PWD:/repo" -v "$PWD/../Canopy.js:/Canopy.js:ro" -w /repo -e CANOPY_TEST_MONGODB_URI
           node:24-alpine node node_modules/vitest/vitest.mjs run
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes

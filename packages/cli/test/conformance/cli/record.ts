@@ -17,7 +17,6 @@ import { saveEnvironment } from "../../../src/credentials.ts"
 import { cliActor } from "../../../src/policies.ts"
 
 const cli = fileURLToPath(new URL("../../../src/cli.ts", import.meta.url))
-const loaderUrl = new URL("../../../../config/src/load.ts", import.meta.url)
 const scratch = fileURLToPath(new URL("../../../.canopy/cli-oracle/", import.meta.url))
 
 type Capture = { stdout: string; stderr: string; exitCode: number }
@@ -152,7 +151,7 @@ function substitutions() {
       .replaceAll("\r\n", "\n")
       .replace(/<project>(?:[/\\]+[\w.-]+)+/g, (path) => path.replace(/\\+/g, "/"))
       .replace(/\bcli:(?!<user>)[\w.$-]+/g, "cli:<user>")
-      .replace(/("userAgent":\s*")(?:Bun|node)[^"]*(?=")/gi, "$1<runtime-user-agent>")
+      .replace(/("userAgent":\s*")(?:Bun|node|Deno)[^"]*(?=")/gi, "$1<runtime-user-agent>")
       .replace(/("(?:salt|storedKey|serverKey)":")[A-Za-z0-9+/]+=*(?=")/g, "$1<scram-value>")
       .replace(/\b[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\b/gi, (value) => numbered(value, "uuid"))
       .replace(/(?<="(?:\$oid|id)":")[\da-f]{24}/g, (value) => numbered(value, "object-id"))
@@ -257,8 +256,6 @@ export async function recordCli(dir: string, uri: string, check: boolean): Promi
   bind(project.replaceAll("\\", "\\\\"), "<project>")
   bind(project.replaceAll("\\", "/"), "<project>")
   bind(pathToFileURL(project).href, "<project>")
-  bind(loaderUrl.href, "<config-loader>")
-  bind(fileURLToPath(loaderUrl), "<config-loader>")
   bind(cliActor().id, "cli:<user>")
   const baseEnv = {
     MONGODB_URI: uri,

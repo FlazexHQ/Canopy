@@ -390,7 +390,6 @@ struct Settings {
 impl Settings {
     fn normalize(&self, text: &[u8], project: &Path) -> String {
         let mut text = String::from_utf8_lossy(text).replace("\r\n", "\n");
-        text = text.replace(env!("CARGO_BIN_EXE_canopy"), "<config-loader>");
         text = text.replace("\\\\", "/").replace('\\', "/");
         let project = project.to_string_lossy().replace('\\', "/");
         text = text.replace(&project, "<project>");

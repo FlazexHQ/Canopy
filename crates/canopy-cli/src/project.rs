@@ -131,10 +131,6 @@ fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn loader() -> String {
-    std::env::current_exe().map_or_else(|_| "canopy".to_owned(), |path| display(&path))
-}
-
 /// Loads the project of a command: finds the config, emits the bundle (or reads `--bundle`), checks it and
 /// resolves the config for `command`.
 pub(crate) fn load(call: &Invocation, command: Command, needs_policies: bool) -> Result<Project, LoadError> {
@@ -180,11 +176,7 @@ pub(crate) fn load_from(call: &Invocation, loading: &Loading<'_>) -> Result<Proj
         Some(file) => {
             let path = absolute(&cwd, file);
             if !path.is_file() {
-                return Err(LoadError::Unexpected(format!(
-                    "Cannot find module '{}' imported from {}",
-                    display(&path),
-                    loader()
-                )));
+                return Err(LoadError::Unexpected(format!("Cannot find config file '{}'", display(&path))));
             }
             Some(path)
         }

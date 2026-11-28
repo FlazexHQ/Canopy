@@ -89,9 +89,8 @@ fn refuses_a_config_file_that_does_not_exist() -> TestResult<()> {
     let stderr = String::from_utf8(output.stderr)?;
     let refusal = |root: &std::path::Path| {
         format!(
-            "Cannot find module '{}' imported from {}\nRun again with --debug for the stack trace.\n",
-            root.join("canopy.config.ts").display(),
-            env!("CARGO_BIN_EXE_canopy")
+            "Cannot find config file '{}'\nRun again with --debug for the stack trace.\n",
+            root.join("canopy.config.ts").display()
         )
     };
     let stderr = stderr.replace("\r\n", "\n");
