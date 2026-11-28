@@ -3,6 +3,32 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-28): constant time base64 and the Alpine launcher test (096986f0, b1ac456c)
+
+- `096986f0` (`refactor`): every Rust crate (`canopy-auth`, `canopy-authn`, `canopy-control`, `canopy-wire`,
+  `canopy-webhooks`, `canopy-storage`, `canopy-data`, `canopy-config`, `canopy-realtime`, `canopy-webauthn`,
+  `canopy-cli`, `canopyd` and the fuzz targets) now encodes and decodes base64 with the constant time `base64ct`
+  crate 1.8 instead of the `base64` crate, whose engines are not constant time; no crate depends on `base64`
+  directly any more. The maintainer asked for it. Accepted inputs are unchanged: plain engines map one to one;
+  imported password hashes ([`crates/canopy-authn/src/passwords.rs`](../../../crates/canopy-authn/src/passwords.rs)
+  `import_base64`) still accept any padding and unused bits in the last symbol; webhook secrets accept padded
+  or unpadded base64 with whitespace removed; JWK, JWT, WebAuthn and SCRAM keep their padding rules; the legacy
+  bcrypt verifier decodes into fixed buffers. New unit tests: bcrypt encoding strictness (fails with a lenient
+  decoder), the lenient import decoder, both webhook secret forms. Converted by codex_sudhan and codex, reviewed
+  by the coordinator.
+- Verification (Gemini): `cargo fmt` and workspace `clippy` clean; both lockfiles current; the workspace test
+  suite passes on MongoDB 8.0.34 (port 37801) and 9.0.8 (port 37090), 806 tests each, none failed; the
+  `canopy-authn` TypeScript password interop tests pass with `CANOPY_TEST_TYPESCRIPT=1` (without it they do not
+  spawn Bun); `repo-check workspace` and `dashes` clean.
+- `b1ac456c` (`ci(nightly)`): nightly run [46150968816](https://github.com/FlazexHQ/Canopy/actions/runs/46150968816)
+  on `98d46132` showed the `e71199c4` extraction fix works (the Alpine Bun pass is green) but the Alpine
+  Node.js 24 pass failed [`packages/cli/test/launcher.test.ts`](../../../packages/cli/test/launcher.test.ts)
+  with `spawnSync bun ENOENT`, because the `node:24-alpine` container has no Bun. The Bun container now builds
+  the launcher once and both Alpine passes give it to the test through `CANOPY_TEST_LAUNCHER`; without it the
+  test builds the launcher with Bun as before. Not yet confirmed by a nightly run.
+- The nightly run [46150968816](https://github.com/FlazexHQ/Canopy/actions/runs/46150968816) was still running
+  when this was written (its fuzz jobs, including `authn_tokens`, had not reported).
+
 ## Checkpoint (2026-11-28): internal auth review closed in Rust (e71199c4, e4142cac, 98d46132; Canopy.js ce09f7e)
 
 - `e71199c4` (`fix(testing)`): [`packages/testing/scripts/mongod.ts`](../../../packages/testing/scripts/mongod.ts)
