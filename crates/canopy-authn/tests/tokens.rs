@@ -359,3 +359,33 @@ async fn generated_signing_keys_work_with_typescript_jwks_verification() -> Resu
     }
     Ok(())
 }
+
+#[test]
+fn minted_roles_leave_out_the_reserved_roles() -> Result<(), Box<dyn Error>> {
+    let url = "https://canopy.example";
+    let secret = "test signing key encryption secret";
+    let now = DateTime::now().timestamp_millis();
+    let key = canopy_authn::key_material::generate(Algorithm::EdDSA, secret, now, now + 3_600_000)?;
+    let ring = KeyRing::load([key], url, Algorithm::EdDSA, 600, DEFAULT_GRACE, 4096)?;
+    let empty = Map::new();
+    let roles = ["editor".to_owned(), "service".to_owned(), "anon".to_owned()];
+    let claim_roles = ["authenticated".to_owned(), "public".to_owned(), "auditor".to_owned()];
+    let session = AccessSession {
+        subject: "user",
+        session_id: "session",
+        roles: &roles,
+        claim_roles: &claim_roles,
+        identity: None,
+        is_anonymous: false,
+        aal: "aal1",
+        app_metadata: &empty,
+        claim_app_metadata: &empty,
+        user_metadata: &empty,
+    };
+    let token = ring.mint(secret, session, now)?.access_token;
+    let payload = token.split('.').nth(1).ok_or("token without payload")?;
+    let claims: serde_json::Value = serde_json::from_str(&decoded(payload))?;
+    assert_eq!(claims["roles"], serde_json::json!(["editor", "auditor"]));
+    assert_eq!(claims["role"], "authenticated");
+    Ok(())
+}

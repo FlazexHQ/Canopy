@@ -4,8 +4,8 @@ use subtle::ConstantTimeEq;
 
 use super::password::normalize_email;
 use super::{
-    Bson, Call, Document, EmailKind, Recipient, Response, Result, User, Value, doc, error, id_text, internal,
-    response, validation,
+    Bson, Call, Document, EmailKind, Recipient, Response, Result, User, Value, api_error, doc, error, header,
+    id_text, internal, response, validation,
 };
 
 const SIGN_IN: &str = "sign-in";
@@ -80,6 +80,11 @@ impl Call<'_> {
             let reply = validation(body, "otp");
             return if sign_in { self.sign_in_failure(&email, "email_otp", reply).await } else { Ok(reply) };
         };
+        if !sign_in && let Some(retry) = self.failure_lock(&email).await? {
+            let mut reply = api_error(429, "CANOPY_RATE_LIMITED", "Too many attempts; try again later");
+            header(&mut reply, "retry-after", retry.to_string());
+            return Ok(reply);
+        }
 
         if self.route == "/email-otp/reset-password" {
             let Some(password) = body.get("password").and_then(Value::as_str) else {
@@ -94,7 +99,7 @@ impl Call<'_> {
         let filter = match self.otp_proof(&identifier, code).await? {
             Ok(filter) => filter,
             Err(reply) if sign_in => return self.sign_in_failure(&email, "email_otp", reply).await,
-            Err(reply) => return Ok(reply),
+            Err(reply) => return self.otp_failure(&email, kind, reply).await,
         };
         if check_only {
             return Ok(if self.user(doc! {"email": &email}).await?.is_some() {
@@ -135,6 +140,21 @@ impl Call<'_> {
             return Ok(reply);
         }
         self.verify_with_otp(&email).await
+    }
+
+    /// Counts a refused code towards the address lock that password sign in shares, so codes issued one
+    /// after another cannot be guessed three attempts at a time without end, and audits the refusal.
+    async fn otp_failure(&self, email: &str, kind: &str, reply: Response) -> Result<Response> {
+        self.count_failure(email).await?;
+        self.audit(
+            "auth.otp_failed",
+            doc! {"type":"anonymous"},
+            None,
+            Some(doc! {"type":kind, "email":email, "status":i32::from(reply.status)}),
+            true,
+        )
+        .await?;
+        Ok(reply)
     }
 
     async fn send_otp(&self, email: &str, identifier: &str, kind: &str) -> Result<Response> {
@@ -283,7 +303,7 @@ impl Call<'_> {
         password: &str,
     ) -> Result<Response> {
         if let Err(reply) = self.otp_proof(identifier, code).await? {
-            return Ok(reply);
+            return self.otp_failure(email, RESET_PASSWORD, reply).await;
         }
         let Some(user) = self.user(doc! {"email": email}).await? else {
             return Ok(error(400, "USER_NOT_FOUND", "User not found"));
@@ -334,6 +354,14 @@ impl Call<'_> {
             )
             .await
             .map_err(internal)?;
-        Ok(if changed { success() } else { invalid_otp() })
+        if !changed {
+            return Ok(invalid_otp());
+        }
+        self.router
+            .collection("identifier_limits")
+            .delete_one(doc! {"_id": format!("fail|{email}")})
+            .await
+            .map_err(internal)?;
+        Ok(success())
     }
 }

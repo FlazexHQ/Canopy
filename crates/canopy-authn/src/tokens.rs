@@ -261,6 +261,7 @@ impl KeyRing {
             .roles
             .iter()
             .chain(session.claim_roles)
+            .filter(|role| !matches!(role.as_str(), "anon" | "authenticated" | "service" | "public"))
             .filter(|role| seen.insert(role.as_str()))
             .collect();
         let identity = session.identity.filter(|_| !session.is_anonymous);

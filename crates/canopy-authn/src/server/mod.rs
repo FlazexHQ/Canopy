@@ -700,6 +700,11 @@ impl Call<'_> {
         self.request.client_address.as_deref().unwrap_or("")
     }
 
+    /// The client address as rate limits and sessions record it: IPv6 clients by their /64 network.
+    fn network(&self) -> String {
+        normalize_address(self.ip())
+    }
+
     fn date_after(&self, milliseconds: i64) -> DateTime {
         DateTime::from_millis(self.now.timestamp_millis().saturating_add(milliseconds))
     }
@@ -782,7 +787,7 @@ impl Call<'_> {
     }
 
     async fn address_retry(&self) -> Result<Option<i64>> {
-        let key = format!("{}|{}", self.ip(), self.route);
+        let key = format!("{}|{}", self.network(), self.route);
         let sensitive =
             matches!(self.route, "/sign-up/email" | "/sign-in/email" | "/change-password" | "/change-email")
                 || two_factor::is_route(self.route);
@@ -840,15 +845,7 @@ impl Call<'_> {
             return Ok(Some(retry_seconds(start.saturating_add(60_000), now)));
         }
         if matches!(self.route, "/sign-in/email" | "/sign-in/email-otp") {
-            let locked = self
-                .router
-                .collection("identifier_limits")
-                .find_one(doc! {"_id":format!("fail|{email}"), "lockedUntil":{"$gt":self.now}})
-                .await
-                .map_err(internal)?;
-            if let Some(until) = locked.and_then(|limit| limit.get_datetime("lockedUntil").ok().copied()) {
-                return Ok(Some(retry_seconds(until.timestamp_millis(), now)));
-            }
+            return self.failure_lock(email).await;
         }
         Ok(None)
     }
@@ -966,6 +963,28 @@ fn api_error(status: u16, code: &str, message: &str) -> Response {
     reply
 }
 
+/// Normalizes a client address: IPv4 and IPv4 mapped IPv6 addresses become dotted IPv4, other IPv6
+/// addresses become their /64 network in full lowercase form, so one host cannot rotate through the
+/// addresses of its network to escape a per address limit. Anything else is lowercased.
+fn normalize_address(address: &str) -> String {
+    use std::net::IpAddr;
+
+    match address.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => v4.to_string(),
+        Ok(IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            Some(v4) => v4.to_string(),
+            None => v6
+                .segments()
+                .iter()
+                .enumerate()
+                .map(|(index, segment)| format!("{:04x}", if index < 4 { *segment } else { 0 }))
+                .collect::<Vec<_>>()
+                .join(":"),
+        },
+        Err(_) => address.to_lowercase(),
+    }
+}
+
 fn retry_seconds(until: i64, now: i64) -> i64 {
     (until.saturating_sub(now).saturating_add(999) / 1000).max(1)
 }
@@ -997,4 +1016,25 @@ fn random_token_from<const ALPHABET_SIZE: usize>(
         }
     }
     Ok(token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_address;
+
+    #[test]
+    fn normalizes_addresses_as_better_auth_keys_its_rate_limits() {
+        for (address, expected) in [
+            ("203.0.113.1", "203.0.113.1"),
+            ("2001:DB8::1", "2001:0db8:0000:0000:0000:0000:0000:0000"),
+            ("2001:db8:1:2:3:4:5:6", "2001:0db8:0001:0002:0000:0000:0000:0000"),
+            ("2001:db8:1:2:ffff:ffff:ffff:ffff", "2001:0db8:0001:0002:0000:0000:0000:0000"),
+            ("::ffff:192.0.2.1", "192.0.2.1"),
+            ("::ffff:c000:201", "192.0.2.1"),
+            ("::1", "0000:0000:0000:0000:0000:0000:0000:0000"),
+            ("Unknown", "unknown"),
+        ] {
+            assert_eq!(normalize_address(address), expected, "{address}");
+        }
+    }
 }

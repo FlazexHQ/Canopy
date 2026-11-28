@@ -64,7 +64,7 @@ impl Call<'_> {
             token: random_token(32)?,
             created_at: self.now,
             updated_at: self.now,
-            ip_address: self.ip().into(),
+            ip_address: self.network(),
             user_agent: self.request.header("user-agent").unwrap_or_default(),
             user_id: user.id.clone(),
             extra: doc! {"aal": aal},
@@ -238,6 +238,9 @@ impl Call<'_> {
         let mut filter = doc! {"userId": &user.id};
         let action = match self.route {
             "/list-sessions" => {
+                if !self.fresh(&session) {
+                    return Ok(error(403, "SESSION_NOT_FRESH", "Session is not fresh"));
+                }
                 filter.insert("expiresAt", doc! {"$gt": self.now});
                 let sessions: Vec<Session> = self
                     .router

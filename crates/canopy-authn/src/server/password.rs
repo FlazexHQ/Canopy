@@ -238,6 +238,21 @@ impl Call<'_> {
         method: &str,
         reply: Response,
     ) -> Result<Response> {
+        self.count_failure(email).await?;
+        self.audit(
+            "auth.sign_in_failed",
+            doc! {"type":"anonymous"},
+            None,
+            Some(doc! {"method":method, "email":email, "status":i32::from(reply.status)}),
+            true,
+        )
+        .await?;
+        Ok(reply)
+    }
+
+    /// Counts a failed proof of an address (a password or a code) and locks the address with a growing
+    /// delay once failures pile up, whatever the route that saw them.
+    pub(super) async fn count_failure(&self, email: &str) -> Result<()> {
         let key = format!("fail|{email}");
         self.router.collection("identifier_limits").update_one(doc! {"_id": key}, vec![
             doc! {"$set": {
@@ -249,15 +264,20 @@ impl Call<'_> {
                 "expiresAt": self.date_after(3_600_000)
             }}
         ]).upsert(true).await.map_err(internal)?;
-        self.audit(
-            "auth.sign_in_failed",
-            doc! {"type":"anonymous"},
-            None,
-            Some(doc! {"method":method, "email":email, "status":i32::from(reply.status)}),
-            true,
-        )
-        .await?;
-        Ok(reply)
+        Ok(())
+    }
+
+    /// The seconds until a locked address may try again, or none when it is not locked.
+    pub(super) async fn failure_lock(&self, email: &str) -> Result<Option<i64>> {
+        let locked = self
+            .router
+            .collection("identifier_limits")
+            .find_one(doc! {"_id":format!("fail|{email}"), "lockedUntil":{"$gt":self.now}})
+            .await
+            .map_err(internal)?;
+        Ok(locked
+            .and_then(|limit| limit.get_datetime("lockedUntil").ok().copied())
+            .map(|until| retry_seconds(until.timestamp_millis(), self.now.timestamp_millis())))
     }
 
     pub(super) async fn request_reset(&self, body: &Value) -> Result<Response> {
