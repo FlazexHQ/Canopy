@@ -504,6 +504,7 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
     let mut listed_session_ids = HashMap::new();
     let mut revoked_session_ids = Vec::new();
     let mut jars: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut proofs: HashMap<String, Vec<String>> = HashMap::new();
     let steps = case["steps"].as_array().ok_or("Steps")?;
     let bearer_clients: std::collections::HashSet<_> = steps
         .iter()
@@ -573,6 +574,9 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                     jar.iter().map(|(name, value)| format!("{name}={}", percent_encode(value))).collect();
                 http = http.with_header("cookie", pairs.join("; "));
             }
+            if let Some(carried) = proofs.get(&client).filter(|carried| !carried.is_empty()) {
+                http = http.with_header("x-canopy-sign-up", carried.join(", "));
+            }
             if let Some(body) = request.get("body") {
                 if let Some(code) = body["code"].as_str().filter(|code| code.starts_with("<totp-")) {
                     use canopy_authn::totp::{TotpOptions, base32_decode, totp};
@@ -620,7 +624,31 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
             if waited.get() != expected_wait {
                 return Err(format!("{path} floor waited {:?}, expected {expected_wait:?}", waited.get()).into());
             }
-            let response = response_value(response, &secret, jwks)?;
+            let mut response = response_value(response, &secret, jwks)?;
+            // The Rust server answers sign up and upgrade with a proof that this client signed the account
+            // up, as a cookie and in `set-auth-sign-up`; the client keeps it and presents it later.
+            let headers = response["headers"].as_object_mut().ok_or("Response headers")?;
+            if let Some(proof) = headers.remove("set-auth-sign-up") {
+                let proof = proof.as_str().ok_or("Sign up proof")?.to_owned();
+                if let Some(exposed) = headers.get_mut("access-control-expose-headers") {
+                    assert_eq!(exposed, &json!("set-auth-token, set-auth-ceremony, set-auth-sign-up"));
+                    *exposed = json!("set-auth-token, set-auth-ceremony");
+                }
+                let cookies = response["cookies"].as_array_mut().ok_or("Response cookies")?;
+                let position = cookies
+                    .iter()
+                    .position(|cookie| cookie["name"] == "__Secure-canopy.sign_up")
+                    .ok_or("Sign up proof cookie")?;
+                assert_eq!(cookies.remove(position)["value"], json!(proof));
+                proofs.entry(client.clone()).or_default().push(proof);
+                let sorted: BTreeMap<String, Value> = response["headers"]
+                    .as_object()
+                    .ok_or("Response headers")?
+                    .iter()
+                    .map(|(name, value)| (name.as_str().to_owned(), value.clone()))
+                    .collect();
+                response["headers"] = serde_json_bytes::to_value(sorted)?;
+            }
             if case["id"] == "fresh-session-required"
                 && step["response"]["body"]["user"]["id"] == "<user-id-2>"
             {

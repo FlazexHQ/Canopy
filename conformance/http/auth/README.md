@@ -32,6 +32,14 @@ integer, and compares the rest as recorded. No recorded case reuses a code, so n
 counts `/upgrade` toward the per address limit (100 requests a minute), which the TypeScript server skips; the
 replay drops the `<address>|/upgrade` entry from `canopy_auth.rate_limits` before comparing.
 
+Rust answers every successful `/sign-up/email` and `/upgrade` with a proof that the client signed the account
+up: the `__Secure-canopy.sign_up` cookie and the same value in `set-auth-sign-up`, which
+`access-control-expose-headers` then also names. The first verification of an address, by link or email code,
+that carries neither the cookie nor the value in `x-canopy-sign-up` removes the account's password and ends
+its sessions. The replay removes the proof from those answers before comparing, checks that the cookie and the
+header agree, and acts as the one client that signed up: each recorded client sends the proofs it received in
+`x-canopy-sign-up` on its later requests, so every recorded verification keeps its password as recorded.
+
 ```
 http/auth/
   fixture.json        the public URL, the secret, the first instant, the base options, and the signing keys

@@ -20,6 +20,9 @@ pub enum AuthCookie {
     Passkey,
     /// The signed OAuth state.
     State,
+    /// The signed proof that this browser signed up the account it names, checked when the account's
+    /// address is first verified.
+    SignUp,
 }
 
 impl AuthCookie {
@@ -38,6 +41,8 @@ impl AuthCookie {
             (Self::Passkey, false) => "canopy.better-auth-passkey",
             (Self::State, true) => "__Secure-canopy.state",
             (Self::State, false) => "canopy.state",
+            (Self::SignUp, true) => "__Secure-canopy.sign_up",
+            (Self::SignUp, false) => "canopy.sign_up",
         }
     }
 }

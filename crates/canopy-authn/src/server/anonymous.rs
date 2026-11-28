@@ -76,6 +76,7 @@ impl Call<'_> {
         }
         let mut pending = response(200, object!("verification":"sent"));
         header(&mut pending, "cache-control", "no-store");
+        self.set_sign_up_proof(&mut pending, &id_text(&user.id));
         if self.user(doc! {"email": &email}).await?.is_some() {
             return Ok(pending);
         }

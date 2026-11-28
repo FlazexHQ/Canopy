@@ -50,6 +50,7 @@ use floor::ResponseFloor;
 type Result<T> = std::result::Result<T, CanopyError>;
 
 const PASSWORD_SLOTS: usize = 4;
+const SIGN_UP_PROOF_TTL: u64 = 2_592_000;
 const PASSWORD_WAITERS: usize = 8;
 const PASSWORD_QUEUE_WAIT: Duration = Duration::from_millis(250);
 const PASSWORD_CAPACITY_MESSAGE: &str = "Password processing is busy. Try again shortly";
@@ -302,6 +303,8 @@ impl AuthRouter {
             header(&mut response, "access-control-allow-credentials", "true");
             let exposed = if overloaded {
                 "set-auth-token, set-auth-ceremony, retry-after"
+            } else if response.header("set-auth-sign-up").is_some() {
+                "set-auth-token, set-auth-ceremony, set-auth-sign-up"
             } else {
                 "set-auth-token, set-auth-ceremony"
             };
@@ -782,6 +785,28 @@ impl Call<'_> {
         if let Some(cookie) = render_set_cookie(kind, value, self.router.secure(), expiration) {
             response.headers.push(("set-cookie".into(), cookie));
         }
+    }
+
+    /// Marks `response` with the proof that this browser signed up the account `id`: the sign up cookie,
+    /// and the same value in `set-auth-sign-up` for clients that keep no cookies.
+    fn set_sign_up_proof(&self, response: &mut Response, id: &str) {
+        let signed = sign_value(&self.router.options.secret, &format!("sign-up:{id}"));
+        self.set_cookie(response, AuthCookie::SignUp, &signed, Expiration::MaxAge(SIGN_UP_PROOF_TTL));
+        header(response, "set-auth-sign-up", signed);
+    }
+
+    /// Whether the request proves it comes from the browser that signed up `user`, through the sign up
+    /// cookie or `x-canopy-sign-up`, which holds one or more such values separated by commas (a client that
+    /// signed up several accounts keeps a proof for each).
+    fn signed_up_here(&self, user: &User) -> bool {
+        let expected = format!("sign-up:{}", id_text(&user.id));
+        let carried = self.request.header("x-canopy-sign-up").unwrap_or_default();
+        self.cookie(AuthCookie::SignUp)
+            .into_iter()
+            .chain(carried.split(',').map(|value| value.trim().to_owned()))
+            .any(|value| {
+                verify_session(&self.router.options.secret, &value).is_some_and(|payload| payload == expected)
+            })
     }
 
     fn set_session(&self, response: &mut Response, token: &str, remember: bool) {

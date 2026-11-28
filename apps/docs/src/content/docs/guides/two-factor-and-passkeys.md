@@ -88,3 +88,5 @@ roles and fields instead.
 Registering a passkey, listing sessions and unlinking an account need a sign in from the last 15 minutes. An
 older session gets `403` with `SESSION_NOT_FRESH` and has to sign in again first. TOTP enrolment always needs
 the account password, so an account without a password cannot enrol a second factor.
+If the Rust auth server removed the password during [email verification](../client/#verify-your-email),
+the user must reset their password before enrolling TOTP.

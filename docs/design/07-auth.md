@@ -38,6 +38,23 @@ transactional, in its own database `canopy_auth`. User collections never touch t
 | Organizations / teams | after 1.0 | Can be modeled today with `app_metadata` + `$ctx` |
 | Prebuilt UI components (`canopy.js/react-auth`) | after 1.0 | |
 
+### 2.1. Sign up and verify an email address
+
+The Rust auth server attaches a signed proof to every successful `POST /auth/v1/sign-up/email` and
+`POST /auth/v1/upgrade` response. It sets an `HttpOnly`, `SameSite=Lax` cookie with a 30 day lifetime,
+named `__Secure-canopy.sign_up` over HTTPS and `canopy.sign_up` over HTTP. The same proof is sent in
+`set-auth-sign-up`, which CORS exposes on these responses. When the address is already taken, the
+response still carries a proof, so its presence does not reveal whether the address has an account.
+That proof cannot be used to verify the existing account.
+
+On the first verification, by link (`GET /auth/v1/verify-email`) or email code
+(`POST /auth/v1/email-otp/verify-email`), the server checks for a proof matching the account in the cookie
+or in `x-canopy-sign-up`. The header accepts one or more comma separated values. Without a matching proof,
+the server verifies the address, removes any password credential, and ends the account's existing sessions
+if it removes a credential. These changes happen in one MongoDB transaction. The server audits the removal
+as `auth.password_removed`. The user sets a new password with a password reset. This proof check applies to
+the Rust auth server. The TypeScript auth server does not implement it.
+
 ## 3. Token model
 
 ```mermaid

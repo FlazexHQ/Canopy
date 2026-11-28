@@ -98,6 +98,60 @@ impl Call<'_> {
         Ok(status())
     }
 
+    /// Verifies the address of `user` for the first time and returns whether this call verified it. Unless
+    /// the request proves it comes from the browser that signed the account up, the same transaction removes
+    /// the account's password and ends its sessions: whoever set that password may not control the address.
+    pub(super) async fn confirm_address(&self, user: &User) -> Result<bool> {
+        let proven = self.signed_up_here(user);
+        let mut tx = self.router.auth.client().start_session().await.map_err(internal)?;
+        let outcome = tx
+            .start_transaction()
+            .and_run((self, user, proven), |tx, (call, user, proven)| {
+                Box::pin(async move {
+                    let verified = call
+                        .router
+                        .collection("users")
+                        .update_one(
+                            doc! {"_id": &user.id, "email": &user.email, "emailVerified": false},
+                            doc! {"$set": {"emailVerified": true, "updatedAt": call.now}},
+                        )
+                        .session(&mut *tx)
+                        .await?;
+                    if verified.modified_count == 0 {
+                        return Ok((false, false));
+                    }
+                    if *proven {
+                        return Ok((true, false));
+                    }
+                    let removed = call
+                        .router
+                        .collection("accounts")
+                        .delete_many(doc! {"userId": &user.id, "providerId": "credential"})
+                        .session(&mut *tx)
+                        .await?;
+                    if removed.deleted_count == 0 {
+                        return Ok((true, false));
+                    }
+                    call.end_sessions_in(tx, doc! {"userId": &user.id}).await?;
+                    Ok((true, true))
+                })
+            })
+            .await
+            .map_err(internal)?;
+        if outcome.1 {
+            let uid = id_text(&user.id);
+            self.audit(
+                "auth.password_removed",
+                doc! {"type": "user", "id": &uid},
+                Some(doc! {"type": "user", "id": &uid}),
+                Some(doc! {"reason": "address verified without the sign up proof"}),
+                true,
+            )
+            .await?;
+        }
+        Ok(outcome.0)
+    }
+
     pub(super) async fn verify_email(&self, query: &BTreeMap<String, String>) -> Result<Response> {
         let callback = query.get("callbackURL").map(String::as_str).unwrap_or("/");
         let Some(claims) = query.get("token").and_then(|token| self.verify_mail_jwt(token)) else {
@@ -132,16 +186,9 @@ impl Call<'_> {
                     .map_err(internal)?;
             }
             (None, None) if !user.email_verified => {
-                let result = self
-                    .router
-                    .collection("users")
-                    .update_one(
-                        doc! {"_id": &user.id, "email": &claims.email, "emailVerified":false},
-                        doc! {"$set": {"emailVerified": true, "updatedAt": self.now}},
-                    )
-                    .await
-                    .map_err(internal)?;
-                if result.modified_count == 1 && !user.extra.get_bool("twoFactorEnabled").unwrap_or(false) {
+                if self.confirm_address(&user).await?
+                    && !user.extra.get_bool("twoFactorEnabled").unwrap_or(false)
+                {
                     if let Some((session, _)) =
                         self.authenticated().await?.filter(|(_, current)| current.id == user.id)
                     {

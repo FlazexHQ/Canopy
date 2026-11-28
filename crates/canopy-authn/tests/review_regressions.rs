@@ -1,7 +1,8 @@
 //! Regression tests for the internal security review of built in auth: the fresh session rule on the
 //! session list, the address lock across reissued email codes, per network address limits for IPv6, a TOTP
 //! code accepted once only, the attempt limit of codes verified with a session, fresh sessions for changing
-//! the address of an unverified account and for deleting a passkey, and the address limit on `/upgrade`.
+//! the address of an unverified account and for deleting a passkey, the address limit on `/upgrade`, and the
+//! removal of a password set by someone who did not verify the address from the browser that signed up.
 
 #![allow(clippy::expect_used)]
 
@@ -29,12 +30,15 @@ const NOW: &str = "2031-01-01T00:00:00Z";
 const FRESH_MS: i64 = 900_000;
 
 #[derive(Default)]
-struct Codes(Mutex<Vec<String>>);
+struct Codes(Mutex<Vec<String>>, Mutex<Vec<String>>);
 
 impl AuthMail for Codes {
     fn send<'a>(self: Arc<Self>, _: EmailKind, recipient: Recipient<'a>) -> BoxFuture<'a, ()> {
         if let Some(code) = recipient.otp {
             self.0.lock().expect("codes").push(code.to_owned());
+        }
+        if let Some(link) = recipient.url {
+            self.1.lock().expect("links").push(link.to_owned());
         }
         Box::pin(std::future::ready(()))
     }
@@ -43,6 +47,10 @@ impl AuthMail for Codes {
 impl Codes {
     fn last(&self) -> String {
         self.0.lock().expect("codes").last().cloned().expect("a mailed code")
+    }
+
+    fn last_link(&self) -> String {
+        self.1.lock().expect("links").last().cloned().expect("a mailed link")
     }
 }
 
@@ -451,5 +459,119 @@ async fn upgrades_count_toward_the_address_limit() -> Result<()> {
     assert_eq!((limited.status, body(&limited)["code"].clone()), (429, json!("CANOPY_RATE_LIMITED")));
     assert!(limited.header("retry-after").is_some());
     assert_eq!(harness.post_as("203.0.113.61", "/upgrade", &upgrade(101), None, None).await.status, 401);
+    harness.close().await
+}
+
+const SIGN_UP_COOKIE: &str = "__Secure-canopy.sign_up";
+
+fn sign_up_cookie(reply: &Response) -> Option<String> {
+    reply.headers.iter().find_map(|(name, value)| {
+        let cookie = value.strip_prefix(SIGN_UP_COOKIE)?.strip_prefix('=')?;
+        (name == "set-cookie").then(|| cookie.split(';').next().unwrap_or_default().to_owned())
+    })
+}
+
+impl Harness {
+    async fn sign_up_reply(&self, address: &str, email: &str) -> Response {
+        let credentials = json!({"name": "Ada", "email": email, "password": "correct horse battery"});
+        let reply = self.post_as(address, "/sign-up/email", &credentials, None, None).await;
+        assert_eq!(reply.status, 200, "{}", String::from_utf8_lossy(&reply.body));
+        reply
+    }
+
+    async fn follow_link(&self, cookie: Option<&str>) -> Result<Response> {
+        let link = Url::parse(&self.codes.last_link())?;
+        let mut request =
+            Request::new("GET", format!("{}?{}", link.path(), link.query().unwrap_or_default()));
+        if let Some(cookie) = cookie {
+            request = request.with_header("cookie", format!("{SIGN_UP_COOKIE}={cookie}"));
+        }
+        Ok(self.send("203.0.113.70", request).await)
+    }
+
+    async fn signs_in(&self, email: &str) -> u16 {
+        let credentials = json!({"email": email, "password": "correct horse battery"});
+        self.post_as("203.0.113.71", "/sign-in/email", &credentials, None, None).await.status
+    }
+
+    async fn credentials(&self, email: &str) -> Result<u64> {
+        let user = self.auth.collection::<Document>("users").find_one(doc! {"email": email}).await?;
+        let id = user.ok_or("user")?.get("_id").cloned().ok_or("user id")?;
+        Ok(self
+            .auth
+            .collection::<Document>("accounts")
+            .count_documents(doc! {"userId": id, "providerId": "credential"})
+            .await?)
+    }
+}
+
+#[tokio::test]
+async fn verifying_an_address_without_the_sign_up_proof_removes_the_password() -> Result<()> {
+    let Some(harness) = Harness::open().await? else { return Ok(()) };
+    let squatter = harness.sign_up_reply("203.0.113.80", "victim@example.com").await;
+    let squatter_session = squatter.header("set-auth-token").ok_or("squatter session")?.to_owned();
+    assert!(sign_up_cookie(&squatter).is_some() && squatter.header("set-auth-sign-up").is_some());
+    let followed = harness.follow_link(None).await?;
+    assert_eq!(followed.status, 302);
+    assert_eq!(harness.credentials("victim@example.com").await?, 0);
+    assert_eq!(harness.signs_in("victim@example.com").await, 401, "the squatter's password no longer works");
+    let session = Request::new("GET", "/auth/v1/get-session")
+        .with_header("authorization", format!("Bearer {squatter_session}"));
+    assert_eq!(
+        body(&harness.send("203.0.113.81", session).await),
+        Value::Null,
+        "the squatter's session ended"
+    );
+    let removed = harness
+        .meta
+        .collection::<Document>("audit_log")
+        .count_documents(doc! {"action": "auth.password_removed"})
+        .await?;
+    assert_eq!(removed, 1);
+    harness.close().await
+}
+
+#[tokio::test]
+async fn verifying_from_the_browser_that_signed_up_keeps_the_password() -> Result<()> {
+    let Some(harness) = Harness::open().await? else { return Ok(()) };
+    let reply = harness.sign_up_reply("203.0.113.82", "owner@example.com").await;
+    let cookie = sign_up_cookie(&reply).ok_or("sign up cookie")?;
+    let taken = harness.sign_up_reply("203.0.113.83", "owner@example.com").await;
+    let other = sign_up_cookie(&taken).ok_or("a taken address also gets a proof")?;
+    assert_ne!(other, cookie);
+    let followed = harness.follow_link(Some(&other)).await?;
+    assert_eq!(followed.status, 302);
+    assert_eq!(harness.credentials("owner@example.com").await?, 0, "a proof for another sign up is no proof");
+
+    let reply = harness.sign_up_reply("203.0.113.84", "keeper@example.com").await;
+    let cookie = sign_up_cookie(&reply).ok_or("sign up cookie")?;
+    assert_eq!(harness.follow_link(Some(&cookie)).await?.status, 302);
+    assert_eq!(harness.credentials("keeper@example.com").await?, 1);
+    assert_eq!(harness.signs_in("keeper@example.com").await, 200);
+    harness.close().await
+}
+
+#[tokio::test]
+async fn an_email_code_keeps_the_password_only_with_the_sign_up_proof() -> Result<()> {
+    let Some(harness) = Harness::open().await? else { return Ok(()) };
+    for (email, carry) in [("coded@example.com", true), ("uncoded@example.com", false)] {
+        let reply = harness.sign_up_reply("203.0.113.90", email).await;
+        let proof = reply.header("set-auth-sign-up").ok_or("sign up proof header")?.to_owned();
+        let send = json!({"email": email, "type": "email-verification"});
+        let sent =
+            harness.post_as("203.0.113.91", "/email-otp/send-verification-otp", &send, None, None).await;
+        assert_eq!(sent.status, 200, "{}", String::from_utf8_lossy(&sent.body));
+        let mut request = Request::new("POST", "/auth/v1/email-otp/verify-email")
+            .with_header("origin", APP)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"email": email, "otp": harness.codes.last()}).to_string().into_bytes());
+        if carry {
+            request = request.with_header("x-canopy-sign-up", proof);
+        }
+        let verified = harness.send("203.0.113.92", request).await;
+        assert_eq!(verified.status, 200, "{}", String::from_utf8_lossy(&verified.body));
+        assert_eq!(harness.credentials(email).await?, u64::from(carry), "{email}");
+        assert_eq!(harness.signs_in(email).await, if carry { 200 } else { 401 }, "{email}");
+    }
     harness.close().await
 }

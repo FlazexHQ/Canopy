@@ -48,4 +48,12 @@ never sends or sees the first one's queue.
 `createAuth({ url, storage: mmkvPersister(...) })` works on mobile in the default `bearer` mode. OAuth sign in
 needs a redirect URL registered in `auth.redirectUrls`, opened with the platform's browser session API.
 
+After email sign up on the Rust auth server, call `auth.sendVerificationOtp({ email })` and submit the
+user's code in the app with `auth.verifyEmailWithOtp({ email, otp })`. Canopy.js uses the sign up proof
+to keep the password and saves the proof in the configured storage across app restarts. If the user
+verifies their address by opening the email link in an external browser, the browser has no access to
+the app's proof. The Rust auth server verifies the address and removes the original password on first
+verification. The user can set a new password through a password reset. See
+[Verify your email](../client/#verify-your-email) for the flow.
+
 The React hooks from `canopy.js/react` work unchanged.

@@ -52,7 +52,18 @@ impl Call<'_> {
             .map_err(internal)
     }
 
+    /// Signs a user up. Every successful answer, also the one for an address that is taken, carries a sign
+    /// up proof, so the answer does not reveal which addresses have accounts.
     pub(super) async fn sign_up(&self, body: &Value) -> Result<Response> {
+        let id = Bson::ObjectId(object_id(self.now));
+        let mut reply = self.sign_up_as(body, &id).await?;
+        if reply.status == 200 {
+            self.set_sign_up_proof(&mut reply, &id_text(&id));
+        }
+        Ok(reply)
+    }
+
+    async fn sign_up_as(&self, body: &Value, id: &Bson) -> Result<Response> {
         let pending =
             || response(200, object!("token":Value::Null, "user":Value::Null, "verification":"sent"));
         let Some(name) = body.get("name").and_then(Value::as_str) else {
@@ -88,7 +99,7 @@ impl Call<'_> {
             extra.insert("userMetadata", metadata.to_string());
         }
         let user = User {
-            id: Bson::ObjectId(object_id(self.now)),
+            id: id.clone(),
             name: name.into(),
             email,
             email_verified: false,

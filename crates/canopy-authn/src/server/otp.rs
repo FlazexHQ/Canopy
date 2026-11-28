@@ -277,12 +277,18 @@ impl Call<'_> {
     }
 
     async fn verify_with_otp(&self, email: &str) -> Result<Response> {
+        let Some(found) = self.user(doc! {"email": email}).await? else {
+            return Ok(error(400, "USER_NOT_FOUND", "User not found"));
+        };
+        if !found.email_verified {
+            self.confirm_address(&found).await?;
+        }
         let Some(user) = self
             .router
             .auth
             .collection::<User>("users")
             .find_one_and_update(
-                doc! {"email": email},
+                doc! {"_id": &found.id, "email": email},
                 doc! {"$set": {"emailVerified": true, "updatedAt": self.now}},
             )
             .return_document(ReturnDocument::After)

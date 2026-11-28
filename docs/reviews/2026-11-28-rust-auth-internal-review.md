@@ -60,7 +60,7 @@ The P3 findings are documented below and left as they are.
 | RA-7 | P3 | Secrets at rest: reset and magic link tokens in verification identifiers, email codes in clear, backup codes encrypted but not hashed, provider tokens in clear | Documented (oracle formats) |
 | RA-8 | P3 | Cookies use the `__Secure-` prefix, not `__Host-`, and the first cookie of a name wins: cookie tossing from a sibling subdomain | Accepted by the maintainer (names kept) |
 | RA-9 | P3 | A 32 character session token is accepted as a bearer token without its signature | Documented (as Better Auth's bearer plugin) |
-| RA-10 | P3 | Pre account hijack through the verification link keeps the squatter's password | Open, needs a decision (both servers) |
+| RA-10 | P3 | Pre account hijack through the verification link keeps the squatter's password | Fixed in Rust (sign up proof) |
 | RA-11 | P3 | Password hashing waits in an unbounded queue behind four slots | Fixed |
 | RA-12 | P3 | The claims hook's failure reason, transport text included, is returned to the client | Fixed in Rust |
 | RA-13 | P3 | One secret keys the cookie HMAC, the mail JWT HMAC and the encryption key, with no labels | Documented (no confusion found) |
@@ -226,14 +226,19 @@ recorded ones.
   verification link (`verify_email`, [`email.rs`](../../crates/canopy-authn/src/server/email.rs)) or uses an
   email verification code (`verify_with_otp`), the address is verified with the attacker's password still on
   it. Magic link and email code sign in (`promote_passwordless`) and provider sign in (which refuses to link
-  an unverified user) are safe. Both servers behave the same. **Open, needs a decision.** The server cannot
-  tell the squatter's verification link from an honest one, so each fix costs honest users something:
-  (a) the first verification of an account created with a password clears that password and ends its
-  sessions, so every new user resets the password they just chose; (b) sign up sets a cookie, and a link or
-  code used without it verifies the address but clears the password, so only users who verify on another
-  device or browser reset it; (c) verification keeps the password but ends every session created before it,
-  which only helps when verification is not required for sign in. Option (b) closes the hijack with the
-  least friction.
+  an unverified user) are safe. Both servers behave the same. **Fixed in Rust** (the maintainer chose the
+  sign up proof). Every successful `/sign-up/email` and `/upgrade` answer, also for a taken address (bound to
+  no account), carries a proof that this client signed the account up: the `__Secure-canopy.sign_up` cookie
+  (HttpOnly, SameSite=Lax, 30 days) and the same value in `set-auth-sign-up`. The first verification of an
+  account's address, by link or email code, without that proof (the cookie, or `x-canopy-sign-up` from
+  clients that keep no cookies) verifies the address but removes the password credential and ends every
+  session in the same transaction, audited as `auth.password_removed`; the owner sets a password through a
+  reset. Honest users keep their password when they verify in the browser that signed up, or with an email
+  code through Canopy.js (`verifyEmailWithOtp`, which presents the proof); a link opened in another browser,
+  or by a bearer mode app, costs a password reset (`review_regressions.rs`:
+  `verifying_an_address_without_the_sign_up_proof_removes_the_password`,
+  `verifying_from_the_browser_that_signed_up_keeps_the_password`,
+  `an_email_code_keeps_the_password_only_with_the_sign_up_proof`).
 - **RA-11.** `derive` waits for one of four permits with no bound or timeout. Sign up and sign in hash for
   unknown addresses too (as they must for uniform timing), so a distributed flood delays every password sign
   in. A bounded queue answering `503` would cap it. **Fixed.** Four hashes run and eight more may wait, each
@@ -361,10 +366,8 @@ recorded ones.
   attestation with an `x5c` chain, RS256 passkeys, key rotation over time, revocations written by another
   node, and an http public URL.
 - A timing study of the response floor under load on production hardware.
-- The TypeScript counterparts of RA-2, RA-4, RA-5, RA-6, RA-11, RA-12, RA-14 and RA-17, while the
+- The TypeScript counterparts of RA-2, RA-4, RA-5, RA-6, RA-10, RA-11, RA-12, RA-14 and RA-17, while the
   TypeScript auth fallback remains deployable.
-- RA-10 needs a decision from the maintainer: every rule that removes the squatter's password also changes
-  sign up for honest users (see its entry).
 
 ## Verification
 
