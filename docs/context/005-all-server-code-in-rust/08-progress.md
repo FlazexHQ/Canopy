@@ -3,6 +3,47 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-28): stopped by the maintainer; where to continue
+
+The maintainer stopped every process on 2026-11-28. Nothing is left uncommitted: the branch head is `f528499d` on
+`refactor/rust-port` (PR #6), and Canopy.js is at `ce09f7e` on `refactor/rust-core`. No agent is running, and
+the test replica sets used this round (MongoDB 8.0.34 on ports 37801 and 37901, 9.0.8 on 37090, under
+`target/mongod-p3a`, `target/mongod-p3b` and `target/mongod-r5-90`) were shut down; start one again with
+`bun packages/testing/scripts/mongod.ts --version <version> --dir <folder> --port <port>` (the folders keep
+their binaries, so nothing downloads).
+
+### Done this round (see the checkpoints below)
+
+- The internal review of Rust auth is closed in Rust: every P1 to P3 finding is fixed except RA-7, RA-9 and
+  RA-13 (documented formats) and RA-8 (accepted); RA-10 by the sign up proof (`98d46132`, Canopy.js `ce09f7e`).
+- Every Rust crate encodes and decodes base64 in constant time with `base64ct` (`096986f0`).
+- Nightly repairs: the Alpine MongoDB extraction (`e71199c4`, confirmed on Bun) and the Alpine Node.js launcher
+  test (`b1ac456c`, not yet confirmed).
+
+### Not confirmed when stopped
+
+- Nightly run [46150968816](https://github.com/FlazexHQ/Canopy/actions/runs/46150968816) on `98d46132` was still
+  running: 20 jobs passed, Alpine failed only on the launcher test that `b1ac456c` fixes, and the `cargo fuzz`
+  jobs (including `authn_tokens`, fixed in `9d4b26c9`) had not reported. Its watcher was cancelled.
+- CI and Native release builds for the pushes after `98d46132` were not followed to the end.
+
+### Where to continue
+
+1. Read the final result of run 46150968816 (`gh run view 46150968816`), then dispatch a nightly on the branch
+   head (`gh workflow run nightly.yml --ref refactor/rust-port -f suite=all`) to confirm the Alpine job and the
+   `authn_tokens` fuzz target; fix anything else it reports.
+2. Check CI and Native release builds on `f528499d` (`gh run list --branch refactor/rust-port`).
+3. Regenerate the docs site API reference after building Canopy.js (`bun run build` there, `bun install` here),
+   so `apps/docs/src/content/docs/reference/api/client.md` lists `sendVerificationOtp` and
+   `verifyEmailWithOtp`.
+4. Maintainer items: the Security workflow finding on PR #6 (the unmarked credential URI test line in
+   `9af1d9c1`: a path exclusion or excluding the URI detector), merging `refactor/rust-port` to master (which
+   starts the 24 CPU hour fuzz campaign and unblocks R7), merging Canopy.js `refactor/rust-core`, the external
+   review, and React Native on devices.
+5. Working agreement: Gemini (`antigravity_sudhan_s_antigravity`) runs tests, benchmarks and CI watching and
+   updates this context; small and medium coding tasks go to Codex (`codex_sudhan_s_codex` or `codex`;
+   `codex_prajo_s_codex` was out of quota until 2026-12-01); no Opus agent unless the maintainer asks.
+
 ## Checkpoint (2026-11-28): constant time base64 and the Alpine launcher test (096986f0, b1ac456c)
 
 - `096986f0` (`refactor`): every Rust crate (`canopy-auth`, `canopy-authn`, `canopy-control`, `canopy-wire`,
