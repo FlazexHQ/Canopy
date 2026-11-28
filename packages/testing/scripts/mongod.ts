@@ -171,6 +171,8 @@ async function main(): Promise<void> {
     "--wiredTigerCacheSizeGB",
     "1",
     "--setParameter",
+    "enableTestCommands=1",
+    "--setParameter",
     "wiredTigerFileHandleCloseIdleTime=30",
     "--setParameter",
     "wiredTigerFileHandleCloseMinimum=250",

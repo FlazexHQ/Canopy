@@ -1,8 +1,8 @@
 import { allow, collection, createPolicySet } from "@canopy/policy"
-import { CanopyError, ErrorCode } from "@canopy/protocol"
+import { CanopyError, ErrorCode, serverErrorCode } from "@canopy/protocol"
 import { describeWithMongo, testPolicyEngine } from "@canopy/testing"
 import { BSON, MongoServerError } from "mongodb"
-import { beforeAll, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { type Caller, fromDriverError, ReadPath } from "../src/index.ts"
 
 function serverError(code: number | BSON.Int32, codeName: string): MongoServerError {
@@ -59,28 +59,40 @@ describeWithMongo("read time limit", (db) => {
     subject: "a",
   }
 
-  beforeAll(async () => {
-    const coll = db().collection<{ _id: number; amount: number }>("orders")
-    for (let from = 0; from < 100_000; from += 10_000)
-      await coll.insertMany(
-        Array.from({ length: 10_000 }, (_, i) => ({ _id: from + i, amount: (from + i) % 1000 })),
-      )
-  })
-
   it("reports a read that runs out of time as CANOPY_TIMEOUT", async () => {
+    const { client } = db()
+    const coll = db().collection("orders")
+    await coll.insertOne({ amount: 100 })
     const reads = new ReadPath({
-      client: db().client,
-      database: db().collection("orders").dbName,
+      client,
+      database: coll.dbName,
       policies: testPolicyEngine(createPolicySet([orders])),
       limits: { maxTimeMS: 1 },
     })
-    const error: unknown = await reads
-      .find(auditor, { collection: "orders", filter: { amount: { $gt: 5000 } }, limit: 10 })
-      .then(
-        () => undefined,
-        (caught: unknown) => caught,
+    const admin = client.db("admin")
+    await admin.command({
+      configureFailPoint: "failCommand",
+      mode: { times: 1 },
+      data: {
+        namespace: `${coll.dbName}.${coll.collectionName}`,
+        failCommands: ["find"],
+        blockConnection: true,
+        blockTimeMS: 100,
+      },
+    })
+    try {
+      await expect(reads.find(auditor, { collection: "orders", limit: 10 })).rejects.toSatisfy(
+        (error: unknown) => {
+          expect(error).toBeInstanceOf(CanopyError)
+          if (!(error instanceof CanopyError)) return false
+          expect(error.code).toBe(ErrorCode.Timeout)
+          expect(error.cause).toBeInstanceOf(MongoServerError)
+          expect(serverErrorCode(error.cause)).toBe(50)
+          return true
+        },
       )
-    expect(error).toBeInstanceOf(CanopyError)
-    expect((error as CanopyError).code).toBe(ErrorCode.Timeout)
+    } finally {
+      await admin.command({ configureFailPoint: "failCommand", mode: "off" })
+    }
   })
 })

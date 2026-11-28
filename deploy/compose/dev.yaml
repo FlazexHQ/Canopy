@@ -3,7 +3,7 @@ name: canopy-dev
 services:
   mongo:
     image: ${CANOPY_MONGO_IMAGE:-mongo:8.0.34@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142}
-    command: ["--replSet", "rs0", "--bind_ip_all"]
+    command: ["--replSet", "rs0", "--bind_ip_all", "--setParameter", "enableTestCommands=1"]
     ports: ["27017:27017"]
     volumes:
       - mongo-data:/data/db
