@@ -14,7 +14,8 @@ impl ReplayPasskeys {
         for passkey in manifest["passkeys"].as_array().ok_or("Passkey manifest")? {
             let description = &passkey["authenticator"];
             let key = &description["jwk"];
-            let decode = |field| -> Result<Vec<u8>> { Ok(URL_SAFE_NO_PAD.decode(str_at(key, field)?)?) };
+            let decode =
+                |field| -> Result<Vec<u8>> { Ok(Base64UrlUnpadded::decode_vec(&str_at(key, field)?)?) };
             let d = decode("d")?;
             let x = decode("x")?;
             let key = match description["algorithm"].as_str() {
@@ -27,7 +28,7 @@ impl ReplayPasskeys {
                 name,
                 Authenticator {
                     key,
-                    credential_id: URL_SAFE_NO_PAD.decode(str_at(description, "credentialId")?)?,
+                    credential_id: Base64UrlUnpadded::decode_vec(&str_at(description, "credentialId")?)?,
                     aaguid: hex::decode(str_at(description, "aaguid")?)?
                         .try_into()
                         .map_err(|_| "Fixture AAGUID")?,
@@ -48,11 +49,14 @@ impl ReplayPasskeys {
         let name = str_at(details, "authenticator")?;
         let authenticator = self.authenticators.get(&name).ok_or("Fixture authenticator")?;
         let incoming = &step["request"]["body"]["response"];
-        assert_eq!(str_at(incoming, "rawId")?, URL_SAFE_NO_PAD.encode(&authenticator.credential_id));
+        assert_eq!(
+            str_at(incoming, "rawId")?,
+            Base64UrlUnpadded::encode_string(&authenticator.credential_id)
+        );
         let wire = &incoming["response"];
         let client = &details["clientData"];
         let client_json = bindings.resolve(&client.to_string())?.into_bytes();
-        bindings.bind(&str_at(wire, "clientDataJSON")?, &URL_SAFE_NO_PAD.encode(&client_json))?;
+        bindings.bind(&str_at(wire, "clientDataJSON")?, &Base64UrlUnpadded::encode_string(&client_json))?;
         if registration {
             let count = self.registrations.entry(name.clone()).or_default();
             if name == "device" {
@@ -86,20 +90,22 @@ impl ReplayPasskeys {
             } else {
                 authenticator.register_with(client_json, auth_data, packed).attestation_object
             };
-            bindings
-                .compare_text(&str_at(wire, "attestationObject")?, &URL_SAFE_NO_PAD.encode(attestation))?;
+            bindings.compare_text(
+                &str_at(wire, "attestationObject")?,
+                &Base64UrlUnpadded::encode_string(&attestation),
+            )?;
         } else {
             let fields = &details["authenticatorData"];
             let rp_id_hash = hex::decode(str_at(fields, "rpIdHash")?)?;
             let flags = u8::try_from(fields["flags"].as_u64().ok_or("Authenticator flags")?)?;
             let count = u32::try_from(fields["signCount"].as_u64().ok_or("Authenticator counter")?)?;
             let auth_data = [rp_id_hash.as_slice(), &[flags], &count.to_be_bytes()].concat();
-            assert_eq!(str_at(wire, "authenticatorData")?, URL_SAFE_NO_PAD.encode(&auth_data));
+            assert_eq!(str_at(wire, "authenticatorData")?, Base64UrlUnpadded::encode_string(&auth_data));
             let mut signed = authenticator.assert_with(client_json, auth_data).signature;
             if step["client"] == "a" {
                 signed.fill(1);
             }
-            bindings.bind(&str_at(wire, "signature")?, &URL_SAFE_NO_PAD.encode(signed))?;
+            bindings.bind(&str_at(wire, "signature")?, &Base64UrlUnpadded::encode_string(&signed))?;
         }
         Ok(())
     }

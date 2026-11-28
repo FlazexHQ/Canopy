@@ -1,4 +1,4 @@
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64, Base64UrlUnpadded, Encoding};
 use ring::{
     rand::SystemRandom,
     signature::{self, EcdsaKeyPair},
@@ -28,13 +28,15 @@ pub(super) fn decode(token: &str) -> Option<Jwt> {
     if claims.contains('.') {
         return None;
     }
-    let header = serde_json::from_slice::<Map<String, Value>>(&URL_SAFE_NO_PAD.decode(header).ok()?).ok()?;
-    let claims = serde_json::from_slice::<Map<String, Value>>(&URL_SAFE_NO_PAD.decode(claims).ok()?).ok()?;
+    let header =
+        serde_json::from_slice::<Map<String, Value>>(&Base64UrlUnpadded::decode_vec(header).ok()?).ok()?;
+    let claims =
+        serde_json::from_slice::<Map<String, Value>>(&Base64UrlUnpadded::decode_vec(claims).ok()?).ok()?;
     Some(Jwt {
         header,
         claims,
         signed: signed.to_owned(),
-        signature: URL_SAFE_NO_PAD.decode(signature).ok()?,
+        signature: Base64UrlUnpadded::decode_vec(signature).ok()?,
     })
 }
 
@@ -54,7 +56,7 @@ pub(super) struct Jwk {
 }
 
 fn base64_field(jwk: &Map<String, Value>, name: &str) -> Option<Vec<u8>> {
-    URL_SAFE_NO_PAD.decode(jwk.get(name)?.as_str()?).ok()
+    Base64UrlUnpadded::decode_vec(jwk.get(name)?.as_str()?).ok()
 }
 
 fn parse_key(jwk: &Map<String, Value>) -> Option<Jwk> {
@@ -183,16 +185,17 @@ pub(super) fn sign_es256(pkcs8: &[u8], key_id: &str, claims: &Value) -> Option<S
     let pair =
         EcdsaKeyPair::from_pkcs8(&signature::ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8, &SystemRandom::new())
             .ok()?;
-    let header = URL_SAFE_NO_PAD.encode(json!({"alg": "ES256", "kid": key_id}).to_string());
-    let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
+    let header =
+        Base64UrlUnpadded::encode_string(json!({"alg": "ES256", "kid": key_id}).to_string().as_bytes());
+    let payload = Base64UrlUnpadded::encode_string(claims.to_string().as_bytes());
     let signed = format!("{header}.{payload}");
     let tag = pair.sign(&SystemRandom::new(), signed.as_bytes()).ok()?;
-    Some(format!("{signed}.{}", URL_SAFE_NO_PAD.encode(tag.as_ref())))
+    Some(format!("{signed}.{}", Base64UrlUnpadded::encode_string(tag.as_ref())))
 }
 
 pub(super) fn pem_der(text: &str) -> Option<Vec<u8>> {
     let body: String = text.lines().map(str::trim).filter(|line| !line.starts_with("-----")).collect();
-    base64::engine::general_purpose::STANDARD.decode(body).ok()
+    Base64::decode_vec(&body).ok()
 }
 
 #[cfg(test)]
@@ -213,14 +216,14 @@ mod tests {
         let pair = RsaKeyPair::from_der(RSA_KEY).expect("test key");
         let public = PublicKeyComponents::<Vec<u8>>::from(pair.public());
         json!({"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig",
-            "n": URL_SAFE_NO_PAD.encode(&public.n), "e": URL_SAFE_NO_PAD.encode(&public.e)})
+            "n": Base64UrlUnpadded::encode_string(&public.n), "e": Base64UrlUnpadded::encode_string(&public.e)})
     }
 
     fn encode(header: &Value, claims: &Value) -> String {
         format!(
             "{}.{}",
-            URL_SAFE_NO_PAD.encode(header.to_string()),
-            URL_SAFE_NO_PAD.encode(claims.to_string())
+            Base64UrlUnpadded::encode_string(header.to_string().as_bytes()),
+            Base64UrlUnpadded::encode_string(claims.to_string().as_bytes())
         )
     }
 
@@ -229,7 +232,7 @@ mod tests {
         let signed = encode(&json!({"alg": "RS256", "kid": kid}), claims);
         let mut tag = vec![0; pair.public().modulus_len()];
         pair.sign(&RSA_PKCS1_SHA256, &SystemRandom::new(), signed.as_bytes(), &mut tag).expect("sign");
-        format!("{signed}.{}", URL_SAFE_NO_PAD.encode(tag))
+        format!("{signed}.{}", Base64UrlUnpadded::encode_string(&tag))
     }
 
     fn claims() -> Value {
@@ -280,7 +283,8 @@ mod tests {
     fn refuses_hs256_signed_with_the_client_secret() {
         let signed = encode(&json!({"alg": "HS256", "kid": "rsa-1"}), &claims());
         let tag = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, b"client secret"), signed.as_bytes());
-        let token = decode(&format!("{signed}.{}", URL_SAFE_NO_PAD.encode(tag.as_ref()))).expect("token");
+        let token =
+            decode(&format!("{signed}.{}", Base64UrlUnpadded::encode_string(tag.as_ref()))).expect("token");
         assert_eq!(verify(&token, &keys(), &rs256_only()), Signature::Invalid);
         assert_eq!(verify(&token, &keys(), &["HS256".into()]), Signature::Invalid);
     }
@@ -357,7 +361,7 @@ mod tests {
                 .expect("pair");
         let pem = format!(
             "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-            base64::engine::general_purpose::STANDARD.encode(pkcs8.as_ref())
+            Base64::encode_string(pkcs8.as_ref())
         );
         let claims = json!({"iss": "TEAM", "sub": "client", "aud": "https://appleid.apple.com"});
         let token = sign_es256(&pem_der(&pem).expect("PEM"), "KEY1", &claims).expect("secret");
@@ -368,7 +372,7 @@ mod tests {
         let (x, y) = public.get(1..).expect("point").split_at(32);
         let keys = parse_key_set(
             json!({"keys": [{"kty": "EC", "crv": "P-256", "kid": "KEY1",
-                "x": URL_SAFE_NO_PAD.encode(x), "y": URL_SAFE_NO_PAD.encode(y)}]})
+                "x": Base64UrlUnpadded::encode_string(x), "y": Base64UrlUnpadded::encode_string(y)}]})
             .to_string()
             .as_bytes(),
         )

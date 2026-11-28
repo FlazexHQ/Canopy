@@ -6,8 +6,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_webauthn::{CborValue, encode_cbor};
 use ring::digest::{SHA256, digest};
 use ring::rand::SystemRandom;
@@ -33,7 +32,7 @@ pub fn sha256(data: &[u8]) -> Vec<u8> {
 }
 
 pub fn b64url(data: &[u8]) -> String {
-    URL_SAFE_NO_PAD.encode(data)
+    Base64UrlUnpadded::encode_string(data)
 }
 
 /// One ceremony of a spec test vector section: its `name = hex` lines.

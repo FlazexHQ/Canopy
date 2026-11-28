@@ -13,8 +13,7 @@ mod support;
 
 use std::collections::HashMap;
 
-use base64::Engine;
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
+use base64ct::{Base64, Base64Unpadded, Base64UrlUnpadded, Encoding as _};
 use canopy_webauthn::{
     AuthenticationExpectation, AuthenticationResponse, CoseKey, Error, RegisteredCredential,
     RegistrationExpectation, RegistrationResponse, RelyingParty, StoredCredential, UserVerification,
@@ -39,12 +38,12 @@ fn relying_party(manifest: &Json) -> RelyingParty {
 }
 
 fn b64url(text: &str) -> Vec<u8> {
-    URL_SAFE_NO_PAD.decode(text).unwrap()
+    Base64UrlUnpadded::decode_vec(text).unwrap()
 }
 
 /// The stored `publicKey`: padded standard base64, though the fixture README calls it unpadded; read either.
 fn stored_public_key(text: &str) -> Vec<u8> {
-    STANDARD_NO_PAD.decode(text.trim_end_matches('=')).unwrap()
+    Base64Unpadded::decode_vec(text.trim_end_matches('=')).unwrap()
 }
 
 fn uuid(bytes: &[u8]) -> String {
@@ -75,7 +74,10 @@ fn recorded_authenticators(manifest: &Json) -> HashMap<String, Recorded> {
             other => panic!("unknown algorithm {other}"),
         };
         let credential_id = sha256(format!("credential id {seed}").as_bytes())[..16].to_vec();
-        assert_eq!(URL_SAFE_NO_PAD.encode(&credential_id), description["credentialId"].as_str().unwrap());
+        assert_eq!(
+            Base64UrlUnpadded::encode_string(&credential_id),
+            description["credentialId"].as_str().unwrap()
+        );
         let aaguid: [u8; 16] = sha256(format!("aaguid {seed}").as_bytes())[..16].try_into().unwrap();
         assert_eq!(support::hex(description["aaguid"].as_str().unwrap()), aaguid);
         let authenticator = Authenticator {
@@ -292,9 +294,9 @@ fn recorded_passkey_requests_verify_as_the_typescript_server_answered() {
                 );
                 result.map(|credential| {
                     let body = &step["response"]["body"];
-                    assert_eq!(STANDARD.encode(&credential.public_key_cose), body["publicKey"], "{at}");
+                    assert_eq!(Base64::encode_string(&credential.public_key_cose), body["publicKey"], "{at}");
                     assert_eq!(
-                        URL_SAFE_NO_PAD.encode(&credential.credential_id),
+                        Base64UrlUnpadded::encode_string(&credential.credential_id),
                         body["credentialID"],
                         "{at}"
                     );

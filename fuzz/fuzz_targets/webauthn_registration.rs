@@ -5,8 +5,7 @@
 
 #![no_main]
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding};
 use canopy_webauthn::{
     CoseKey, RegistrationExpectation, RegistrationResponse, RelyingParty, UserVerification,
 };
@@ -19,7 +18,7 @@ fuzz_target!(|input: (bool, bool, &[u8], &[u8], &[u8])| {
     let Ok(rp) = RelyingParty::new("example.org", ["https://example.org"]) else { return };
     let built = format!(
         r#"{{"type":"webauthn.create","challenge":"{}","origin":"https://example.org","crossOrigin":false}}"#,
-        URL_SAFE_NO_PAD.encode(CHALLENGE)
+        Base64UrlUnpadded::encode_string(CHALLENGE)
     );
     let client_data_json = if valid_client_data { built.as_bytes() } else { client_data };
     let user_verification = if required { UserVerification::Required } else { UserVerification::Discouraged };

@@ -2,7 +2,7 @@
 
 use std::{cmp::Reverse, collections::HashSet};
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use bson::Document;
 use http::{Method, Response, StatusCode, header};
 use ring::{
@@ -112,12 +112,12 @@ impl SigningKey {
         let encrypted = self.document.get_str("privateKey").map_err(|_| invalid())?;
         let plaintext = Zeroizing::new(decrypt_signing_key(secret, encrypted).ok_or_else(invalid)?);
         let private: PrivateKey<'_> = serde_json::from_str(&plaintext).map_err(|_| invalid())?;
-        let scalar = Zeroizing::new(URL_SAFE_NO_PAD.decode(private.d).map_err(|_| invalid())?);
+        let scalar = Zeroizing::new(Base64UrlUnpadded::decode_vec(private.d).map_err(|_| invalid())?);
         let point = public_point(self.algorithm, &self.public).ok_or_else(invalid)?;
         match self.algorithm {
             Algorithm::EdDSA => {
                 let key = Ed25519KeyPair::from_seed_and_public_key(&scalar, &point).map_err(|_| invalid())?;
-                Ok(URL_SAFE_NO_PAD.encode(key.sign(message).as_ref()))
+                Ok(Base64UrlUnpadded::encode_string(key.sign(message).as_ref()))
             }
             Algorithm::ES256 => {
                 let random = SystemRandom::new();
@@ -129,7 +129,7 @@ impl SigningKey {
                 )
                 .map_err(|_| invalid())?;
                 let signature = key.sign(&random, message).map_err(|_| TokenError::SigningFailed)?;
-                Ok(URL_SAFE_NO_PAD.encode(signature.as_ref()))
+                Ok(Base64UrlUnpadded::encode_string(signature.as_ref()))
             }
         }
     }
@@ -142,7 +142,7 @@ struct PrivateKey<'a> {
 
 fn public_point(algorithm: Algorithm, key: &Map<ByteString, Value>) -> Option<Vec<u8>> {
     let field = |name| key.get(name).and_then(Value::as_str);
-    let coordinate = |name| <[u8; 32]>::try_from(URL_SAFE_NO_PAD.decode(field(name)?).ok()?).ok();
+    let coordinate = |name| <[u8; 32]>::try_from(Base64UrlUnpadded::decode_vec(field(name)?).ok()?).ok();
     let x = coordinate("x")?;
     match algorithm {
         Algorithm::EdDSA if field("crv") == Some("Ed25519") && field("kty") == Some("OKP") => {
@@ -286,8 +286,11 @@ impl KeyRing {
         let header = serde_json::to_vec(&Header { alg: key.algorithm, kid: &key.id })
             .map_err(|_| TokenError::SigningFailed)?;
         let payload = serde_json::to_vec(&claims).map_err(|_| TokenError::SigningFailed)?;
-        let mut access_token =
-            format!("{}.{}", URL_SAFE_NO_PAD.encode(header), URL_SAFE_NO_PAD.encode(payload));
+        let mut access_token = format!(
+            "{}.{}",
+            Base64UrlUnpadded::encode_string(&header),
+            Base64UrlUnpadded::encode_string(&payload)
+        );
         let signature = key.sign(secret, access_token.as_bytes())?;
         access_token.push('.');
         access_token.push_str(&signature);

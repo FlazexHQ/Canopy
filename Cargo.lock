@@ -399,7 +399,7 @@ checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 name = "canopy-auth"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-engine",
  "canopy-mongo",
  "canopy-policy",
@@ -417,7 +417,7 @@ version = "0.0.0"
 dependencies = [
  "aes",
  "argon2",
- "base64 0.22.1",
+ "base64ct",
  "bcrypt",
  "bson",
  "canopy-auth",
@@ -469,7 +469,7 @@ dependencies = [
 name = "canopy-cli"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "bson",
  "canopy-authn",
  "canopy-authoring",
@@ -508,7 +508,7 @@ dependencies = [
 name = "canopy-config"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-protocol",
  "indexmap",
  "serde",
@@ -521,7 +521,7 @@ name = "canopy-control"
 version = "0.0.0"
 dependencies = [
  "argon2",
- "base64 0.22.1",
+ "base64ct",
  "canopy-auth",
  "canopy-authn",
  "canopy-config",
@@ -551,7 +551,7 @@ dependencies = [
 name = "canopy-data"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-engine",
  "canopy-matcher",
  "canopy-mongo",
@@ -711,7 +711,7 @@ dependencies = [
 name = "canopy-realtime"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-auth",
  "canopy-engine",
  "canopy-mongo",
@@ -754,7 +754,7 @@ dependencies = [
 name = "canopy-storage"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-auth",
  "canopy-data",
  "canopy-http",
@@ -793,7 +793,7 @@ dependencies = [
 name = "canopy-webauthn"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "proptest",
  "ring",
  "serde",
@@ -805,7 +805,7 @@ dependencies = [
 name = "canopy-webhooks"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "bson",
  "canopy-engine",
  "canopy-matcher",
@@ -830,7 +830,7 @@ dependencies = [
 name = "canopy-wire"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-auth",
  "canopy-data",
  "canopy-engine",
@@ -854,7 +854,7 @@ dependencies = [
 name = "canopyd"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-auth",
  "canopy-authn",
  "canopy-config",

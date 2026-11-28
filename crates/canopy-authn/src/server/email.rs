@@ -1,4 +1,4 @@
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use ring::hmac;
 use serde::Deserialize;
 
@@ -49,12 +49,12 @@ impl Call<'_> {
             exp: iat + 3600,
         };
         let Ok(payload) = serde_json::to_vec(&claims) else { return };
-        let signed = format!("{MAIL_JWT_HEADER}.{}", URL_SAFE_NO_PAD.encode(payload));
+        let signed = format!("{MAIL_JWT_HEADER}.{}", Base64UrlUnpadded::encode_string(&payload));
         let tag = hmac::sign(&self.mail_key(), signed.as_bytes());
         let url = format!(
             "{}/auth/v1/verify-email?token={signed}.{}&callbackURL={}",
             self.router.public_url(),
-            URL_SAFE_NO_PAD.encode(tag.as_ref()),
+            Base64UrlUnpadded::encode_string(tag.as_ref()),
             crate::cookies::encode(callback)
         );
         let (kind, email, new_email) = match change {
@@ -75,9 +75,9 @@ impl Call<'_> {
         if header != MAIL_JWT_HEADER {
             return None;
         }
-        let signature = URL_SAFE_NO_PAD.decode(signature).ok()?;
+        let signature = Base64UrlUnpadded::decode_vec(signature).ok()?;
         hmac::verify(&self.mail_key(), signed.as_bytes(), &signature).ok()?;
-        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()
+        serde_json::from_slice(&Base64UrlUnpadded::decode_vec(payload).ok()?).ok()
     }
 
     pub(super) async fn resend(&self, body: &Value) -> Result<Response> {

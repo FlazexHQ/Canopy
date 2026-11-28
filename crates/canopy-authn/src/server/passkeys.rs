@@ -1,5 +1,4 @@
-use base64::Engine;
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
+use base64ct::{Base64, Base64Unpadded, Base64UrlUnpadded, Encoding};
 use canopy_mongo::mongodb::options::ReturnDocument;
 use canopy_webauthn::{
     AuthenticationExpectation, AuthenticationResponse, CoseKey, Error as WebAuthnError,
@@ -42,7 +41,7 @@ fn registration_failed() -> Response {
 }
 
 fn decode(value: &Value, field: &str) -> Option<Vec<u8>> {
-    URL_SAFE_NO_PAD.decode(value.get(field)?.as_str()?).ok().filter(|bytes| !bytes.is_empty())
+    Base64UrlUnpadded::decode_vec(value.get(field)?.as_str()?).ok().filter(|bytes| !bytes.is_empty())
 }
 
 fn credential_id(value: &Value) -> Option<&str> {
@@ -133,7 +132,7 @@ impl Call<'_> {
     ) -> Result<Response> {
         let mut nonce = [0; 32];
         getrandom::fill(&mut nonce).map_err(internal)?;
-        let challenge = URL_SAFE_NO_PAD.encode(nonce);
+        let challenge = Base64UrlUnpadded::encode_string(&nonce);
         let descriptors = if let Some(user) = user {
             self.user_passkeys(user).await?.iter().map(Passkey::descriptor).collect::<Vec<_>>()
         } else {
@@ -157,7 +156,7 @@ impl Call<'_> {
                     "challenge": challenge,
                     "rp": object!("name": self.router.options.app_name, "id": self.rp_id()),
                     "user": object!(
-                        "id": URL_SAFE_NO_PAD.encode(random_token_from(32, b"abcdefghijklmnopqrstuvwxyz0123456789")?),
+                        "id": Base64UrlUnpadded::encode_string(random_token_from(32, b"abcdefghijklmnopqrstuvwxyz0123456789")?.as_bytes()),
                         "name": params.get("name").filter(|name| !name.is_empty()).unwrap_or(&user.email),
                         "displayName": user.email
                     ),
@@ -278,7 +277,7 @@ impl Call<'_> {
         let passkey = Passkey {
             id: Bson::ObjectId(object_id(self.now)),
             name: body["name"].as_str().filter(|name| !name.is_empty()).map(str::to_owned),
-            public_key: STANDARD.encode(&credential.public_key_cose),
+            public_key: Base64::encode_string(&credential.public_key_cose),
             user_id: user.id.clone(),
             credential_id: id.to_owned(),
             counter: counter_value(credential.sign_count),
@@ -321,7 +320,7 @@ impl Call<'_> {
         {
             return Ok(authentication_failed(401));
         }
-        let Ok(key_bytes) = STANDARD_NO_PAD.decode(passkey.public_key.trim_end_matches('=')) else {
+        let Ok(key_bytes) = Base64Unpadded::decode_vec(passkey.public_key.trim_end_matches('=')) else {
             return Ok(authentication_failed(400));
         };
         let (Ok(public_key), Some(sign_count)) =

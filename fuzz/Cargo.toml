@@ -17,7 +17,7 @@ cargo-fuzz = true
 members = ["."]
 
 [dependencies]
-base64 = "0.22"
+base64ct = { version = "1.8", features = ["alloc"] }
 bson = "3"
 canopy-auth = { path = "../crates/canopy-auth" }
 canopy-authn = { path = "../crates/canopy-authn" }

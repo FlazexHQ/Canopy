@@ -1,7 +1,6 @@
 //! Collected client data (WebAuthn §5.8.1), the JSON the client signs over through its hash.
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use serde::Deserialize;
 
 use crate::error::Error;
@@ -51,8 +50,7 @@ impl CollectedClientData {
         }
         let raw: Raw = serde_json::from_slice(json)
             .map_err(|_| Error::MalformedClientData("not the expected JSON object"))?;
-        let challenge = URL_SAFE_NO_PAD
-            .decode(raw.challenge.as_bytes())
+        let challenge = Base64UrlUnpadded::decode_vec(&raw.challenge)
             .map_err(|_| Error::MalformedClientData("the challenge is not base64url"))?;
         let cross_origin = raw.cross_origin.unwrap_or(false);
         if raw.top_origin.is_some() && !cross_origin {

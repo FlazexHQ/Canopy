@@ -1,7 +1,6 @@
 //! Secrets stored in the meta database, sealed with AES-256-GCM under a key derived from the master key.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding};
 use canopy_protocol::{CanopyError, ErrorCode};
 use ring::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::hkdf;
@@ -72,7 +71,11 @@ impl SecretBox {
                 &mut body,
             )
             .map_err(|_| CanopyError::new(ErrorCode::Internal, "A secret could not be sealed"))?;
-        Ok(format!("{VERSION}.{}.{}", URL_SAFE_NO_PAD.encode(iv), URL_SAFE_NO_PAD.encode(body)))
+        Ok(format!(
+            "{VERSION}.{}.{}",
+            Base64UrlUnpadded::encode_string(&iv),
+            Base64UrlUnpadded::encode_string(&body)
+        ))
     }
 
     /// Opens a sealed secret.
@@ -99,9 +102,11 @@ impl SecretBox {
         else {
             return Err(undecryptable());
         };
-        let iv: [u8; 12] =
-            URL_SAFE_NO_PAD.decode(iv).ok().and_then(|iv| iv.try_into().ok()).ok_or_else(undecryptable)?;
-        let bytes = URL_SAFE_NO_PAD.decode(body).map_err(|_| undecryptable())?;
+        let iv: [u8; 12] = Base64UrlUnpadded::decode_vec(iv)
+            .ok()
+            .and_then(|iv| iv.try_into().ok())
+            .ok_or_else(undecryptable)?;
+        let bytes = Base64UrlUnpadded::decode_vec(body).map_err(|_| undecryptable())?;
         let keys = self.key.iter().map(|key| (key, true)).chain(self.previous.iter().map(|key| (key, false)));
         for (key, current) in keys {
             let Ok(unbound) = UnboundKey::new(&AES_256_GCM, key) else { continue };

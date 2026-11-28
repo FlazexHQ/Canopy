@@ -1,10 +1,4 @@
-use base64::{
-    Engine, alphabet,
-    engine::{
-        GeneralPurpose,
-        general_purpose::{NO_PAD, STANDARD},
-    },
-};
+use base64ct::{Base64, Base64Unpadded, Encoding as _};
 use canopy_protocol::CanopyError;
 use ring::hmac;
 
@@ -21,10 +15,8 @@ impl Signer {
         let bytes = if let Some(encoded) = secret.strip_prefix("whsec_") {
             let compact: String =
                 encoded.chars().filter(|ch| !matches!(ch, ' ' | '\t' | '\r' | '\n' | '\x0c')).collect();
-            let unpadded = GeneralPurpose::new(&alphabet::STANDARD, NO_PAD);
-            STANDARD
-                .decode(&compact)
-                .or_else(|_| unpadded.decode(&compact))
+            Base64::decode_vec(&compact)
+                .or_else(|_| Base64Unpadded::decode_vec(&compact))
                 .map_err(|_| invalid("Invalid webhook secret"))?
         } else {
             secret.as_bytes().to_vec()
@@ -39,7 +31,7 @@ impl Signer {
     /// a Unix time in seconds and the exact body sent.
     pub fn sign(&self, id: &str, timestamp: i64, body: &str) -> String {
         let signed = hmac::sign(&self.key, format!("{id}.{timestamp}.{body}").as_bytes());
-        format!("v1,{}", STANDARD.encode(signed.as_ref()))
+        format!("v1,{}", Base64::encode_string(signed.as_ref()))
     }
 }
 
@@ -65,5 +57,16 @@ mod tests {
         assert!(Signer::new("whsec_!!!").is_err());
         let raw = Signer::new("plain text key").expect("raw secret");
         assert_ne!(raw.sign("a", 1, "b"), raw.sign("a", 2, "b"));
+    }
+
+    #[test]
+    fn signs_with_padded_and_unpadded_secrets_containing_whitespace() {
+        for secret in ["whsec_ a2V5\tIQ==\r\n", "whsec_a2V5\x0cIQ"] {
+            let signer = Signer::new(secret).expect("secret");
+            assert_eq!(signer.sign("msg", 1, "payload"), "v1,WbIKLyrxpUrVhLxFtUPaVs+UtsqtQuINfd7cqq/Oy4s=");
+        }
+        assert!(Signer::new("whsec_a2V5IQ=").is_err());
+        assert!(Signer::new("whsec_a2V5IR==").is_err());
+        assert!(Signer::new("whsec_a2V5IR").is_err());
     }
 }

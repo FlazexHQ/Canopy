@@ -8,7 +8,7 @@ use std::{
     sync::Mutex,
 };
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use canopy_authn::server::oauth::{ProviderHttp, ProviderRequest, ProviderResponse};
 use futures_util::future::BoxFuture;
 use ring::{
@@ -173,8 +173,9 @@ impl MockIdp {
         let grant = state.grants.remove(form.get("code")?)?;
         let verifier_ok = match (&grant.challenge, form.get("code_verifier")) {
             (Some(challenge), Some(verifier)) => {
-                URL_SAFE_NO_PAD.encode(ring::digest::digest(&ring::digest::SHA256, verifier.as_bytes()))
-                    == *challenge
+                Base64UrlUnpadded::encode_string(
+                    ring::digest::digest(&ring::digest::SHA256, verifier.as_bytes()).as_ref(),
+                ) == *challenge
             }
             (None, None) => true,
             _ => false,
@@ -187,13 +188,13 @@ impl MockIdp {
     pub(crate) fn jwk(&self) -> Value {
         let point = self.es256.public_key().as_ref();
         let (x, y) = point.get(1..).expect("point").split_at(32);
-        json!({"kty": "EC", "crv": "P-256", "x": URL_SAFE_NO_PAD.encode(x), "y": URL_SAFE_NO_PAD.encode(y),
+        json!({"kty": "EC", "crv": "P-256", "x": Base64UrlUnpadded::encode_string(x), "y": Base64UrlUnpadded::encode_string(y),
             "kid": "idp-key-1", "alg": "ES256", "use": "sig"})
     }
 
     pub(crate) fn rsa_jwk(&self) -> Value {
         let public = PublicKeyComponents::<Vec<u8>>::from(self.rsa.public());
-        json!({"kty": "RSA", "n": URL_SAFE_NO_PAD.encode(&public.n), "e": URL_SAFE_NO_PAD.encode(&public.e),
+        json!({"kty": "RSA", "n": Base64UrlUnpadded::encode_string(&public.n), "e": Base64UrlUnpadded::encode_string(&public.e),
             "kid": "rsa-key-1", "alg": "RS256", "use": "sig"})
     }
 
@@ -273,8 +274,10 @@ impl MockIdp {
     fn sign_id_token(&self, claims: &Value, alg: &str, kid: &str, hs256: Option<&str>) -> String {
         let signed = format!(
             "{}.{}",
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({"alg": alg, "kid": kid})).expect("header")),
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).expect("claims"))
+            Base64UrlUnpadded::encode_string(
+                &serde_json::to_vec(&json!({"alg": alg, "kid": kid})).expect("header")
+            ),
+            Base64UrlUnpadded::encode_string(&serde_json::to_vec(claims).expect("claims"))
         );
         let tag = match (alg, hs256) {
             ("none", _) => Vec::new(),
@@ -297,7 +300,7 @@ impl MockIdp {
                 .as_ref()
                 .to_vec(),
         };
-        format!("{signed}.{}", URL_SAFE_NO_PAD.encode(tag))
+        format!("{signed}.{}", Base64UrlUnpadded::encode_string(&tag))
     }
 
     fn record(&self, request: &ProviderRequest) {

@@ -12,7 +12,7 @@ fn pair() -> Ed25519KeyPair {
 }
 
 fn jwks(pair: &Ed25519KeyPair) -> Json {
-    let x = URL_SAFE_NO_PAD.encode(pair.public_key().as_ref());
+    let x = Base64UrlUnpadded::encode_string(pair.public_key().as_ref());
     match parse_json(&format!(
         r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{x}","kid":"k1","alg":"EdDSA","use":"sig"}}]}}"#
     )) {
@@ -22,8 +22,12 @@ fn jwks(pair: &Ed25519KeyPair) -> Json {
 }
 
 fn sign(pair: &Ed25519KeyPair, header: &str, payload: &str) -> String {
-    let input = format!("{}.{}", URL_SAFE_NO_PAD.encode(header), URL_SAFE_NO_PAD.encode(payload));
-    let signature = URL_SAFE_NO_PAD.encode(pair.sign(input.as_bytes()).as_ref());
+    let input = format!(
+        "{}.{}",
+        Base64UrlUnpadded::encode_string(header.as_bytes()),
+        Base64UrlUnpadded::encode_string(payload.as_bytes())
+    );
+    let signature = Base64UrlUnpadded::encode_string(pair.sign(input.as_bytes()).as_ref());
     format!("{input}.{signature}")
 }
 
@@ -122,7 +126,7 @@ fn refuses_tokens_that_fail_any_check() {
         ("tampered", {
             let valid = token(&pair(), &good(""));
             let mut parts: Vec<String> = valid.split('.').map(str::to_owned).collect();
-            parts[1] = URL_SAFE_NO_PAD.encode(good(r#","admin":true"#));
+            parts[1] = Base64UrlUnpadded::encode_string(good(r#","admin":true"#).as_bytes());
             parts.join(".")
         }),
         ("garbage", "a.b".to_owned()),
@@ -274,7 +278,7 @@ fn a_remembered_token_is_refused_once_its_session_is_revoked() {
 }
 
 fn jwks_text(pair: &Ed25519KeyPair, kid: &str) -> String {
-    let x = URL_SAFE_NO_PAD.encode(pair.public_key().as_ref());
+    let x = Base64UrlUnpadded::encode_string(pair.public_key().as_ref());
     format!(
         r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{x}","kid":"{kid}","alg":"EdDSA","use":"sig"}}]}}"#
     )
@@ -350,7 +354,7 @@ fn builtin_keys_follow_rotation_and_revocation() -> Result<(), Box<dyn std::erro
         let now = DateTime::now();
         let expires = DateTime::from_millis(now.timestamp_millis() + 60_000);
         let stored = |kid: &str, pair: &Ed25519KeyPair| {
-            let x = URL_SAFE_NO_PAD.encode(pair.public_key().as_ref());
+            let x = Base64UrlUnpadded::encode_string(pair.public_key().as_ref());
             doc! {
                 "_id": kid,
                 "publicKey": format!(r#"{{"kty":"OKP","crv":"Ed25519","x":"{x}"}}"#),

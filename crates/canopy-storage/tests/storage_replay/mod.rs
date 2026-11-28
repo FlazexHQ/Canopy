@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
+use base64ct::{Base64, Encoding as _};
 use canopy_http::{Request, Response};
 use canopy_mongo::mongodb::bson::{Document as BsonDocument, doc};
 use canopy_mongo::mongodb::options::IndexOptions;
@@ -113,7 +112,7 @@ fn request_of(fixture: &Json, recorded: &Json, seen: &Seen) -> Request {
         request = request.with_body(body.into_bytes());
     }
     if let Some(Json::String(body)) = recorded.get("bodyBase64") {
-        let bytes = STANDARD.decode(body).expect("base64 body");
+        let bytes = Base64::decode_vec(body).expect("base64 body");
         if !matches!(recorded.get("stream"), Some(Json::Bool(true)))
             && request.header("content-length").is_none()
         {
@@ -219,7 +218,7 @@ fn compare_images(folder: &Path, bytes: &[u8], oracle: &str) -> Result<(), Strin
     let actual = folder.join("actual-image");
     let expected = folder.join("oracle-image");
     std::fs::write(&actual, bytes).expect("write actual image");
-    std::fs::write(&expected, STANDARD.decode(oracle).expect("reference bytes"))
+    std::fs::write(&expected, Base64::decode_vec(oracle).expect("reference bytes"))
         .expect("write reference image");
     let script = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../packages/storage/test/conformance/compare-render.ts");
@@ -377,7 +376,7 @@ pub(crate) async fn replay<Handler>(
                                 mismatch.push(error);
                             }
                         }
-                        (_, Some(Json::String(encoded))) if STANDARD.encode(&body) != *encoded => {
+                        (_, Some(Json::String(encoded))) if Base64::encode_string(&body) != *encoded => {
                             mismatch.push("binary body differs".to_owned());
                         }
                         _ => {}

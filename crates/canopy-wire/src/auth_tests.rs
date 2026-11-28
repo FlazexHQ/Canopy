@@ -14,7 +14,7 @@ fn challenge(first: &[u8], suffix: &str) -> Option<Scram> {
         first,
         "user",
         suffix,
-        STANDARD.decode("W22ZaJ0SNY7soEsUEjb6gQ==").unwrap(),
+        Base64::decode_vec("W22ZaJ0SNY7soEsUEjb6gQ==").unwrap(),
         NonZeroU32::new(4096).unwrap(),
         false,
     )
@@ -41,13 +41,11 @@ fn rfc_7677_exchange_with_a_stored_verifier() {
         active: true,
         verifier: ScramVerifier {
             salt: scram.salt.as_slice().try_into().unwrap(),
-            stored_key: STANDARD
-                .decode("WG5d8oPm3OtcPnkdi4Uo7BkeZkBFzpcXkuLmtbsT4qY=")
+            stored_key: Base64::decode_vec("WG5d8oPm3OtcPnkdi4Uo7BkeZkBFzpcXkuLmtbsT4qY=")
                 .unwrap()
                 .try_into()
                 .unwrap(),
-            server_key: STANDARD
-                .decode("wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=")
+            server_key: Base64::decode_vec("wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=")
                 .unwrap()
                 .try_into()
                 .unwrap(),

@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::{Engine, engine::general_purpose::STANDARD};
+use base64ct::{Base64, Encoding};
 use ring::hmac;
 
 /// Cookie names used by Canopy auth.
@@ -94,7 +94,7 @@ fn key(secret: &str) -> hmac::Key {
 /// Signs a cookie payload and returns the decoded value suitable for passing to the header renderer.
 pub fn sign_value(secret: &str, payload: &str) -> String {
     let tag = hmac::sign(&key(secret), payload.as_bytes());
-    format!("{payload}.{}", STANDARD.encode(tag.as_ref()))
+    format!("{payload}.{}", Base64::encode_string(tag.as_ref()))
 }
 
 /// Signs and percent encodes a session token for transmission as a cookie value.
@@ -109,7 +109,7 @@ pub fn verify_session(secret: &str, value: &str) -> Option<String> {
     if payload.is_empty() || signature.len() != 44 {
         return None;
     }
-    let signature = STANDARD.decode(signature).ok()?;
+    let signature = Base64::decode_vec(signature).ok()?;
     hmac::verify(&key(secret), payload.as_bytes(), &signature).ok()?;
     Some(payload.to_owned())
 }

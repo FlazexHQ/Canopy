@@ -240,7 +240,7 @@ checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 name = "canopy-auth"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-engine",
  "canopy-mongo",
  "canopy-policy",
@@ -257,7 +257,7 @@ version = "0.0.0"
 dependencies = [
  "aes",
  "argon2",
- "base64 0.22.1",
+ "base64ct",
  "bcrypt",
  "bson",
  "canopy-http",
@@ -295,7 +295,7 @@ dependencies = [
 name = "canopy-data"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-engine",
  "canopy-matcher",
  "canopy-mongo",
@@ -322,7 +322,7 @@ dependencies = [
 name = "canopy-fuzz"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "bson",
  "canopy-auth",
  "canopy-authn",
@@ -417,7 +417,7 @@ dependencies = [
 name = "canopy-realtime"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-auth",
  "canopy-engine",
  "canopy-mongo",
@@ -458,7 +458,7 @@ dependencies = [
 name = "canopy-webauthn"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "ring",
  "serde",
  "serde_json",
@@ -469,7 +469,7 @@ dependencies = [
 name = "canopy-webhooks"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "bson",
  "canopy-engine",
  "canopy-matcher",
@@ -491,7 +491,7 @@ dependencies = [
 name = "canopy-wire"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64ct",
  "canopy-auth",
  "canopy-data",
  "canopy-engine",

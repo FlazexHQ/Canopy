@@ -9,7 +9,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use base64::{Engine, engine::general_purpose::STANDARD};
+use base64ct::{Base64, Encoding as _};
 use canopy_mongo::mongodb::{
     Client, Database,
     bson::{Bson, DateTime, Document, RawDocumentBuf, Timestamp, doc},
@@ -158,10 +158,13 @@ async fn attempt(webhooks: &Webhooks, receiver: &mut Receiver, expected: &Value,
     let id = headers["webhook-id"].as_str().unwrap();
     let timestamp = headers["webhook-timestamp"].as_str().unwrap();
     let body = request["body"].as_str().unwrap();
-    let key =
-        hmac::Key::new(hmac::HMAC_SHA256, &STANDARD.decode(secret.strip_prefix("whsec_").unwrap()).unwrap());
+    let key = hmac::Key::new(
+        hmac::HMAC_SHA256,
+        &Base64::decode_vec(secret.strip_prefix("whsec_").unwrap()).unwrap(),
+    );
     let signature =
-        STANDARD.decode(headers["webhook-signature"].as_str().unwrap().strip_prefix("v1,").unwrap()).unwrap();
+        Base64::decode_vec(headers["webhook-signature"].as_str().unwrap().strip_prefix("v1,").unwrap())
+            .unwrap();
     hmac::verify(&key, format!("{id}.{timestamp}.{body}").as_bytes(), &signature).unwrap();
     assert_eq!(
         webhooks.find(id).await.unwrap(),

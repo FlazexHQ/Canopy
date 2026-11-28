@@ -114,7 +114,7 @@ fn imported_bcrypt_2x_preserves_the_signed_byte_variant() -> Result<(), Box<dyn 
 #[test]
 fn native_rehash_requires_a_strictly_weaker_single_lane_hash() -> Result<(), argon2::Error> {
     use argon2::{Algorithm, Argon2, Params, Version};
-    use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
+    use base64ct::{Base64Unpadded, Encoding};
 
     let salt = [12; 16];
     for (memory, passes, lanes, needs_rehash) in [
@@ -134,8 +134,8 @@ fn native_rehash_requires_a_strictly_weaker_single_lane_hash() -> Result<(), arg
         )?;
         let stored = format!(
             "$argon2id$v=19$m={memory},t={passes},p={lanes}${}${}",
-            STANDARD_NO_PAD.encode(salt),
-            STANDARD_NO_PAD.encode(tag)
+            Base64Unpadded::encode_string(&salt),
+            Base64Unpadded::encode_string(&tag)
         );
         assert_eq!(verify_password("password", &stored), Some(VerifiedPassword { needs_rehash }));
     }
@@ -145,7 +145,7 @@ fn native_rehash_requires_a_strictly_weaker_single_lane_hash() -> Result<(), arg
 #[test]
 fn matching_argon2_tags_cannot_bypass_work_limits() -> Result<(), argon2::Error> {
     use argon2::{Algorithm, Argon2, Params, Version};
-    use base64::{Engine, engine::general_purpose::STANDARD_NO_PAD};
+    use base64ct::{Base64Unpadded, Encoding};
 
     let salt = [12; 16];
     for (memory, passes, lanes, imported_matches) in
@@ -160,8 +160,8 @@ fn matching_argon2_tags_cannot_bypass_work_limits() -> Result<(), argon2::Error>
         )?;
         let stored = format!(
             "$argon2id$v=19$m={memory},t={passes},p={lanes}${}${}",
-            STANDARD_NO_PAD.encode(salt),
-            STANDARD_NO_PAD.encode(tag)
+            Base64Unpadded::encode_string(&salt),
+            Base64Unpadded::encode_string(&tag)
         );
         assert_eq!(verify_password("password", &stored), None);
         assert_eq!(

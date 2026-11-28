@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64ct::{Base64, Encoding as _};
 use canopy_mongo::mongodb;
 use canopy_protocol::{CanopyError, ErrorCode};
 use futures_util::TryStreamExt as _;
@@ -39,11 +39,16 @@ impl ScramVerifier {
             return None;
         }
         Some(Self {
-            salt: STANDARD.decode(doc.get_str("salt").ok()?).ok()?.try_into().ok()?,
-            stored_key: STANDARD.decode(doc.get_str("storedKey").ok()?).ok()?.try_into().ok()?,
-            server_key: STANDARD.decode(doc.get_str("serverKey").ok()?).ok()?.try_into().ok()?,
+            salt: decode_scram_field(doc, "salt")?,
+            stored_key: decode_scram_field(doc, "storedKey")?,
+            server_key: decode_scram_field(doc, "serverKey")?,
         })
     }
+}
+
+fn decode_scram_field<const N: usize>(doc: &Document, field: &str) -> Option<[u8; N]> {
+    let mut bytes = [0; N];
+    Base64::decode(doc.get_str(field).ok()?, &mut bytes).ok()?.try_into().ok()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

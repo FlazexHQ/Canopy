@@ -10,7 +10,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use base64::Engine as _;
+use base64ct::{Base64, Base64UrlUnpadded, Encoding as _};
 use mongodb::{
     Client,
     bson::{Document, doc},
@@ -479,10 +479,7 @@ async fn claims_hook(failing: Arc<AtomicBool>, calls: Arc<AtomicUsize>) -> Strin
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("hook listener");
     let url = format!("http://127.0.0.1:{}/claims", listener.local_addr().expect("hook address").port());
     let encoded = CLAIMS_KEY.strip_prefix("whsec_").expect("whsec_ secret");
-    let key = ring::hmac::Key::new(
-        ring::hmac::HMAC_SHA256,
-        &base64::engine::general_purpose::STANDARD.decode(encoded).expect("hook key"),
-    );
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &Base64::decode_vec(encoded).expect("hook key"));
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let (failing, calls, key) = (failing.clone(), calls.clone(), key.clone());
@@ -517,7 +514,7 @@ async fn claims_hook(failing: Arc<AtomicBool>, calls: Arc<AtomicUsize>) -> Strin
                         .unwrap_or_default()
                 };
                 let signed = header("webhook-signature").strip_prefix("v1,").is_some_and(|signature| {
-                    base64::engine::general_purpose::STANDARD.decode(signature).is_ok_and(|tag| {
+                    Base64::decode_vec(signature).is_ok_and(|tag| {
                         let message =
                             format!("{}.{}.{body}", header("webhook-id"), header("webhook-timestamp"));
                         ring::hmac::verify(&key, message.as_bytes(), &tag).is_ok()
@@ -589,9 +586,7 @@ async fn rust_auth_runs_the_https_claims_hook_on_each_token() {
 
     let minted = body(token().await.unwrap(), StatusCode::OK).await;
     let payload = minted["access_token"].as_str().expect("access token").split('.').nth(1).expect("payload");
-    let claims: Value =
-        serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).unwrap())
-            .unwrap();
+    let claims: Value = serde_json::from_slice(&Base64UrlUnpadded::decode_vec(payload).unwrap()).unwrap();
     assert_eq!(claims["app_metadata"], json!({"plan": "pro", "seen": email}));
     assert_eq!(claims["roles"], json!(["editor"]));
     assert_eq!(calls.load(Ordering::SeqCst), 1);

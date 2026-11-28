@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use bson::{Bson, DateTime, Document, doc};
 use canopy_authn::{
     cookies::verify_session,
@@ -246,9 +246,9 @@ fn split_jwt(jwt: &str) -> Result<(&str, Value, Value, Vec<u8>)> {
     let (header, claims) = signed.split_once('.').ok_or("JWT header")?;
     Ok((
         signed,
-        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(header)?)?,
-        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(claims)?)?,
-        URL_SAFE_NO_PAD.decode(signature)?,
+        serde_json::from_slice(&Base64UrlUnpadded::decode_vec(header)?)?,
+        serde_json::from_slice(&Base64UrlUnpadded::decode_vec(claims)?)?,
+        Base64UrlUnpadded::decode_vec(signature)?,
     ))
 }
 
@@ -260,12 +260,12 @@ fn check_access_jwt(jwt: &str, jwks: &Value) -> Result<Value> {
         .iter()
         .find(|key| key["kid"] == header["kid"] && key["alg"] == header["alg"])
         .ok_or("Access token key")?;
-    let mut bytes = URL_SAFE_NO_PAD.decode(str_at(key, "x")?)?;
+    let mut bytes = Base64UrlUnpadded::decode_vec(&str_at(key, "x")?)?;
     let algorithm: &dyn signature::VerificationAlgorithm = match str_at(&header, "alg")?.as_str() {
         "EdDSA" => &signature::ED25519,
         "ES256" => {
             bytes.insert(0, 4);
-            bytes.extend(URL_SAFE_NO_PAD.decode(str_at(key, "y")?)?);
+            bytes.extend(Base64UrlUnpadded::decode_vec(&str_at(key, "y")?)?);
             &signature::ECDSA_P256_SHA256_FIXED
         }
         _ => return Err("Unsupported signature algorithm".into()),
@@ -653,7 +653,7 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 && step["response"]["body"]["user"]["id"] == "<user-id-2>"
             {
                 let handle = str_at(&response["body"]["user"], "id")?;
-                let bytes = URL_SAFE_NO_PAD.decode(&handle)?;
+                let bytes = Base64UrlUnpadded::decode_vec(&handle)?;
                 assert_eq!(bytes.len(), 32, "Registration user handle length");
                 assert!(
                     bytes.iter().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),

@@ -1,7 +1,7 @@
 use std::num::NonZeroU32;
 use std::sync::OnceLock;
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64ct::{Base64, Encoding as _};
 use canopy_auth::{ApiKeys, Authenticator, ScramVerifier};
 use canopy_engine::Principal;
 use canopy_mongo::mongodb::bson::{Binary, Document, doc, spec::BinarySubtype};
@@ -99,7 +99,7 @@ impl Scram {
             return None;
         }
         let nonce = format!("{nonce}{server_nonce}");
-        let challenge = format!("r={nonce},s={},i={iterations}", STANDARD.encode(&salt));
+        let challenge = format!("r={nonce},s={},i={iterations}", Base64::encode_string(&salt));
         Some(Self {
             first: first.to_owned(),
             challenge,
@@ -117,7 +117,8 @@ impl Scram {
         if final_message.strip_prefix(self.channel_binding)? != self.nonce {
             return None;
         }
-        let proof: [u8; 32] = STANDARD.decode(proof).ok()?.try_into().ok()?;
+        let mut proof_buffer = [0; 32];
+        let proof: [u8; 32] = Base64::decode(proof, &mut proof_buffer).ok()?.try_into().ok()?;
         let transcript = format!("{},{},{final_message}", self.first, self.challenge);
         if let Some(stored) = &self.stored {
             let (valid, signature) = verify_proof(
@@ -127,7 +128,7 @@ impl Scram {
                 transcript.as_bytes(),
             );
             return bool::from(valid & Choice::from(u8::from(stored.active)))
-                .then(|| format!("v={}", STANDARD.encode(signature.as_ref())));
+                .then(|| format!("v={}", Base64::encode_string(signature.as_ref())));
         }
         let mut matched = Choice::from(0);
         let mut signature = [0; 32];
@@ -152,7 +153,7 @@ impl Scram {
                 *byte = (*byte & !mask) | (value & mask);
             }
         }
-        bool::from(matched).then(|| format!("v={}", STANDARD.encode(signature)))
+        bool::from(matched).then(|| format!("v={}", Base64::encode_string(&signature)))
     }
 }
 
@@ -240,9 +241,15 @@ pub(crate) async fn start(
                     let verifier = found.unwrap_or(fallback);
                     (verifier.salt, Some(StoredScram { username: username.to_owned(), verifier, active }))
                 };
-            let mut scram =
-                Scram::challenge(bytes, username, &STANDARD.encode(nonce), salt.to_vec(), ITERATIONS, skip)
-                    .ok_or(Failure::Invalid)?;
+            let mut scram = Scram::challenge(
+                bytes,
+                username,
+                &Base64::encode_string(&nonce),
+                salt.to_vec(),
+                ITERATIONS,
+                skip,
+            )
+            .ok_or(Failure::Invalid)?;
             scram.stored = stored;
             Ok(Exchange {
                 response: reply(id, scram.challenge.as_bytes(), false),

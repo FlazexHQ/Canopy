@@ -16,8 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_engine::Ct;
 use canopy_mongo::mongodb::bson::{self, doc};
 use canopy_mongo::mongodb::error::PartialBulkWriteResult;
@@ -334,7 +333,7 @@ impl WritePath {
                 bound.insert("fields", fields.clone());
             }
         }
-        Ok(URL_SAFE_NO_PAD.encode(digest(&SHA256, &encode_document(&bound)?)))
+        Ok(Base64UrlUnpadded::encode_string(digest(&SHA256, &encode_document(&bound)?).as_ref()))
     }
 
     /// Validates, authorizes and commits one write. Fails with `CANOPY_FORBIDDEN` when no policy grants the
@@ -1360,7 +1359,7 @@ fn fingerprint(caller: &Caller, request: &Value) -> Result<String, CanopyError> 
         Value::Array(caller.context.roles.sorted().into_iter().map(Value::String).collect()),
     );
     let text = canonical_string(&Value::Document(bound))?;
-    Ok(URL_SAFE_NO_PAD.encode(digest(&SHA256, text.as_bytes())))
+    Ok(Base64UrlUnpadded::encode_string(digest(&SHA256, text.as_bytes()).as_ref()))
 }
 
 fn count(value: u64) -> Value {

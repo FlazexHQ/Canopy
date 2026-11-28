@@ -3,8 +3,7 @@
 
 use std::num::NonZeroU32;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
+use base64ct::{Base64, Encoding};
 use canopy_mongo::mongodb::Collection;
 use canopy_mongo::mongodb::bson::{DateTime, Document, doc};
 use canopy_mongo::mongodb::options::ReturnDocument;
@@ -94,10 +93,10 @@ fn scram(key: &str) -> Result<Document, CanopyError> {
     let client = hmac::sign(&signing, b"Client Key");
     let server = hmac::sign(&signing, b"Server Key");
     Ok(doc! {
-        "salt": STANDARD.encode(salt),
+        "salt": Base64::encode_string(&salt),
         "iterations": i32::try_from(SCRAM_ITERATIONS).unwrap_or(i32::MAX),
-        "storedKey": STANDARD.encode(digest::digest(&digest::SHA256, client.as_ref())),
-        "serverKey": STANDARD.encode(server.as_ref()),
+        "storedKey": Base64::encode_string(digest::digest(&digest::SHA256, client.as_ref()).as_ref()),
+        "serverKey": Base64::encode_string(server.as_ref()),
     })
 }
 

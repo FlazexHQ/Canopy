@@ -2,8 +2,7 @@
 //! scrypt form, in constant time with bounded work factors.
 
 use argon2::{Argon2, Params, Version};
-use base64::Engine as _;
-use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
+use base64ct::{Base64Unpadded, Base64UrlUnpadded, Encoding};
 use canopy_protocol::{CanopyError, ErrorCode};
 use ring::rand::{SecureRandom, SystemRandom};
 use unicode_normalization::UnicodeNormalization as _;
@@ -64,8 +63,8 @@ pub(crate) fn hash_password(password: &str) -> Result<String, CanopyError> {
         argon2id(&normalized, &salt, MEMORY_KIB, PASSES, LANES).ok_or_else(|| internal("Hashing failed"))?;
     Ok(format!(
         "$argon2id$v=19$m={MEMORY_KIB},t={PASSES},p={LANES}${}${}",
-        STANDARD_NO_PAD.encode(salt),
-        STANDARD_NO_PAD.encode(tag)
+        Base64Unpadded::encode_string(&salt),
+        Base64Unpadded::encode_string(&tag)
     ))
 }
 
@@ -115,13 +114,15 @@ fn verify_argon2id(password: &str, stored: &str) -> bool {
     if phc.memory < 8 * phc.lanes || phc.memory > 262_144 || phc.passes > 8 || phc.lanes > 4 {
         return false;
     }
-    let (Ok(salt), Ok(expected)) = (STANDARD_NO_PAD.decode(phc.salt), STANDARD_NO_PAD.decode(phc.tag)) else {
+    let (Ok(salt), Ok(expected)) =
+        (Base64Unpadded::decode_vec(phc.salt), Base64Unpadded::decode_vec(phc.tag))
+    else {
         return false;
     };
     if salt.len() < 16
         || expected.len() != TAG_LENGTH
-        || STANDARD_NO_PAD.encode(&salt) != phc.salt
-        || STANDARD_NO_PAD.encode(&expected) != phc.tag
+        || Base64Unpadded::encode_string(&salt) != phc.salt
+        || Base64Unpadded::encode_string(&expected) != phc.tag
     {
         return false;
     }
@@ -143,7 +144,8 @@ fn verify_scrypt(password: &str, stored: &str) -> bool {
     if log_n == 0 || rounds == 0 || parallel == 0 || log_n > 16 || rounds > 16 || parallel > 4 {
         return false;
     }
-    let (Ok(expected), Ok(salt)) = (URL_SAFE_NO_PAD.decode(hash), URL_SAFE_NO_PAD.decode(salt)) else {
+    let (Ok(expected), Ok(salt)) = (Base64UrlUnpadded::decode_vec(hash), Base64UrlUnpadded::decode_vec(salt))
+    else {
         return false;
     };
     if expected.len() != TAG_LENGTH {

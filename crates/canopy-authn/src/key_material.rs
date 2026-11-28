@@ -1,6 +1,6 @@
 //! Generates the BSON signing key documents shared with built in auth.
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use bson::{DateTime, Document, doc};
 use ring::{
     rand::{SecureRandom, SystemRandom},
@@ -44,11 +44,11 @@ pub fn generate(
                 Jwk {
                     kty: "OKP",
                     crv: "Ed25519",
-                    x: URL_SAFE_NO_PAD.encode(key.public_key()),
+                    x: Base64UrlUnpadded::encode_string(key.public_key().as_ref()),
                     y: None,
                     d: None,
                 },
-                Zeroizing::new(URL_SAFE_NO_PAD.encode(seed.as_ref())),
+                Zeroizing::new(Base64UrlUnpadded::encode_string(seed.as_ref())),
             )
         }
         Algorithm::ES256 => {
@@ -69,11 +69,11 @@ pub fn generate(
                 Jwk {
                     kty: "EC",
                     crv: "P-256",
-                    x: URL_SAFE_NO_PAD.encode(x),
-                    y: Some(URL_SAFE_NO_PAD.encode(y)),
+                    x: Base64UrlUnpadded::encode_string(x),
+                    y: Some(Base64UrlUnpadded::encode_string(y)),
                     d: None,
                 },
-                Zeroizing::new(URL_SAFE_NO_PAD.encode(scalar)),
+                Zeroizing::new(Base64UrlUnpadded::encode_string(scalar)),
             )
         }
     };

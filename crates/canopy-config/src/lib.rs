@@ -12,8 +12,7 @@ pub use graphql::{CollectionSettings, GraphqlSettings, Introspection, PersistedS
 
 pub use trusted_proxy::TrustedProxy;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_protocol::json::{Json, parse_json};
 
 /// Resolved JWT verification settings.
@@ -211,7 +210,7 @@ fn view_key(jwk: &Json) -> Result<Vec<u8>, String> {
         return Err("viewTokens.jwk must be an Ed25519 public key".to_owned());
     }
     text("x")
-        .and_then(|x| URL_SAFE_NO_PAD.decode(x.trim_end_matches('=')).ok())
+        .and_then(|x| Base64UrlUnpadded::decode_vec(x.trim_end_matches('=')).ok())
         .filter(|x| x.len() == 32)
         .ok_or_else(|| "viewTokens.jwk has no valid x".to_owned())
 }
@@ -846,7 +845,7 @@ mod tests {
     #[test]
     fn reads_the_view_key_from_an_ed25519_jwk_and_refuses_other_keys() -> Result<(), String> {
         let key: Vec<u8> = (0u8..32).collect();
-        let x = URL_SAFE_NO_PAD.encode(&key);
+        let x = Base64UrlUnpadded::encode_string(&key);
         let jwk = parse_json(&format!(r#"{{"kty":"OKP","crv":"Ed25519","x":"{x}"}}"#))
             .map_err(|e| e.to_string())?;
         assert_eq!(view_key(&jwk), Ok(key));

@@ -4,14 +4,7 @@ mod legacy_bcrypt;
 
 use aes::Aes256;
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::{
-    Engine,
-    alphabet::STANDARD,
-    engine::{
-        DecodePaddingMode,
-        general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD_NO_PAD},
-    },
-};
+use base64ct::{Base64Unpadded, Encoding};
 use ctr::cipher::{KeyIvInit, StreamCipher};
 use pbkdf2::pbkdf2_hmac;
 use sha1::Sha1;
@@ -26,12 +19,6 @@ const LANES: u32 = 1;
 const TAG_LENGTH: usize = 32;
 const PHC_PREFIX: &str = "$argon2id$v=19$";
 const LEGACY_PREFIX: &str = "canopy-legacy$";
-const IMPORT_BASE64: GeneralPurpose = GeneralPurpose::new(
-    &STANDARD,
-    GeneralPurposeConfig::new()
-        .with_decode_padding_mode(DecodePaddingMode::Indifferent)
-        .with_decode_allow_trailing_bits(true),
-);
 
 /// Failure to create a new password hash.
 #[derive(Debug)]
@@ -78,8 +65,8 @@ pub fn hash_password(password: &str) -> Result<String, HashError> {
         .map_err(HashError::Derivation)?;
     Ok(format!(
         "{PHC_PREFIX}m={MEMORY_KIB},t={PASSES},p={LANES}${}${}",
-        STANDARD_NO_PAD.encode(salt),
-        STANDARD_NO_PAD.encode(tag.as_ref())
+        Base64Unpadded::encode_string(&salt),
+        Base64Unpadded::encode_string(tag.as_ref())
     ))
 }
 
@@ -150,11 +137,11 @@ impl ArgonHash {
             return None;
         }
         let salt = if imported && !salt.contains('=') {
-            IMPORT_BASE64.decode(salt).ok()?
+            import_base64(salt)?
         } else {
-            STANDARD_NO_PAD.decode(salt).ok()?
+            Base64Unpadded::decode_vec(salt).ok()?
         };
-        let tag = STANDARD_NO_PAD.decode(tag).ok()?;
+        let tag = Base64Unpadded::decode_vec(tag).ok()?;
         if imported && (salt.len() < 8 || tag.len() < 4) {
             return None;
         }
@@ -191,7 +178,22 @@ fn import_base64(value: &str) -> Option<Vec<u8>> {
     if value.len() - data.len() > 2 {
         return None;
     }
-    IMPORT_BASE64.decode(data).ok()
+    let tail_len = data.len() % 4;
+    let tail_bytes = match tail_len {
+        0 => return Base64Unpadded::decode_vec(data).ok(),
+        2 => 1,
+        3 => 2,
+        _ => return None,
+    };
+    let (prefix, tail) = data.split_at_checked(data.len() - tail_len)?;
+    let mut decoded = Base64Unpadded::decode_vec(prefix).ok()?;
+    // Fill the last quartet so the decoder accepts imported hashes with unused bits set.
+    let mut quartet = Zeroizing::new([b'A'; 4]);
+    quartet[..tail_len].copy_from_slice(tail.as_bytes());
+    let mut last = Zeroizing::new([0; 3]);
+    Base64Unpadded::decode(quartet.as_ref(), last.as_mut()).ok()?;
+    decoded.extend_from_slice(&last[..tail_bytes]);
+    Some(decoded)
 }
 
 fn verify_import(password: &[u8], legacy: &str) -> Option<()> {
@@ -263,4 +265,22 @@ fn verify_better_auth(password: &str, stored: &str) -> Option<()> {
     let mut actual = Zeroizing::new([0; 64]);
     scrypt::scrypt(normalized.as_bytes(), salt.as_bytes(), &params, actual.as_mut()).ok()?;
     bool::from(actual.as_ref().ct_eq(&expected)).then_some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::import_base64;
+
+    #[test]
+    fn imported_base64_preserves_padding_and_unused_bit_tolerance() {
+        for input in ["Zg", "Zh", "Zh=", "Zh=="] {
+            assert_eq!(import_base64(input).as_deref(), Some(&b"f"[..]));
+        }
+        for input in ["Zm9vZm8", "Zm9vZm9", "Zm9vZm9=", "Zm9vZm9=="] {
+            assert_eq!(import_base64(input).as_deref(), Some(&b"foofo"[..]));
+        }
+        for input in ["Z", "Z=g", "Z!=", "Zh===", "éa"] {
+            assert_eq!(import_base64(input), None);
+        }
+    }
 }

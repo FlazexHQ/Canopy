@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
-base64 = "0.22"
+base64ct = { version = "1.8", features = ["alloc"] }
 canopy-protocol = { path = "../canopy-protocol" }
 
 indexmap = { version = "2", features = ["serde"] }

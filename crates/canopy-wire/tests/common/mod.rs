@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_auth::{Authenticator, JwtConfig};
 use canopy_protocol::json::parse_json;
 use ring::signature::{Ed25519KeyPair, KeyPair as _};
@@ -13,7 +13,7 @@ fn key() -> Ed25519KeyPair {
 
 pub(crate) fn authenticator() -> Authenticator {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let public = URL_SAFE_NO_PAD.encode(key().public_key());
+    let public = Base64UrlUnpadded::encode_string(key().public_key().as_ref());
     let jwks = format!(r#"{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{public}","kid":"wire-test"}}]}}"#);
     Authenticator::new(
         Some(JwtConfig {
@@ -42,11 +42,11 @@ pub(crate) fn token_for(subject: &str, expires: i64) -> String {
 }
 
 pub(crate) fn token_with_role(subject: &str, role: &str, expires: i64) -> String {
-    let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","kid":"wire-test"}"#);
+    let header = Base64UrlUnpadded::encode_string(br#"{"alg":"EdDSA","kid":"wire-test"}"#);
     let claims = format!(
         r#"{{"iss":"wire-fixture","aud":"wire-driver","sub":"{subject}","roles":["{role}"],"exp":{expires}}}"#
     );
-    let claims = URL_SAFE_NO_PAD.encode(claims);
+    let claims = Base64UrlUnpadded::encode_string(claims.as_bytes());
     let signed = format!("{header}.{claims}");
-    format!("{signed}.{}", URL_SAFE_NO_PAD.encode(key().sign(signed.as_bytes())))
+    format!("{signed}.{}", Base64UrlUnpadded::encode_string(key().sign(signed.as_bytes()).as_ref()))
 }

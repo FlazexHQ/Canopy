@@ -322,13 +322,13 @@ impl AuditLog {
 
 /// `count` random bytes as unpadded base64url text.
 pub(crate) fn random_url(count: usize) -> Result<String, CanopyError> {
-    use base64::Engine as _;
+    use base64ct::{Base64UrlUnpadded, Encoding};
     use ring::rand::SecureRandom as _;
     let mut bytes = vec![0u8; count];
     ring::rand::SystemRandom::new()
         .fill(&mut bytes)
         .map_err(|_| err(ErrorCode::Internal, "No randomness"))?;
-    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+    Ok(Base64UrlUnpadded::encode_string(&bytes))
 }
 
 /// The relaxed EJSON text of a document, for error details.

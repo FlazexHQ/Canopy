@@ -20,6 +20,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use base64ct::{Base64, Base64UrlUnpadded, Encoding as _};
 use canopy_control::{ApiKeyStore, KeyKind};
 use canopy_mongo::mongodb::Client;
 use canopy_protocol::json::{Json, write_json};
@@ -162,7 +163,6 @@ async fn wire_driver_oidc_enforces_the_collection_policies() {
 }
 
 async fn wire_driver_reads(oidc: bool, compressor: Option<&str>) {
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use canopy_mongo::mongodb::{
         bson::{DateTime, Document, doc},
         options::{
@@ -187,7 +187,7 @@ async fn wire_driver_reads(oidc: bool, compressor: Option<&str>) {
         .expect("seed documents");
 
     let key = Ed25519KeyPair::from_seed_unchecked(&[53; 32]).expect("a signing key");
-    let public = URL_SAFE_NO_PAD.encode(key.public_key());
+    let public = Base64UrlUnpadded::encode_string(key.public_key().as_ref());
     let auth = format!(
         r#"{{
         "issuer":"https://wire-issuer.example.test","audience":"wire-driver","algorithms":["EdDSA"],
@@ -211,13 +211,15 @@ async fn wire_driver_reads(oidc: bool, compressor: Option<&str>) {
     options.server_selection_timeout = Some(Duration::from_secs(5));
     options.max_pool_size = Some(1);
     if oidc {
-        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","kid":"wire-test"}"#);
+        let header = Base64UrlUnpadded::encode_string(br#"{"alg":"EdDSA","kid":"wire-test"}"#);
         let expires = DateTime::now().timestamp_millis() / 1000 + 120;
-        let claims = URL_SAFE_NO_PAD.encode(format!(
+        let claims = format!(
             r#"{{"iss":"https://wire-issuer.example.test","aud":"wire-driver","sub":"wire-reader","exp":{expires}}}"#
-        ));
+        );
+        let claims = Base64UrlUnpadded::encode_string(claims.as_bytes());
         let signed = format!("{header}.{claims}");
-        let token = format!("{signed}.{}", URL_SAFE_NO_PAD.encode(key.sign(signed.as_bytes())));
+        let token =
+            format!("{signed}.{}", Base64UrlUnpadded::encode_string(key.sign(signed.as_bytes()).as_ref()));
         options.credential.as_mut().expect("OIDC credential").oidc_callback = Callback::machine(move |_| {
             let token = token.clone();
             Box::pin(async move { Ok(IdpServerResponse::builder().access_token(token).build()) })
@@ -1925,11 +1927,7 @@ async fn image_rendering_is_served_when_storage_is_selected() {
     let folder = std::env::temp_dir().join(&database);
     let cases = common::read_json(&common::directory_of("storage").join("cases/render.json"));
     let upload = get(&common::list(&common::list(&cases, "cases")[0], "steps")[0], "request");
-    let image = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        common::text(upload, "bodyBase64"),
-    )
-    .expect("a PNG source");
+    let image = Base64::decode_vec(common::text(upload, "bodyBase64")).expect("a PNG source");
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
     {
         let config = storage_launcher(&fixture, &uri, &database, port, &folder, false);

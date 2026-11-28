@@ -206,11 +206,11 @@ impl Provider<'_> {
             }
             if self.uses_pkce() {
                 let digest = ring::digest::digest(&ring::digest::SHA256, verifier.as_bytes());
-                use base64::Engine as _;
+                use base64ct::Encoding;
                 query.append_pair("code_challenge_method", "S256");
                 query.append_pair(
                     "code_challenge",
-                    &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest.as_ref()),
+                    &base64ct::Base64UrlUnpadded::encode_string(digest.as_ref()),
                 );
             }
             if self.kind() == Some(SocialProviderKind::Google) {
@@ -527,7 +527,7 @@ impl Provider<'_> {
 }
 
 async fn microsoft_photo(registry: &Registry, access_token: Option<&str>) -> Option<String> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64ct::{Base64, Encoding};
 
     let token = access_token.filter(|value| !value.is_empty())?;
     let photo = registry
@@ -539,7 +539,7 @@ async fn microsoft_photo(registry: &Registry, access_token: Option<&str>) -> Opt
         })
         .await
         .filter(|reply| (200..300).contains(&reply.status))?;
-    Some(format!("data:image/jpeg;base64, {}", STANDARD.encode(photo.body)))
+    Some(format!("data:image/jpeg;base64, {}", Base64::encode_string(&photo.body)))
 }
 
 async fn github(registry: &Registry, access_token: &str) -> Option<Identity> {

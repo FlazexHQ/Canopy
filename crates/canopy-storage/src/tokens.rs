@@ -1,8 +1,7 @@
 //! The tokens of signed URLs: base64url JSON of the grant, a dot and its HMAC SHA-256, under a key derived from
 //! the master key, so the data plane and the TypeScript server accept each other's tokens.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_protocol::json::{Json, js_number_string, parse_json, write_json_string};
 use ring::{hkdf, hmac, rand};
 
@@ -60,7 +59,7 @@ impl UrlSigner {
         json.push_str(",\"e\":");
         json.push_str(&js_number_string(grant.expires_at));
         json.push('}');
-        let payload = URL_SAFE_NO_PAD.encode(json.as_bytes());
+        let payload = Base64UrlUnpadded::encode_string(json.as_bytes());
         let mac = self.mac(&payload);
         format!("{payload}.{mac}")
     }
@@ -74,7 +73,7 @@ impl UrlSigner {
         }
         let given = base64url_decode(mac)?;
         hmac::verify(&self.key, payload.as_bytes(), &given).ok()?;
-        if URL_SAFE_NO_PAD.encode(&given) != mac {
+        if Base64UrlUnpadded::encode_string(&given) != mac {
             return None;
         }
         let text = String::from_utf8(base64url_decode(payload)?).ok()?;
@@ -91,7 +90,7 @@ impl UrlSigner {
     }
 
     fn mac(&self, payload: &str) -> String {
-        URL_SAFE_NO_PAD.encode(hmac::sign(&self.key, payload.as_bytes()).as_ref())
+        Base64UrlUnpadded::encode_string(hmac::sign(&self.key, payload.as_bytes()).as_ref())
     }
 }
 

@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64ct::{Base64UrlUnpadded, Encoding as _};
 use canopy_engine::Principal;
 use canopy_mongo::mongodb::{
     Collection, Database,
@@ -65,7 +64,7 @@ fn text<'a>(json: &'a Json, name: &str) -> Option<&'a str> {
 }
 
 fn bytes(json: &Json, name: &str) -> Option<Vec<u8>> {
-    URL_SAFE_NO_PAD.decode(text(json, name)?.trim_end_matches('=')).ok()
+    Base64UrlUnpadded::decode_vec(text(json, name)?.trim_end_matches('=')).ok()
 }
 
 fn parse_key(jwk: &Json) -> Option<Key> {
@@ -506,7 +505,7 @@ impl Jwt {
         else {
             return Err(invalid());
         };
-        let decode = |part: &str| URL_SAFE_NO_PAD.decode(part).ok();
+        let decode = |part: &str| Base64UrlUnpadded::decode_vec(part).ok();
         let header_json = decode(header)
             .and_then(|b| String::from_utf8(b).ok())
             .and_then(|t| parse_json(&t).ok())

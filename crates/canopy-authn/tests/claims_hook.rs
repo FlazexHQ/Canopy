@@ -9,10 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::{
-    Engine as _,
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-};
+use base64ct::{Base64, Base64UrlUnpadded, Encoding};
 use bson::{Bson, DateTime, Document, doc};
 use canopy_authn::{
     key_material,
@@ -202,10 +199,10 @@ fn verify(request: &Received) -> bool {
     if (now - seconds).abs() > 300 {
         return false;
     }
-    let Ok(key) = STANDARD.decode(HOOK_KEY.trim_start_matches("whsec_")) else { return false };
+    let Ok(key) = Base64::decode_vec(HOOK_KEY.trim_start_matches("whsec_")) else { return false };
     let key = hmac::Key::new(hmac::HMAC_SHA256, &key);
     signature.split(' ').filter_map(|entry| entry.strip_prefix("v1,")).any(|encoded| {
-        STANDARD.decode(encoded).is_ok_and(|tag| {
+        Base64::decode_vec(encoded).is_ok_and(|tag| {
             hmac::verify(&key, format!("{id}.{timestamp}.{}", request.body).as_bytes(), &tag).is_ok()
         })
     })
@@ -279,7 +276,7 @@ fn payload(response: &Response) -> Result<Value> {
     let body: Value = serde_json::from_slice(&response.body)?;
     let token = body["access_token"].as_str().ok_or("access token")?;
     let encoded = token.split('.').nth(1).ok_or("token payload")?;
-    Ok(serde_json::from_slice(&URL_SAFE_NO_PAD.decode(encoded)?)?)
+    Ok(serde_json::from_slice(&Base64UrlUnpadded::decode_vec(encoded)?)?)
 }
 
 async fn databases() -> Option<(Database, Database)> {

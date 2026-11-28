@@ -2,7 +2,7 @@
 
 use std::sync::LazyLock;
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use bson::{DateTime, Document, doc};
 use canopy_auth::{Authenticator, JwtConfig};
 use canopy_authn::{
@@ -100,9 +100,9 @@ fuzz_target!(|data: &[u8]| {
     let baseline = &*BASELINE;
     let _ = RUNTIME.block_on(baseline.verifier.authenticate_access_token(&input));
 
-    let payload = URL_SAFE_NO_PAD.encode(first);
-    let signature = URL_SAFE_NO_PAD.encode(second);
-    let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"EdDSA"}"#);
+    let payload = Base64UrlUnpadded::encode_string(first);
+    let signature = Base64UrlUnpadded::encode_string(second);
+    let header = Base64UrlUnpadded::encode_string(br#"{"alg":"EdDSA"}"#);
     let compact = format!("{header}.{payload}.{signature}");
     assert!(RUNTIME.block_on(baseline.verifier.authenticate_access_token(&compact)).is_err());
     for token in &baseline.tokens {

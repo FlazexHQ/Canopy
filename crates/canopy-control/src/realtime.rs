@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use canopy_mongo::mongodb::{
     Database,
     bson::{Document as BsonDocument, doc},
@@ -93,10 +93,10 @@ impl ViewSigner {
         if let Some(sub) = sub {
             payload.insert("sub", text(sub));
         }
-        let header = URL_SAFE_NO_PAD.encode(br#"{"alg":"EdDSA","typ":"JWT"}"#);
-        let payload = URL_SAFE_NO_PAD.encode(stringify(&Value::Document(payload))?);
+        let header = Base64UrlUnpadded::encode_string(br#"{"alg":"EdDSA","typ":"JWT"}"#);
+        let payload = Base64UrlUnpadded::encode_string(stringify(&Value::Document(payload))?.as_bytes());
         let signed = format!("{header}.{payload}");
-        Ok(format!("{signed}.{}", URL_SAFE_NO_PAD.encode(self.0.sign(signed.as_bytes()).as_ref())))
+        Ok(format!("{signed}.{}", Base64UrlUnpadded::encode_string(self.0.sign(signed.as_bytes()).as_ref())))
     }
 }
 

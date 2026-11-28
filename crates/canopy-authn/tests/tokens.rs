@@ -6,7 +6,7 @@ mod support;
 
 use std::{error::Error, fs, path::Path};
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64ct::{Base64UrlUnpadded, Encoding};
 use bson::{DateTime, Document};
 use canopy_auth::{Authenticator, JwtConfig};
 use canopy_authn::tokens::{AccessSession, Algorithm, KeyRing, TokenError};
@@ -35,7 +35,7 @@ fn documents(value: &Value) -> Vec<Document> {
 }
 
 fn decoded(part: &str) -> String {
-    String::from_utf8(URL_SAFE_NO_PAD.decode(part).expect("base64url")).expect("UTF-8 JWT part")
+    String::from_utf8(Base64UrlUnpadded::decode_vec(part).expect("base64url")).expect("UTF-8 JWT part")
 }
 
 fn kids(jwks: &Value) -> Vec<&str> {
@@ -210,9 +210,9 @@ async fn document_keys_work_in_both_verifiers() -> Result<(), Box<dyn Error>> {
         let claims: Value = serde_json::from_str(&decoded(parts[1]))?;
         assert_eq!(claims["roles"], json!(["editor", "reader", "writer"]));
         assert_eq!(claims["app_metadata"].to_string(), r#"{"plan":"pro","enabled":true,"team":"blue"}"#);
-        let mut signature = URL_SAFE_NO_PAD.decode(parts[2])?;
+        let mut signature = Base64UrlUnpadded::decode_vec(parts[2])?;
         signature[0] ^= 1;
-        let tampered = format!("{}.{}.{}", parts[0], parts[1], URL_SAFE_NO_PAD.encode(signature));
+        let tampered = format!("{}.{}.{}", parts[0], parts[1], Base64UrlUnpadded::encode_string(&signature));
         let unrecognized = unknown.mint(secret, session(), now)?.access_token;
         assert!(verifier.authenticate_access_token(&tampered).await.is_err());
         assert!(verifier.authenticate_access_token(&unrecognized).await.is_err());

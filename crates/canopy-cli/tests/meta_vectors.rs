@@ -10,7 +10,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64ct::{Base64, Encoding as _};
 use canopy_mongo::mongodb::{
     Client, Database,
     bson::{Bson, Document, doc, oid::ObjectId},
@@ -418,7 +418,7 @@ async fn created_key(meta: &Database, stdout: &str) -> TestResult<Bindings> {
     assert_eq!(stored.get_str("hash")?, hash);
     let scram = stored.get_document("scram")?;
     for (field, length) in [("salt", 16), ("storedKey", 32), ("serverKey", 32)] {
-        assert_eq!(STANDARD.decode(scram.get_str(field)?)?.len(), length);
+        assert_eq!(Base64::decode_vec(scram.get_str(field)?)?.len(), length);
     }
     Ok(Bindings { id: id.into(), secret: secret.into(), prefix: prefix.into(), hash, ..Bindings::default() })
 }
