@@ -83,13 +83,20 @@ function reports(mongod: string, version: string): boolean {
   }
 }
 
-/** Extracts a verified ZIP or gzipped tar archive without unpacking Windows debug symbols. */
+/**
+ * Extracts a verified ZIP or gzipped tar archive without keeping Windows debug symbols. The archiver skips
+ * them where it honors `--exclude` (bsdtar, GNU tar); BusyBox tar unpacks them anyway, so they are removed
+ * afterwards.
+ */
 export function extract(archive: string, staging: string): void {
   const tar =
     process.platform === "win32"
       ? join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "tar.exe")
       : "tar"
   execFileSync(tar, ["-xf", archive, "-C", staging, "--exclude", "*.pdb"], { stdio: "inherit" })
+  for (const entry of readdirSync(staging, { recursive: true, withFileTypes: true }))
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(".pdb"))
+      rmSync(join(entry.parentPath, entry.name))
 }
 
 /**
